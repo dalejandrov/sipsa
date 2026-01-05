@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:18.0-alpine3.22
+    container_name: sipsa-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=sipsa_db
+      - POSTGRES_USER=sipsa_user
+      - POSTGRES_PASSWORD=sipsa_pass
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - sipsa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sipsa_user -d sipsa_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  sipsa-network:
+    driver: bridge
+
+volumes:
+  postgres-data:

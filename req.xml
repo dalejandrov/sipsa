@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+    <soap:Body>
+        <ns2:promediosSipsaMesMadr xmlns:ns2="http://servicios.sipsa.co.gov.dane/"/>
+    </soap:Body>
+</soap:Envelope>
+
+<!--
+
+curl -s -o /dev/null \
+  -w "HTTP:%{http_code}\nTiempo_total:%{time_total}s\nTamaño_bytes:%{size_download}\n" \
+  -H 'Content-Type: application/soap+xml; charset=utf-8' \
+  --data-binary @req.xml \
+  https://appweb.dane.gov.co/sipsaWS/SrvSipsaUpraBeanService
+
+
+curl -s \
+  -H 'Content-Type: application/soap+xml; charset=utf-8' \
+  --data-binary @req.xml \
+  https://appweb.dane.gov.co/sipsaWS/SrvSipsaUpraBeanService \
+| grep -o "<return>" | wc -l
+
+
+curl -s \
+  -H 'Content-Type: application/soap+xml; charset=utf-8' \
+  --data-binary @req.xml \
+  https://appweb.dane.gov.co/sipsaWS/SrvSipsaUpraBeanService \
+| sed -n '1,200p'
+
+-->

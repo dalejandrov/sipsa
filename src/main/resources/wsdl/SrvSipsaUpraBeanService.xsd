@@ -1,0 +1,184 @@
+<?xml version='1.0' encoding='UTF-8'?><!-- Published by JAX-WS RI at http://jax-ws.dev.java.net. RI's version is Oracle JAX-WS 2.1.5. --><xs:schema xmlns:tns="http://servicios.sipsa.co.gov.dane/" xmlns:xs="http://www.w3.org/2001/XMLSchema" version="1.0" targetNamespace="http://servicios.sipsa.co.gov.dane/">
+
+<xs:element name="consultarInsumosSipsaMesMadr" type="tns:consultarInsumosSipsaMesMadr"/>
+
+<xs:element name="consultarInsumosSipsaMesMadrResponse" type="tns:consultarInsumosSipsaMesMadrResponse"/>
+
+<xs:element name="promedioAbasSipsaMesMadr" type="tns:promedioAbasSipsaMesMadr"/>
+
+<xs:element name="promedioAbasSipsaMesMadrResponse" type="tns:promedioAbasSipsaMesMadrResponse"/>
+
+<xs:element name="promediosSipsaCiudad" type="tns:promediosSipsaCiudad"/>
+
+<xs:element name="promediosSipsaCiudadResponse" type="tns:promediosSipsaCiudadResponse"/>
+
+<xs:element name="promediosSipsaMesMadr" type="tns:promediosSipsaMesMadr"/>
+
+<xs:element name="promediosSipsaMesMadrResponse" type="tns:promediosSipsaMesMadrResponse"/>
+
+<xs:element name="promediosSipsaParcial" type="tns:promediosSipsaParcial"/>
+
+<xs:element name="promediosSipsaParcialResponse" type="tns:promediosSipsaParcialResponse"/>
+
+<xs:element name="promediosSipsaSemanaMadr" type="tns:promediosSipsaSemanaMadr"/>
+
+<xs:element name="promediosSipsaSemanaMadrResponse" type="tns:promediosSipsaSemanaMadrResponse"/>
+
+<xs:complexType name="promedioAbasSipsaMesMadr">
+<xs:sequence/>
+</xs:complexType>
+
+<xs:complexType name="promedioAbasSipsaMesMadrResponse">
+<xs:sequence>
+<xs:element name="return" type="tns:sipsaAbastecimientosMesMadr" minOccurs="0" maxOccurs="unbounded"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="sipsaAbastecimientosMesMadr">
+<xs:sequence>
+<xs:element name="artiId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="artiNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="cantidadTon" type="xs:decimal" minOccurs="0"/>
+<xs:element name="enviado" type="xs:decimal" minOccurs="0"/>
+<xs:element name="fechaCreacion" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="fechaMesIni" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="fuenId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="fuenNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="futiId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="tmpAbasMesId" type="xs:decimal" minOccurs="0"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="promediosSipsaSemanaMadr">
+<xs:sequence/>
+</xs:complexType>
+
+<xs:complexType name="promediosSipsaSemanaMadrResponse">
+<xs:sequence>
+<xs:element name="return" type="tns:sipsaMayoristasSemanaMadr" minOccurs="0" maxOccurs="unbounded"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="sipsaMayoristasSemanaMadr">
+<xs:sequence>
+<xs:element name="artiId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="artiNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="enviado" type="xs:decimal" minOccurs="0"/>
+<xs:element name="fechaCreacion" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="fechaIni" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="fuenId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="fuenNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="futiId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="maximoKg" type="xs:decimal" minOccurs="0"/>
+<xs:element name="minimoKg" type="xs:decimal" minOccurs="0"/>
+<xs:element name="promedioKg" type="xs:decimal" minOccurs="0"/>
+<xs:element name="tmpMayoSemId" type="xs:decimal" minOccurs="0"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="promediosSipsaCiudad">
+<xs:sequence/>
+</xs:complexType>
+
+<xs:complexType name="promediosSipsaCiudadResponse">
+<xs:sequence>
+<xs:element name="return" type="tns:sipsaPromMayoristasCiudad" minOccurs="0" maxOccurs="unbounded"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="sipsaPromMayoristasCiudad">
+<xs:sequence>
+<xs:element name="ciudad" type="xs:string" minOccurs="0"/>
+<xs:element name="codProducto" type="xs:decimal" minOccurs="0"/>
+<xs:element name="enviado" type="xs:decimal" minOccurs="0"/>
+<xs:element name="fechaCaptura" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="fechaCreacion" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="precioPromedio" type="xs:decimal" minOccurs="0"/>
+<xs:element name="producto" type="xs:string" minOccurs="0"/>
+<xs:element name="regId" type="xs:decimal" minOccurs="0"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="promediosSipsaParcial">
+<xs:sequence/>
+</xs:complexType>
+
+<xs:complexType name="promediosSipsaParcialResponse">
+<xs:sequence>
+<xs:element name="return" type="tns:sipsaPromediosMayoristasParcial" minOccurs="0" maxOccurs="unbounded"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="sipsaPromediosMayoristasParcial">
+<xs:sequence>
+<xs:element name="artiNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="deptNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="enmaFecha" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="fuenId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="fuenNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="futiId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="grupNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="idArtiSemana" type="xs:decimal" minOccurs="0"/>
+<xs:element name="maximoKg" type="xs:decimal" minOccurs="0"/>
+<xs:element name="minimoKg" type="xs:decimal" minOccurs="0"/>
+<xs:element name="muniId" type="xs:string" minOccurs="0"/>
+<xs:element name="muniNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="promedioKg" type="xs:decimal" minOccurs="0"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="consultarInsumosSipsaMesMadr">
+<xs:sequence>
+<xs:element name="arg0" type="xs:int" minOccurs="0"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="consultarInsumosSipsaMesMadrResponse">
+<xs:sequence>
+<xs:element name="return" type="tns:sipsaInsumosMesMadr" minOccurs="0" maxOccurs="unbounded"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="sipsaInsumosMesMadr">
+<xs:sequence>
+<xs:element name="deptNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="enviado" type="xs:decimal" minOccurs="0"/>
+<xs:element name="fechaCreacion" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="fechaMesIni" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="insumoNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="muniId" type="xs:string" minOccurs="0"/>
+<xs:element name="muniNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="promedio" type="xs:decimal" minOccurs="0"/>
+<xs:element name="tireId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="tireNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="tmpInsMesId" type="xs:decimal" minOccurs="0"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="promediosSipsaMesMadr">
+<xs:sequence/>
+</xs:complexType>
+
+<xs:complexType name="promediosSipsaMesMadrResponse">
+<xs:sequence>
+<xs:element name="return" type="tns:sipsaMayoristasMesMadr" minOccurs="0" maxOccurs="unbounded"/>
+</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="sipsaMayoristasMesMadr">
+<xs:sequence>
+<xs:element name="artiId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="artiNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="enviado" type="xs:decimal" minOccurs="0"/>
+<xs:element name="fechaCreacion" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="fechaMesIni" type="xs:dateTime" minOccurs="0"/>
+<xs:element name="fuenId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="fuenNombre" type="xs:string" minOccurs="0"/>
+<xs:element name="futiId" type="xs:decimal" minOccurs="0"/>
+<xs:element name="maximoKg" type="xs:decimal" minOccurs="0"/>
+<xs:element name="minimoKg" type="xs:decimal" minOccurs="0"/>
+<xs:element name="promedioKg" type="xs:decimal" minOccurs="0"/>
+<xs:element name="tmpMayoMesId" type="xs:decimal" minOccurs="0"/>
+</xs:sequence>
+</xs:complexType>
+</xs:schema>

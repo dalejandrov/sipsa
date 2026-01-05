@@ -1,0 +1,86 @@
+### Java ###
+*.class
+*.jar
+*.war
+*.ear
+
+### Logs ###
+*.log
+logs/
+log/
+target/
+build/
+
+### Maven ###
+.mvn/wrapper/maven-wrapper.jar
+.mvn/wrapper/maven-wrapper.properties
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### Gradle ###
+.gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+gradle-app.setting
+gradle-app.properties
+gradle.properties
+gradlew
+gradlew.bat
+
+### Spring Boot ###
+*.pid
+*.tmp
+*.bak
+*.orig
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+### Otros archivos del sistema ###
+*.swp
+*~
+~$*
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# Environment variables
+.env
+.env.*
+!.env.example

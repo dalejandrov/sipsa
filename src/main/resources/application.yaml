@@ -1,0 +1,100 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  application:
+    name: sipsa-api
+  
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:sipsa_db}
+    username: ${DB_USERNAME:sipsa_user}
+    password: ${DB_PASSWORD:sipsa_pass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_MAX_POOL_SIZE:10}
+      minimum-idle: ${DB_MIN_IDLE:2}
+      idle-timeout: ${DB_IDLE_TIMEOUT:30000}
+      pool-name: SipsaHikariCP
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  task:
+    scheduling:
+      pool:
+        size: ${TASK_POOL_SIZE:5}
+      shutdown:
+        await-termination: true
+        await-termination-period: 30s
+
+sipsa:
+  timezone: ${SIPSA_TIMEZONE:America/Bogota}
+
+  # Pagination configuration
+  pagination:
+    max-page-size: ${SIPSA_MAX_PAGE_SIZE:1000}       # Maximum for internal queries (prevents memory issues)
+    default-page-size: ${SIPSA_DEFAULT_PAGE_SIZE:20}  # Default when user doesn't specify
+    max-user-page-size: ${SIPSA_MAX_USER_PAGE_SIZE:100}  # Maximum user can request via API
+
+  soap:
+    endpoint: ${SOAP_ENDPOINT:https://appweb.dane.gov.co/sipsaWS/SrvSipsaUpraBeanService}
+    namespace: ${SOAP_NAMESPACE:http://servicios.sipsa.co.gov.dane/}
+    # Timeouts for robustness (increased for very large datasets like Parcial: 619K+ records)
+    # The legacy SOAP service returns large responses without pagination, which can take
+    # a long time to stream completely, especially with chunked transfer encoding.
+    connect-timeout-ms: ${SOAP_CONNECT_TIMEOUT_MS:30000}   # 30 seconds to establish connection
+    read-timeout-ms: ${SOAP_READ_TIMEOUT_MS:3600000}    # 60 minutes for reading large responses
+
+    # Retry Policy
+    max-retries: ${SOAP_MAX_RETRIES:3}
+    retry-backoff-ms: ${SOAP_RETRY_BACKOFF_MS:2000}
+
+    # Limits
+    max-child-elements: ${SOAP_MAX_CHILD_ELEMENTS:0} # Unlimited
+    logging-enabled: ${SOAP_LOGGING_ENABLED:false}
+
+  ingestion:
+    # Reduced from 2000 for more frequent saves (less data loss on timeout)
+    batch-size: ${INGESTION_BATCH_SIZE:500}
+
+    # Window config (America/Bogota)
+    daily-window-start: ${DAILY_WINDOW_START:14:20}
+    daily-window-end: ${DAILY_WINDOW_END:23:59}
+
+    monthly-run-days: ${MONTHLY_RUN_DAYS:8,10}
+    monthly-window-start: ${MONTHLY_WINDOW_START:06:00}
+
+    # Reject thresholds
+    max-reject-count: ${MAX_REJECT_COUNT:5000}
+    max-reject-rate: ${MAX_REJECT_RATE:0.01}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.dalejandrov.sipsa: ${LOG_LEVEL_SIPSA:INFO}
+    org.springframework.jdbc: ${LOG_LEVEL_JDBC:INFO}
+    org.apache.cxf.services: ${LOG_LEVEL_CXF:WARN}
+
