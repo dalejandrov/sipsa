@@ -15,6 +15,7 @@ import org.apache.cxf.transports.http.configuration.HTTPClientPolicy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.net.URL;
 import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
@@ -104,15 +105,19 @@ public class SipsaSoapClientConfig {
      * @return service instance with logging configured if enabled
      */
     private SrvSipsaUpraBeanService createServiceWithOptionalLogging() {
+        URL wsdlUrl = getClass().getResource("/wsdl/SrvSipsaUpraBeanService.wsdl");
+        if (wsdlUrl == null) {
+            throw new SipsaConfigurationException("WSDL file not found in classpath: /wsdl/SrvSipsaUpraBeanService.wsdl");
+        }
         if (!soapProperties.isLoggingEnabled()) {
-            return new SrvSipsaUpraBeanService();
+            return new SrvSipsaUpraBeanService(wsdlUrl);
         }
         LoggingFeature logging = new LoggingFeature();
         logging.setPrettyLogging(true);
         logging.setLimit(soapProperties.getLoggingLimitBytes());
 
         log.warn("SOAP logging ENABLED (limit={} bytes)", soapProperties.getLoggingLimitBytes());
-        return new SrvSipsaUpraBeanService(logging);
+        return new SrvSipsaUpraBeanService(wsdlUrl, logging);
     }
 
     /**
