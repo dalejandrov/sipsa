@@ -267,6 +267,8 @@
                                     <extraargs>
                                         <extraarg>-verbose</extraarg>
                                         <extraarg>-keep</extraarg>
+                                        <extraarg>-wsdlLocation</extraarg>
+                                        <extraarg>classpath:/wsdl/SrvSipsaUpraBeanService.wsdl</extraarg>
                                         <extraarg>-p</extraarg>
                                         <extraarg>com.dalejandrov.sipsa.infrastructure.soap.client</extraarg>
                                     </extraargs>
