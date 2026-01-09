@@ -9,7 +9,6 @@ import java.time.OffsetDateTime;
  * This record represents detailed market information at municipality level,
  * including price ranges and product availability across different sources.
  *
- * @param keyHash unique hash identifier for deduplication
  * @param muniId municipality identifier code
  * @param muniNombre municipality name
  * @param deptNombre department (state/province) name
@@ -23,10 +22,9 @@ import java.time.OffsetDateTime;
  * @param promedioKg average price per kilogram
  * @param maximoKg maximum price per kilogram
  * @param minimoKg minimum price per kilogram
- * @param lastUpdated timestamp of last update in this system (system, converted to client timezone)
+ * @param fechaSincronizacion timestamp of last update in this system (system, converted to client timezone)
  */
 public record SipsaParcialDto(
-        String keyHash,
         String muniId,
         String muniNombre,
         String deptNombre,
@@ -40,5 +38,5 @@ public record SipsaParcialDto(
         BigDecimal promedioKg,
         BigDecimal maximoKg,
         BigDecimal minimoKg,
-        OffsetDateTime lastUpdated) {
+        OffsetDateTime fechaSincronizacion) {
 }

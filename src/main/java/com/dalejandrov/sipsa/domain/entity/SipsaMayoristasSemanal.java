@@ -91,9 +91,9 @@ public class SipsaMayoristasSemanal {
     @Column(name = "enviado", precision = 15, scale = 2)
     private BigDecimal enviado;
 
-    /** Timestamp of last update in this system */
-    @Column(name = "last_updated")
-    private Instant lastUpdated;
+    /** Timestamp when the record was last updated in this system */
+    @Column(name = "fecha_sincronizacion")
+    private Instant fechaSincronizacion;
 
     /** Foreign key to the ingestion run that created this record */
     @Column(name = "ingestion_run_id", nullable = false)

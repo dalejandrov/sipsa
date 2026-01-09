@@ -79,8 +79,8 @@ public class SipsaCiudad {
     private BigDecimal enviado;
 
     /** Timestamp when the record was ingested into this system */
-    @Column(name = "fecha_ingestion")
-    private Instant fechaIngestion;
+    @Column(name = "fecha_sincronizacion")
+    private Instant fechaSincronizacion;
 
     /** Foreign key to the ingestion run that created this record */
     @Column(name = "ingestion_run_id")

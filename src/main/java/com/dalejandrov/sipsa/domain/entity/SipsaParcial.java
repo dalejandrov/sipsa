@@ -45,7 +45,7 @@ public class SipsaParcial {
     private Long id;
 
     /** SHA-256 hash for deduplication (based on business keys) */
-    @Column(name = "key_hash", length = 64)
+    @Column(name = "key_hash", length = 100)
     private String keyHash;
 
     /** Municipality identifier code */
@@ -102,8 +102,8 @@ public class SipsaParcial {
     private BigDecimal minimoKg;
 
     /** Timestamp of last update in this system */
-    @Column(name = "last_updated")
-    private Instant lastUpdated;
+    @Column(name = "fecha_sincronizacion")
+    private Instant fechaSincronizacion;
 
     /** Foreign key to the ingestion run that created this record */
     @Column(name = "ingestion_run_id")

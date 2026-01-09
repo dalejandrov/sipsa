@@ -17,7 +17,7 @@ import java.time.OffsetDateTime;
  * @param fechaCreacion  timestamp when the record was created in source system (external, in UTC)
  * @param precioPromedio average price for the product (in local currency per unit)
  * @param enviado        amount sent/dispatched (specific to source system)
- * @param fechaIngestion timestamp when the record was ingested into this system (system, converted to client timezone)
+ * @param fechaSincronizacion timestamp when the record was ingested into this system (system, converted to client timezone)
  */
 public record SipsaCiudadDto(
         Long regId,
@@ -28,5 +28,5 @@ public record SipsaCiudadDto(
         OffsetDateTime fechaCreacion,
         BigDecimal precioPromedio,
         BigDecimal enviado,
-        OffsetDateTime fechaIngestion) {
+        OffsetDateTime fechaSincronizacion) {
 }

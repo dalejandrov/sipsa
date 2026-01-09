@@ -28,5 +28,5 @@ public record SipsaMayoristasSemanalDto(
         BigDecimal minimoKg,
         BigDecimal maximoKg,
         BigDecimal promedioKg,
-        OffsetDateTime lastUpdated) {
+        OffsetDateTime fechaSincronizacion) {
 }

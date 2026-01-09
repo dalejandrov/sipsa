@@ -17,7 +17,7 @@ import java.time.OffsetDateTime;
  * @param minimoKg minimum price per kilogram for the month
  * @param maximoKg maximum price per kilogram for the month
  * @param promedioKg average price per kilogram for the month
- * @param lastUpdated timestamp of last update in this system (system, converted to client timezone)
+ * @param fechaSincronizacion timestamp of last update in this system (system, converted to client timezone)
  */
 public record SipsaMayoristasMensualDto(
         Long artiId,
@@ -28,5 +28,5 @@ public record SipsaMayoristasMensualDto(
         BigDecimal minimoKg,
         BigDecimal maximoKg,
         BigDecimal promedioKg,
-        OffsetDateTime lastUpdated) {
+        OffsetDateTime fechaSincronizacion) {
 }

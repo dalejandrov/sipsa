@@ -122,7 +122,7 @@ CREATE TABLE sipsa_ciudad
 
     -- Audit
     ingestion_run_id BIGINT NOT NULL REFERENCES ingestion_runs (run_id),
-    fecha_ingestion  TIMESTAMPTZ DEFAULT NOW(),
+    fecha_sincronizacion  TIMESTAMPTZ DEFAULT NOW(),
 
     -- Idempotency
     CONSTRAINT ux_ciudad UNIQUE (reg_id, cod_producto)
@@ -143,7 +143,7 @@ CREATE TABLE sipsa_parcial
 (
     id               BIGSERIAL PRIMARY KEY,
 
-    key_hash         VARCHAR(64) NOT NULL,
+    key_hash         VARCHAR(100) UNIQUE,
 
     muni_id          VARCHAR(50),
     muni_nombre      VARCHAR(255),
@@ -165,9 +165,7 @@ CREATE TABLE sipsa_parcial
 
     -- Audit
     ingestion_run_id BIGINT      NOT NULL REFERENCES ingestion_runs (run_id),
-    last_updated     TIMESTAMPTZ DEFAULT NOW(),
-
-    CONSTRAINT ux_parcial UNIQUE (key_hash)
+    fecha_sincronizacion     TIMESTAMPTZ DEFAULT NOW()
 );
 
 COMMENT ON TABLE sipsa_parcial IS 'SIPSA partial market data at municipality level';
@@ -175,6 +173,7 @@ COMMENT ON TABLE sipsa_parcial IS 'SIPSA partial market data at municipality lev
 CREATE INDEX idx_sipsa_parcial_fecha ON sipsa_parcial (enma_fecha);
 CREATE INDEX idx_sipsa_parcial_muni ON sipsa_parcial (muni_id);
 CREATE INDEX idx_sipsa_parcial_ingestion_run ON sipsa_parcial (ingestion_run_id);
+CREATE INDEX idx_sipsa_parcial_key_hash ON sipsa_parcial (key_hash);
 
 -- -------------------------------------------------------------------------------------------------
 -- 2.3 SIPSA MAYORISTAS SEMANAL
@@ -204,7 +203,7 @@ CREATE TABLE sipsa_mayoristas_semanal
 
     -- Audit
     ingestion_run_id BIGINT NOT NULL REFERENCES ingestion_runs (run_id),
-    last_updated     TIMESTAMPTZ DEFAULT NOW(),
+    fecha_sincronizacion     TIMESTAMPTZ DEFAULT NOW(),
 
     -- Idempotency
     CONSTRAINT ux_semana_tmp UNIQUE (tmp_mayo_sem_id),
@@ -244,7 +243,7 @@ CREATE TABLE sipsa_mayoristas_mensual
 
     -- Audit
     ingestion_run_id BIGINT      NOT NULL REFERENCES ingestion_runs (run_id),
-    last_updated     TIMESTAMPTZ DEFAULT NOW(),
+    fecha_sincronizacion     TIMESTAMPTZ DEFAULT NOW(),
 
     -- Idempotency
     CONSTRAINT ux_mes_tmp UNIQUE (tmp_mayo_mes_id),
@@ -282,7 +281,7 @@ CREATE TABLE sipsa_abastecimientos_mensual
 
     -- Audit
     ingestion_run_id BIGINT      NOT NULL REFERENCES ingestion_runs (run_id),
-    fecha_ingestion  TIMESTAMPTZ DEFAULT NOW(),
+    fecha_sincronizacion  TIMESTAMPTZ DEFAULT NOW(),
 
     -- Idempotency
     CONSTRAINT ux_abas_tmp UNIQUE (tmp_abas_mes_id),

@@ -101,7 +101,7 @@ public interface SipsaApiMapper {
     @Mapping(target = "tmpAbasMesId", ignore = true)
     @Mapping(target = "futiId", ignore = true)
     @Mapping(target = "ingestionRunId", ignore = true)
-    @Mapping(target = "fechaIngestion", ignore = true)
+    @Mapping(target = "fechaSincronizacion", ignore = true)
     SipsaAbastecimientosMensual toEntity(SipsaAbastecimientosMensualDto dto);
 
     /**
@@ -114,7 +114,7 @@ public interface SipsaApiMapper {
      * @return mapped DTO for API response
      */
     @Mapping(target = "fechaMesIni", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaMesIni(), true))")
-    @Mapping(target = "lastUpdated", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getLastUpdated(), true))")
+    @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaMayoristasMensualDto toDto(SipsaMayoristasMensual entity);
 
     /**
@@ -127,7 +127,7 @@ public interface SipsaApiMapper {
      * @return mapped DTO for API response
      */
     @Mapping(target = "enmaFecha", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getEnmaFecha(), true))")
-    @Mapping(target = "lastUpdated", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getLastUpdated(), true))")
+    @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaParcialDto toDto(SipsaParcial entity);
 
     /**
@@ -140,7 +140,7 @@ public interface SipsaApiMapper {
      * @return mapped DTO for API response
      */
     @Mapping(target = "fechaIni", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaIni(), true))")
-    @Mapping(target = "lastUpdated", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getLastUpdated(), true))")
+    @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaMayoristasSemanalDto toDto(SipsaMayoristasSemanal entity);
 
     /**
@@ -154,7 +154,7 @@ public interface SipsaApiMapper {
      */
     @Mapping(target = "fechaMesIni", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaMesIni(), true))")
     @Mapping(target = "fechaCreacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaCreacion(), true))")
-    @Mapping(target = "fechaIngestion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaIngestion(), true))")
+    @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaAbastecimientosMensualDto toDto(SipsaAbastecimientosMensual entity);
 
     /**
@@ -168,7 +168,7 @@ public interface SipsaApiMapper {
      */
     @Mapping(target = "fechaCaptura", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaCaptura(), true))")
     @Mapping(target = "fechaCreacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaCreacion(), true))")
-    @Mapping(target = "fechaIngestion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaIngestion(), true))")
+    @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaCiudadDto toDto(SipsaCiudad entity);
 
     /**

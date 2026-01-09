@@ -114,7 +114,7 @@ public class SipsaAbastecimientosMensual {
     /**
      * Ingestion date, defaults to the current date and time.
      */
-    @Column(name = "fecha_ingestion")
+    @Column(name = "fecha_sincronizacion")
     @Builder.Default
-    private Instant fechaIngestion = Instant.now();
+    private Instant fechaSincronizacion = Instant.now();
 }

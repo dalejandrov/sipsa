@@ -79,7 +79,7 @@ public interface SipsaMayoristasMensualRepository
                     skipped++;
                 } else {
                     /* Record does not exist - INSERT it */
-                    item.setLastUpdated(now);
+                    item.setFechaSincronizacion(now);
                     toInsert.add(item);
                 }
                 processedTmpIds.add(item.getTmpMayoMesId());
@@ -148,7 +148,7 @@ public interface SipsaMayoristasMensualRepository
                 skipped++;
             } else {
                 /* Record does not exist - INSERT it */
-                item.setLastUpdated(now);
+                item.setFechaSincronizacion(now);
                 toInsert.add(item);
             }
         }
