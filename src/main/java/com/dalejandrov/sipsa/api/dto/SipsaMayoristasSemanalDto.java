@@ -17,7 +17,7 @@ import java.time.OffsetDateTime;
  * @param minimoKg minimum price per kilogram for the week
  * @param maximoKg maximum price per kilogram for the week
  * @param promedioKg average price per kilogram for the week
- * @param lastUpdated timestamp of last update in this system (system, converted to client timezone)
+ * @param fechaSincronizacion timestamp of last update in this system (system, converted to client timezone)
  */
 public record SipsaMayoristasSemanalDto(
         Long artiId,
