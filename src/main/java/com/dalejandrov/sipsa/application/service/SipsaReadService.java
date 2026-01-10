@@ -66,12 +66,14 @@ public class SipsaReadService {
      * @param endDate   optional filter by date range end (inclusive)
      * @param artiId    optional filter by product ID
      * @param fuenId    optional filter by source ID
+     * @param ciudad    optional filter by city name (exact match)
+     * @param producto  optional filter by product name (exact match)
      * @param pageable  pagination parameters (page number, size, sorting)
      * @return paginated list of city pricing DTOs
      */
     @Transactional(readOnly = true)
     public Page<SipsaCiudadDto> getCiudad(LocalDate fecha, LocalDate startDate, LocalDate endDate,
-                                          Long artiId, Long fuenId, Pageable pageable) {
+                                          Long artiId, Long fuenId, String ciudad, String producto, Pageable pageable) {
         return executeQuery(
                 pageable,
                 ciudadRepository,
@@ -82,6 +84,8 @@ public class SipsaReadService {
                             .withDateOrRange("fechaCaptura", fecha, startDate, endDate)
                             .withAttribute("artiId", artiId)
                             .withAttribute("fuenId", fuenId)
+                            .withAttribute("ciudad", ciudad)
+                            .withAttribute("producto", producto)
                             .build();
                 }
         );
@@ -90,16 +94,18 @@ public class SipsaReadService {
     /**
      * Retrieves monthly wholesale market data with optional filtering.
      *
-     * @param fechaMes  optional filter by exact month start date
-     * @param startDate optional filter by date range start
-     * @param endDate   optional filter by date range end
-     * @param artiId    optional filter by product ID
-     * @param pageable  pagination parameters
+     * @param fechaMes   optional filter by exact month start date
+     * @param startDate  optional filter by date range start
+     * @param endDate    optional filter by date range end
+     * @param artiId     optional filter by product ID
+     * @param artiNombre optional filter by product name (exact match)
+     * @param fuenNombre optional filter by source name (exact match)
+     * @param pageable   pagination parameters
      * @return paginated list of monthly wholesale DTOs
      */
     @Transactional(readOnly = true)
     public Page<SipsaMayoristasMensualDto> getMayoristasMensual(LocalDate fechaMes, LocalDate startDate,
-                                                                LocalDate endDate, Long artiId, Pageable pageable) {
+                                                                LocalDate endDate, Long artiId, String artiNombre, String fuenNombre, Pageable pageable) {
         return executeQuery(
                 pageable,
                 mensualRepository,
@@ -109,6 +115,8 @@ public class SipsaReadService {
                     return SpecificationBuilder.<SipsaMayoristasMensual>builder(timezone)
                             .withDateOrRange("fechaMesIni", fechaMes, startDate, endDate)
                             .withAttribute("artiId", artiId)
+                            .withAttribute("artiNombre", artiNombre)
+                            .withAttribute("fuenNombre", fuenNombre)
                             .build();
                 }
         );
@@ -123,12 +131,18 @@ public class SipsaReadService {
      * @param muniId        optional filter by municipality ID
      * @param fuenId        optional filter by source ID
      * @param artiId        optional filter by product ID
+     * @param muniNombre    optional filter by municipality name (exact match)
+     * @param deptNombre    optional filter by department name (exact match)
+     * @param fuenNombre    optional filter by source name (exact match)
+     * @param artiNombre    optional filter by product name (exact match)
+     * @param grupNombre    optional filter by group name (exact match)
      * @param pageable      pagination parameters
      * @return paginated list of partial market DTOs
      */
     @Transactional(readOnly = true)
     public Page<SipsaParcialDto> getParcial(LocalDate fechaEncuesta, LocalDate startDate, LocalDate endDate,
-                                            Long muniId, Long fuenId, Long artiId, Pageable pageable) {
+                                            Long muniId, Long fuenId, Long artiId, String muniNombre, String deptNombre,
+                                            String fuenNombre, String artiNombre, String grupNombre, Pageable pageable) {
         return executeQuery(
                 pageable,
                 parcialRepository,
@@ -140,6 +154,11 @@ public class SipsaReadService {
                             .withAttribute("muniId", muniId)
                             .withAttribute("fuenId", fuenId)
                             .withAttribute("artiId", artiId)
+                            .withAttribute("muniNombre", muniNombre)
+                            .withAttribute("deptNombre", deptNombre)
+                            .withAttribute("fuenNombre", fuenNombre)
+                            .withAttribute("artiNombre", artiNombre)
+                            .withAttribute("grupNombre", grupNombre)
                             .build();
                 }
         );
@@ -148,18 +167,20 @@ public class SipsaReadService {
     /**
      * Retrieves weekly wholesale market data with optional filtering.
      *
-     * @param fechaIni  optional filter by exact week start date
-     * @param startDate optional filter by date range start
-     * @param endDate   optional filter by date range end
-     * @param artiId    optional filter by product ID
-     * @param fuenId    optional filter by source ID
-     * @param pageable  pagination parameters
+     * @param fechaIni    optional filter by exact week start date
+     * @param startDate   optional filter by date range start
+     * @param endDate     optional filter by date range end
+     * @param artiId      optional filter by product ID
+     * @param fuenId      optional filter by source ID
+     * @param artiNombre  optional filter by product name (exact match)
+     * @param fuenNombre  optional filter by source name (exact match)
+     * @param pageable    pagination parameters
      * @return paginated list of weekly wholesale DTOs
      */
     @Transactional(readOnly = true)
     public Page<SipsaMayoristasSemanalDto> getMayoristasSemanal(LocalDate fechaIni, LocalDate startDate,
                                                                 LocalDate endDate, Long artiId, Long fuenId,
-                                                                Pageable pageable) {
+                                                                String artiNombre, String fuenNombre, Pageable pageable) {
         return executeQuery(
                 pageable,
                 semanalRepository,
@@ -170,6 +191,8 @@ public class SipsaReadService {
                             .withDateOrRange("fechaIni", fechaIni, startDate, endDate)
                             .withAttribute("artiId", artiId)
                             .withAttribute("fuenId", fuenId)
+                            .withAttribute("artiNombre", artiNombre)
+                            .withAttribute("fuenNombre", fuenNombre)
                             .build();
                 }
         );
@@ -189,7 +212,7 @@ public class SipsaReadService {
     @Transactional(readOnly = true)
     public Page<SipsaAbastecimientosMensualDto> getAbastecimientosMensual(LocalDate fechaMes, LocalDate startDate,
                                                                           LocalDate endDate, Long artiId,
-                                                                          Long fuenId, Pageable pageable) {
+                                                                          Long fuenId, String artiNombre, String fuenNombre, Pageable pageable) {
         return executeQuery(
                 pageable,
                 abasRepository,
@@ -200,6 +223,8 @@ public class SipsaReadService {
                             .withDateOrRange("fechaMesIni", fechaMes, startDate, endDate)
                             .withAttribute("artiId", artiId)
                             .withAttribute("fuenId", fuenId)
+                            .withAttribute("artiNombre", artiNombre)
+                            .withAttribute("fuenNombre", fuenNombre)
                             .build();
                 }
         );

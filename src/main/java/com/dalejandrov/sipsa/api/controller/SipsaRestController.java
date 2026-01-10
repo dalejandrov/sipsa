@@ -127,8 +127,10 @@ public class SipsaRestController {
      * <ul>
      *   <li><b>Single date:</b> {@code fecha=2024-01-15}</li>
      *   <li><b>Date range:</b> {@code startDate=2024-01-01&endDate=2024-01-31}</li>
-     *   <li><b>Product:</b> {@code artiId=123}</li>
-     *   <li><b>Source:</b> {@code fuenId=45}</li>
+     *   <li><b>Product ID:</b> {@code artiId=123}</li>
+     *   <li><b>Source ID:</b> {@code fuenId=45}</li>
+     *   <li><b>City name:</b> {@code ciudad=ARMENIA}</li>
+     *   <li><b>Product name:</b> {@code producto=Banano*}</li>
      * </ul>
      * <p>
      * <b>Validation Rules:</b>
@@ -138,6 +140,7 @@ public class SipsaRestController {
      *   <li>Product/Source IDs must be positive</li>
      *   <li>Dates must be in ISO format (YYYY-MM-DD)</li>
      *   <li>If using date range, endDate must be ≥ startDate</li>
+     *   <li>String filters are case-sensitive exact matches</li>
      * </ul>
      *
      * @param fecha     optional filter by exact capture date (YYYY-MM-DD)
@@ -145,9 +148,11 @@ public class SipsaRestController {
      * @param endDate   optional filter by date range end (YYYY-MM-DD)
      * @param artiId    optional filter by product ID (must be positive)
      * @param fuenId    optional filter by source ID (must be positive)
+     * @param ciudad    optional filter by city name (exact match)
+     * @param producto  optional filter by product name (exact match)
      * @param page      page number (1-based, default: 1)
      * @param size      page size (1-100, default: 20)
-     * @param sort      optional sort field (e.g., "fechaCaptura,desc")
+     * @param sort      optional sort field (e.g., "fechaCaptura,desc", default: "fechaCaptura,desc")
      * @return standardized response with paginated city price records
      */
     @GetMapping("/ciudad")
@@ -172,6 +177,12 @@ public class SipsaRestController {
             @Positive(message = "fuenId must be a positive number")
             Long fuenId,
 
+            @RequestParam(required = false)
+            String ciudad,
+
+            @RequestParam(required = false)
+            String producto,
+
             @RequestParam(defaultValue = "1")
             @Min(value = 1, message = "page must be >= 1")
             int page,
@@ -181,12 +192,12 @@ public class SipsaRestController {
             @Max(value = 100, message = "size must be <= 100")
             int size,
 
-            @RequestParam(required = false)
+            @RequestParam(defaultValue = "fechaCaptura,desc")
             String sort) {
 
         Pageable pageable = paginationConfig.buildPageable(page, size, sort);
         Page<SipsaCiudadDto> resultPage = readService.getCiudad(
-                fecha, startDate, endDate, artiId, fuenId, pageable
+                fecha, startDate, endDate, artiId, fuenId, ciudad, producto, pageable
         );
 
         return ResponseEntity.ok(PaginationUtils.toApiResponse(resultPage));
@@ -202,16 +213,20 @@ public class SipsaRestController {
      * <ul>
      *   <li><b>Single month:</b> {@code fechaMes=2024-01-01}</li>
      *   <li><b>Date range:</b> {@code startDate=2024-01-01&endDate=2024-06-01}</li>
-     *   <li><b>Product:</b> {@code artiId=123}</li>
+     *   <li><b>Product ID:</b> {@code artiId=123}</li>
+     *   <li><b>Product name:</b> {@code artiNombre=Bocadillo veleño}</li>
+     *   <li><b>Source name:</b> {@code fuenNombre=Bogotá, D.C., Corabastos}</li>
      * </ul>
      *
-     * @param fechaMes  optional filter by month start date (YYYY-MM-DD)
-     * @param startDate optional filter by date range start
-     * @param endDate   optional filter by date range end
-     * @param artiId    optional filter by product ID
-     * @param page      page number (1-based, default: 1)
-     * @param size      page size (1-100, default: 20)
-     * @param sort      optional sort field
+     * @param fechaMes   optional filter by month start date (YYYY-MM-DD)
+     * @param startDate  optional filter by date range start (YYYY-MM-DD)
+     * @param endDate    optional filter by date range end (YYYY-MM-DD)
+     * @param artiId     optional filter by product ID (must be positive)
+     * @param artiNombre optional filter by product name (exact match)
+     * @param fuenNombre optional filter by source name (exact match)
+     * @param page       page number (1-based, default: 1)
+     * @param size       page size (1-100, default: 20)
+     * @param sort       optional sort field (e.g., "fechaMesIni,desc", default: "fechaMesIni,desc")
      * @return standardized response with paginated monthly wholesale market records
      */
     @GetMapping("/mayoristas/mensual")
@@ -232,6 +247,12 @@ public class SipsaRestController {
             @Positive(message = "artiId must be a positive number")
             Long artiId,
 
+            @RequestParam(required = false)
+            String artiNombre,
+
+            @RequestParam(required = false)
+            String fuenNombre,
+
             @RequestParam(defaultValue = "1")
             @Min(value = 1, message = "page must be >= 1")
             int page,
@@ -241,12 +262,12 @@ public class SipsaRestController {
             @Max(value = 100, message = "size must be <= 100")
             int size,
 
-            @RequestParam(required = false)
+            @RequestParam(defaultValue = "fechaMesIni,desc")
             String sort) {
 
         Pageable pageable = paginationConfig.buildPageable(page, size, sort);
         Page<SipsaMayoristasMensualDto> resultPage = readService.getMayoristasMensual(
-                fechaMes, startDate, endDate, artiId, pageable
+                fechaMes, startDate, endDate, artiId, artiNombre, fuenNombre, pageable
         );
 
         return ResponseEntity.ok(PaginationUtils.toApiResponse(resultPage));
@@ -262,20 +283,30 @@ public class SipsaRestController {
      * <ul>
      *   <li><b>Single date:</b> {@code fechaEncuesta=2024-01-15}</li>
      *   <li><b>Date range:</b> {@code startDate=2024-01-01&endDate=2024-01-31}</li>
-     *   <li><b>Municipality:</b> {@code muniId=11001}</li>
-     *   <li><b>Source:</b> {@code fuenId=45}</li>
-     *   <li><b>Product:</b> {@code artiId=123}</li>
+     *   <li><b>Municipality ID:</b> {@code muniId=11001}</li>
+     *   <li><b>Source ID:</b> {@code fuenId=45}</li>
+     *   <li><b>Product ID:</b> {@code artiId=123}</li>
+     *   <li><b>Municipality name:</b> {@code muniNombre=BOGOTÁ, D.C.}</li>
+     *   <li><b>Department name:</b> {@code deptNombre=BOGOTÁ, D. C.}</li>
+     *   <li><b>Source name:</b> {@code fuenNombre=Bogotá, D.C., Corabastos}</li>
+     *   <li><b>Product name:</b> {@code artiNombre=Aguacate*}</li>
+     *   <li><b>Group name:</b> {@code grupNombre=FRUTAS}</li>
      * </ul>
      *
      * @param fechaEncuesta optional filter by survey date (YYYY-MM-DD)
-     * @param startDate     optional filter by date range start
-     * @param endDate       optional filter by date range end
-     * @param muniId        optional filter by municipality ID
-     * @param fuenId        optional filter by source ID
-     * @param artiId        optional filter by product ID
+     * @param startDate     optional filter by date range start (YYYY-MM-DD)
+     * @param endDate       optional filter by date range end (YYYY-MM-DD)
+     * @param muniId        optional filter by municipality ID (must be positive)
+     * @param fuenId        optional filter by source ID (must be positive)
+     * @param artiId        optional filter by product ID (must be positive)
+     * @param muniNombre    optional filter by municipality name (exact match)
+     * @param deptNombre    optional filter by department name (exact match)
+     * @param fuenNombre    optional filter by source name (exact match)
+     * @param artiNombre    optional filter by product name (exact match)
+     * @param grupNombre    optional filter by group name (exact match)
      * @param page          page number (1-based, default: 1)
      * @param size          page size (1-100, default: 20)
-     * @param sort          optional sort field
+     * @param sort          optional sort field (e.g., "enmaFecha,desc", default: "enmaFecha,desc")
      * @return standardized response with paginated partial market records
      */
     @GetMapping("/parcial")
@@ -304,6 +335,21 @@ public class SipsaRestController {
             @Positive(message = "artiId must be a positive number")
             Long artiId,
 
+            @RequestParam(required = false)
+            String muniNombre,
+
+            @RequestParam(required = false)
+            String deptNombre,
+
+            @RequestParam(required = false)
+            String fuenNombre,
+
+            @RequestParam(required = false)
+            String artiNombre,
+
+            @RequestParam(required = false)
+            String grupNombre,
+
             @RequestParam(defaultValue = "1")
             @Min(value = 1, message = "page must be >= 1")
             int page,
@@ -313,12 +359,12 @@ public class SipsaRestController {
             @Max(value = 100, message = "size must be <= 100")
             int size,
 
-            @RequestParam(required = false)
+            @RequestParam(defaultValue = "enmaFecha,desc")
             String sort) {
 
         Pageable pageable = paginationConfig.buildPageable(page, size, sort);
         Page<SipsaParcialDto> resultPage = readService.getParcial(
-                fechaEncuesta, startDate, endDate, muniId, fuenId, artiId, pageable
+                fechaEncuesta, startDate, endDate, muniId, fuenId, artiId, muniNombre, deptNombre, fuenNombre, artiNombre, grupNombre, pageable
         );
 
         return ResponseEntity.ok(PaginationUtils.toApiResponse(resultPage));
@@ -334,18 +380,22 @@ public class SipsaRestController {
      * <ul>
      *   <li><b>Single week:</b> {@code fechaIni=2024-01-01}</li>
      *   <li><b>Date range:</b> {@code startDate=2024-01-01&endDate=2024-01-31}</li>
-     *   <li><b>Product:</b> {@code artiId=123}</li>
-     *   <li><b>Source:</b> {@code fuenId=45}</li>
+     *   <li><b>Product ID:</b> {@code artiId=123}</li>
+     *   <li><b>Source ID:</b> {@code fuenId=45}</li>
+     *   <li><b>Product name:</b> {@code artiNombre=Kiwi}</li>
+     *   <li><b>Source name:</b> {@code fuenNombre=Cúcuta, Cenabastos}</li>
      * </ul>
      *
-     * @param fechaIni  optional filter by week start date (YYYY-MM-DD)
-     * @param startDate optional filter by date range start
-     * @param endDate   optional filter by date range end
-     * @param artiId    optional filter by product ID
-     * @param fuenId    optional filter by source ID
-     * @param page      page number (1-based, default: 1)
-     * @param size      page size (1-100, default: 20)
-     * @param sort      optional sort field
+     * @param fechaIni    optional filter by week start date (YYYY-MM-DD)
+     * @param startDate   optional filter by date range start (YYYY-MM-DD)
+     * @param endDate     optional filter by date range end (YYYY-MM-DD)
+     * @param artiId      optional filter by product ID (must be positive)
+     * @param fuenId      optional filter by source ID (must be positive)
+     * @param artiNombre  optional filter by product name (exact match)
+     * @param fuenNombre  optional filter by source name (exact match)
+     * @param page        page number (1-based, default: 1)
+     * @param size        page size (1-100, default: 20)
+     * @param sort        optional sort field (e.g., "fechaIni,desc", default: "fechaIni,desc")
      * @return standardized response with paginated weekly wholesale market records
      */
     @GetMapping("/mayoristas/semanal")
@@ -370,6 +420,12 @@ public class SipsaRestController {
             @Positive(message = "fuenId must be a positive number")
             Long fuenId,
 
+            @RequestParam(required = false)
+            String artiNombre,
+
+            @RequestParam(required = false)
+            String fuenNombre,
+
             @RequestParam(defaultValue = "1")
             @Min(value = 1, message = "page must be >= 1")
             int page,
@@ -379,12 +435,12 @@ public class SipsaRestController {
             @Max(value = 100, message = "size must be <= 100")
             int size,
 
-            @RequestParam(required = false)
+            @RequestParam(defaultValue = "fechaIni,desc")
             String sort) {
 
         Pageable pageable = paginationConfig.buildPageable(page, size, sort);
         Page<SipsaMayoristasSemanalDto> resultPage = readService.getMayoristasSemanal(
-                fechaIni, startDate, endDate, artiId, fuenId, pageable
+                fechaIni, startDate, endDate, artiId, fuenId, artiNombre, fuenNombre, pageable
         );
 
         return ResponseEntity.ok(PaginationUtils.toApiResponse(resultPage));
@@ -400,18 +456,22 @@ public class SipsaRestController {
      * <ul>
      *   <li><b>Single month:</b> {@code fechaMes=2024-01-01}</li>
      *   <li><b>Date range:</b> {@code startDate=2024-01-01&endDate=2024-06-01}</li>
-     *   <li><b>Product:</b> {@code artiId=123}</li>
-     *   <li><b>Source:</b> {@code fuenId=45}</li>
+     *   <li><b>Product ID:</b> {@code artiId=123}</li>
+     *   <li><b>Source ID:</b> {@code fuenId=45}</li>
+     *   <li><b>Product name:</b> {@code artiNombre=Uchuva}</li>
+     *   <li><b>Source name:</b> {@code fuenNombre=Barranquilla, Granabastos}</li>
      * </ul>
      *
-     * @param fechaMes  optional filter by month start date (YYYY-MM-DD)
-     * @param startDate optional filter by date range start
-     * @param endDate   optional filter by date range end
-     * @param artiId    optional filter by product ID
-     * @param fuenId    optional filter by source ID
-     * @param page      page number (1-based, default: 1)
-     * @param size      page size (1-100, default: 20)
-     * @param sort      optional sort field
+     * @param fechaMes   optional filter by month start date (YYYY-MM-DD)
+     * @param startDate  optional filter by date range start (YYYY-MM-DD)
+     * @param endDate    optional filter by date range end (YYYY-MM-DD)
+     * @param artiId     optional filter by product ID (must be positive)
+     * @param fuenId     optional filter by source ID (must be positive)
+     * @param artiNombre optional filter by product name (exact match)
+     * @param fuenNombre optional filter by source name (exact match)
+     * @param page       page number (1-based, default: 1)
+     * @param size       page size (1-100, default: 20)
+     * @param sort       optional sort field (e.g., "fechaMesIni,desc", default: "fechaMesIni,desc")
      * @return standardized response with paginated monthly supply records
      */
     @GetMapping("/abastecimientos/mensual")
@@ -436,6 +496,12 @@ public class SipsaRestController {
             @Positive(message = "fuenId must be a positive number")
             Long fuenId,
 
+            @RequestParam(required = false)
+            String artiNombre,
+
+            @RequestParam(required = false)
+            String fuenNombre,
+
             @RequestParam(defaultValue = "1")
             @Min(value = 1, message = "page must be >= 1")
             int page,
@@ -445,12 +511,12 @@ public class SipsaRestController {
             @Max(value = 100, message = "size must be <= 100")
             int size,
 
-            @RequestParam(required = false)
+            @RequestParam(defaultValue = "fechaMesIni,desc")
             String sort) {
 
         Pageable pageable = paginationConfig.buildPageable(page, size, sort);
         Page<SipsaAbastecimientosMensualDto> resultPage = readService.getAbastecimientosMensual(
-                fechaMes, startDate, endDate, artiId, fuenId, pageable
+                fechaMes, startDate, endDate, artiId, fuenId, artiNombre, fuenNombre, pageable
         );
 
         return ResponseEntity.ok(PaginationUtils.toApiResponse(resultPage));
