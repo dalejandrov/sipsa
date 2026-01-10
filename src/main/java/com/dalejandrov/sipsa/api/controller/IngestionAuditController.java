@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
  * @see AuditTrailDto
  */
 @RestController
-@RequestMapping("/internal/audit")
+@RequestMapping("api/internal/audit")
 @Slf4j
 @RequiredArgsConstructor
 public class IngestionAuditController {

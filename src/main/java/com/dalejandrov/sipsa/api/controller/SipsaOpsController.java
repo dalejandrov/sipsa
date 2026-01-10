@@ -26,7 +26,7 @@ import java.util.UUID;
  * (e.g. Spring Security, IP allowlist, internal network only).
  */
 @RestController
-@RequestMapping("/internal/ingestion")
+@RequestMapping("api/internal/ingestion")
 @Slf4j
 @RequiredArgsConstructor
 public class SipsaOpsController {
