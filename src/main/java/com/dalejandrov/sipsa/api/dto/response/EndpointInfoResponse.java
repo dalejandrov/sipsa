@@ -1,4 +1,4 @@
-package com.dalejandrov.sipsa.api.dto;
+package com.dalejandrov.sipsa.api.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
@@ -29,7 +29,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class EndpointInfo {
+public class EndpointInfoResponse {
 
     /**
      * Logical name of the endpoint/resource.
@@ -51,4 +51,3 @@ public class EndpointInfo {
      */
     private String[] methods;
 }
-

@@ -1,8 +1,9 @@
 package com.dalejandrov.sipsa.application.service;
 
-import com.dalejandrov.sipsa.api.dto.CreateRunRequest;
+import com.dalejandrov.sipsa.api.dto.request.CreateRunRequest;
 import com.dalejandrov.sipsa.domain.entity.IngestionReject;
 import com.dalejandrov.sipsa.domain.entity.IngestionRun;
+import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
 import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.IngestionRejectRepository;
@@ -10,11 +11,14 @@ import com.dalejandrov.sipsa.infrastructure.persistence.repository.IngestionRunR
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Service for managing ingestion run lifecycle and state.
@@ -79,18 +83,18 @@ public class IngestionControlService {
 
         if (existingRun.isPresent()) {
             IngestionRun run = existingRun.get();
-            if (!force && "SUCCEEDED".equals(run.getStatus())) {
+            if (!force && run.getStatus() == IngestionRunStatus.SUCCEEDED) {
                 throw new SipsaBusinessException(
                         "Run already succeeded for method: " + methodName + ", window: " + windowKey);
             }
-            if (!force && !"FAILED".equals(run.getStatus())) {
+            if (!force && run.getStatus() != IngestionRunStatus.FAILED) {
                 throw new SipsaBusinessException(
                         "Run already exists (Status: " + run.getStatus() + "). Use force=true to restart.");
             }
 
             // Restart logic: Reset metrics and status
             log.warn("Restarting existing run {}/{} (ID: {})", methodName, windowKey, run.getRunId());
-            run.setStatus("STARTED");
+            run.setStatus(IngestionRunStatus.STARTED);
             run.setStartTime(Instant.now());
             run.setEndTime(null);
             run.setRecordsSeen(0);
@@ -113,7 +117,7 @@ public class IngestionControlService {
                     .windowKey(windowKey)
                     .requestId(requestId)
                     .requestSource(requestSource)
-                    .status("STARTED")
+                    .status(IngestionRunStatus.STARTED)
                     .startTime(Instant.now())
                     .recordsSeen(0)
                     .recordsInserted(0)
@@ -148,17 +152,17 @@ public class IngestionControlService {
     /**
      * Updates the status of an ingestion run.
      * <p>
-     * Valid statuses include: STARTED, RUNNING, SUCCEEDED, FAILED.
+     * Valid statuses include: STARTED, RUNNING, SUCCEEDED, FAILED, CANCELED.
      * The status change is persisted in a separate transaction.
      *
      * @param runId the run identifier
      * @param status the new status value
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void updateStatus(long runId, String status) {
+    public void updateStatus(long runId, IngestionRunStatus status) {
         runRepository.findById(runId).ifPresent(run -> {
             run.setStatus(status);
-            if ("SUCCEEDED".equals(status) || "FAILED".equals(status)) {
+            if (status == IngestionRunStatus.SUCCEEDED || status == IngestionRunStatus.FAILED) {
                 run.setEndTime(Instant.now());
             }
             runRepository.save(run);
@@ -245,6 +249,92 @@ public class IngestionControlService {
      */
     @Transactional(readOnly = true)
     public boolean isRunComplete(String methodName, String windowKey) {
-        return runRepository.countSucceeded(methodName, windowKey) > 0;
+        return runRepository.countByMethodNameAndWindowKeyAndStatus(methodName, windowKey, IngestionRunStatus.SUCCEEDED) > 0;
+    }
+
+    /**
+     * Retrieves an ingestion run by its ID.
+     *
+     * @param runId the run identifier
+     * @return the IngestionRun entity or null if not found
+     */
+    @Transactional(readOnly = true)
+    public IngestionRun getRun(long runId) {
+        return runRepository.findById(runId).orElse(null);
+    }
+
+    /**
+     * Retrieves all currently active ingestion runs.
+     * <p>
+     * Returns runs that are in STARTED or RUNNING status.
+     *
+     * @return list of active run entities
+     */
+    @Transactional(readOnly = true)
+    public List<IngestionRun> findActiveRuns() {
+        return runRepository.findByStatusIn(
+                List.of(IngestionRunStatus.STARTED, IngestionRunStatus.RUNNING)
+        );
+    }
+
+    /**
+     * Retrieves all ingestion runs with pagination.
+     *
+     * @param pageable pagination information
+     * @return page of run entities
+     */
+    @Transactional(readOnly = true)
+    public Page<IngestionRun> findAllRuns(Pageable pageable) {
+        return runRepository.findAll(pageable);
+    }
+
+    /**
+     * Retrieves all ingestion runs without pagination.
+     * <p>
+     * Use this method when expecting a small number of records.
+     *
+     * @return list of all run entities
+     */
+    @Transactional(readOnly = true)
+    public List<IngestionRun> findAllRuns() {
+        return runRepository.findAll();
+    }
+
+    /**
+     * Checks if an ingestion run has been canceled.
+     * <p>
+     * This method should be called periodically during long-running ingestion processes
+     * to allow for graceful cancellation.
+     *
+     * @param runId the run identifier
+     * @return true if the run status is CANCELED, false otherwise
+     */
+    @Transactional(readOnly = true)
+    public boolean isRunCanceled(long runId) {
+        IngestionRun run = runRepository.findById(runId).orElse(null);
+        return run != null && run.getStatus() == IngestionRunStatus.CANCELED;
+    }
+
+    /**
+     * Cancels an active ingestion run.
+     * <p>
+     * Only runs with status STARTED or RUNNING can be canceled.
+     * Updates the run status to CANCELED and logs the cancellation.
+     *
+     * @param runId the run identifier
+     * @throws SipsaBusinessException if run not found or not active
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void cancelRun(long runId) {
+        IngestionRun run = runRepository.findById(runId).orElse(null);
+        if (run == null) {
+            throw new SipsaBusinessException("Run not found: " + runId);
+        }
+        if (run.getStatus() != IngestionRunStatus.STARTED && run.getStatus() != IngestionRunStatus.RUNNING) {
+            throw new SipsaBusinessException("Run is not active (status: " + run.getStatus() + ")");
+        }
+        run.setStatus(IngestionRunStatus.CANCELED);
+        run.setEndTime(Instant.now());
+        runRepository.save(run);
     }
 }

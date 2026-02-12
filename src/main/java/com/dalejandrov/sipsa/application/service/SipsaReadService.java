@@ -1,9 +1,14 @@
 package com.dalejandrov.sipsa.application.service;
 
-import com.dalejandrov.sipsa.infrastructure.config.PaginationConfig;
-import com.dalejandrov.sipsa.api.dto.*;
-import com.dalejandrov.sipsa.api.mapper.SipsaApiMapper;
+import com.dalejandrov.sipsa.api.dto.response.*;
+import com.dalejandrov.sipsa.api.dto.request.*;
+import com.dalejandrov.sipsa.api.mapper.SipsaAbastecimientosMensualMapper;
+import com.dalejandrov.sipsa.api.mapper.SipsaCiudadMapper;
+import com.dalejandrov.sipsa.api.mapper.SipsaMayoristasMensualMapper;
+import com.dalejandrov.sipsa.api.mapper.SipsaMayoristasSemanalMapper;
+import com.dalejandrov.sipsa.api.mapper.SipsaParcialMapper;
 import com.dalejandrov.sipsa.domain.entity.*;
+import com.dalejandrov.sipsa.infrastructure.config.PaginationConfig;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.*;
 import com.dalejandrov.sipsa.infrastructure.specification.SpecificationBuilder;
 import lombok.RequiredArgsConstructor;
@@ -15,18 +20,22 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Service for reading SIPSA data with filtering and pagination support.
+ * Application service for reading SIPSA data with filtering and pagination.
  * <p>
- * Provides read-only access to all SIPSA data tables with:
+ * This service encapsulates all business logic for querying SIPSA data,
+ * providing a clean interface for controllers without exposing infrastructure details.
+ * <p>
+ * <b>Responsibilities:</b>
  * <ul>
- *   <li>Dynamic filtering by date, product, source, and municipality</li>
- *   <li>Configurable pagination (max 1000 records)</li>
- *   <li>Timezone-aware date range queries</li>
+ *   <li>Validate business rules (IDs, pagination limits)</li>
+ *   <li>Build query specifications from request DTOs</li>
+ *   <li>Coordinate with repositories for data access</li>
+ *   <li>Map entities to response DTOs</li>
+ *   <li>Handle pagination logic internally</li>
  * </ul>
  * <p>
  * Uses <b>Template Method Pattern</b> via {@link #executeQuery} to eliminate duplication.
@@ -43,163 +52,156 @@ public class SipsaReadService {
     private final SipsaParcialRepository parcialRepository;
     private final SipsaMayoristasSemanalRepository semanalRepository;
     private final SipsaAbastecimientosMensualRepository abasRepository;
-    private final SipsaApiMapper mapper;
+    private final SipsaCiudadMapper ciudadMapper;
+    private final SipsaMayoristasMensualMapper mensualMapper;
+    private final SipsaParcialMapper parcialMapper;
+    private final SipsaMayoristasSemanalMapper semanalMapper;
+    private final SipsaAbastecimientosMensualMapper abasMapper;
     private final PaginationConfig paginationConfig;
 
     @Value("${sipsa.timezone:America/Bogota}")
     private String timezone;
 
     /**
-     * Retrieves city-level pricing data with optional filtering.
+     * Retrieves city-level pricing data with optional filtering and pagination.
      * <p>
-     * Filters are combined with AND logic. Null filters are ignored.
-     * <p>
-     * <b>Date Filtering:</b>
+     * This method encapsulates all business logic including:
      * <ul>
-     *   <li>If {@code fecha} is provided, filters for exact date (full day)</li>
-     *   <li>If {@code startDate} and {@code endDate} are provided, filters date range</li>
-     *   <li>If both {@code fecha} and date range are provided, {@code fecha} takes precedence</li>
+     *   <li>Pagination parameters validation and construction</li>
+     *   <li>Business rules validation (positive IDs)</li>
+     *   <li>Query specification building</li>
+     *   <li>Entity to DTO mapping</li>
      * </ul>
      *
-     * @param fecha     optional filter by exact capture date (full day in configured timezone)
-     * @param startDate optional filter by date range start (inclusive)
-     * @param endDate   optional filter by date range end (inclusive)
-     * @param artiId    optional filter by product ID
-     * @param fuenId    optional filter by source ID
-     * @param pageable  pagination parameters (page number, size, sorting)
-     * @return paginated list of city pricing DTOs
+     * @param request the query request containing filters and pagination parameters
+     * @return paginated list of city pricing response DTOs
      */
     @Transactional(readOnly = true)
-    public Page<SipsaCiudadDto> getCiudad(LocalDate fecha, LocalDate startDate, LocalDate endDate,
-                                          Long artiId, Long fuenId, Pageable pageable) {
+    public Page<SipsaCiudadResponse> getCiudad(CiudadQueryRequest request) {
+        Pageable pageable = paginationConfig.buildPageable(request.page(), request.size(), request.sort());
+
         return executeQuery(
                 pageable,
                 ciudadRepository,
-                mapper::toDto,
+                ciudadMapper::toDto,
                 () -> {
-                    paginationConfig.validateIds(artiId, fuenId);
+                    paginationConfig.validateIds(request.artiId(), request.fuenId());
                     return SpecificationBuilder.<SipsaCiudad>builder(timezone)
-                            .withDateOrRange("fechaCaptura", fecha, startDate, endDate)
-                            .withAttribute("artiId", artiId)
-                            .withAttribute("fuenId", fuenId)
+                            .withAttribute("ciudad", request.ciudad())
+                            .withAttribute("producto", request.producto())
+                            .withAttribute("codProducto", request.artiId())
+                            .withDateOrRange("fechaCaptura", request.fecha(), request.startDate(), request.endDate())
                             .build();
                 }
         );
     }
 
     /**
-     * Retrieves monthly wholesale market data with optional filtering.
+     * Retrieves monthly wholesale market data with optional filtering and pagination.
      *
-     * @param fechaMes  optional filter by exact month start date
-     * @param startDate optional filter by date range start
-     * @param endDate   optional filter by date range end
-     * @param artiId    optional filter by product ID
-     * @param pageable  pagination parameters
-     * @return paginated list of monthly wholesale DTOs
+     * @param request the query request containing filters and pagination parameters
+     * @return paginated list of monthly wholesale response DTOs
      */
     @Transactional(readOnly = true)
-    public Page<SipsaMayoristasMensualDto> getMayoristasMensual(LocalDate fechaMes, LocalDate startDate,
-                                                                LocalDate endDate, Long artiId, Pageable pageable) {
+    public Page<SipsaMayoristasMensualResponse> getMayoristasMensual(MayoristasMensualQueryRequest request) {
+        Pageable pageable = paginationConfig.buildPageable(request.page(), request.size(), request.sort());
+
         return executeQuery(
                 pageable,
                 mensualRepository,
-                mapper::toDto,
+                mensualMapper::toDto,
                 () -> {
-                    paginationConfig.validateIds(artiId);
+                    paginationConfig.validateIds(request.artiId());
                     return SpecificationBuilder.<SipsaMayoristasMensual>builder(timezone)
-                            .withDateOrRange("fechaMesIni", fechaMes, startDate, endDate)
-                            .withAttribute("artiId", artiId)
+                            .withDateOrRange("fechaMesIni", request.fechaMes(), request.startDate(), request.endDate())
+                            .withAttribute("artiId", request.artiId())
+                            .withAttribute("artiNombre", request.artiNombre())
+                            .withAttribute("fuenNombre", request.fuenNombre())
                             .build();
                 }
         );
     }
 
     /**
-     * Retrieves partial market data by municipality with optional filtering.
+     * Retrieves partial market data by municipality with optional filtering and pagination.
      *
-     * @param fechaEncuesta optional filter by exact survey date
-     * @param startDate     optional filter by date range start
-     * @param endDate       optional filter by date range end
-     * @param muniId        optional filter by municipality ID
-     * @param fuenId        optional filter by source ID
-     * @param artiId        optional filter by product ID
-     * @param pageable      pagination parameters
-     * @return paginated list of partial market DTOs
+     * @param request the query request containing filters and pagination parameters
+     * @return paginated list of partial market response DTOs
      */
     @Transactional(readOnly = true)
-    public Page<SipsaParcialDto> getParcial(LocalDate fechaEncuesta, LocalDate startDate, LocalDate endDate,
-                                            Long muniId, Long fuenId, Long artiId, Pageable pageable) {
+    public Page<SipsaParcialResponse> getParcial(ParcialQueryRequest request) {
+        Pageable pageable = paginationConfig.buildPageable(request.page(), request.size(), request.sort());
+
         return executeQuery(
                 pageable,
                 parcialRepository,
-                mapper::toDto,
+                parcialMapper::toDto,
                 () -> {
-                    paginationConfig.validateIds(artiId, fuenId, muniId);
+                    paginationConfig.validateIds(request.artiId(), request.fuenId(), request.muniId());
                     return SpecificationBuilder.<SipsaParcial>builder(timezone)
-                            .withDateOrRange("enmaFecha", fechaEncuesta, startDate, endDate)
-                            .withAttribute("muniId", muniId)
-                            .withAttribute("fuenId", fuenId)
-                            .withAttribute("artiId", artiId)
+                            .withDateOrRange("enmaFecha", request.fechaEncuesta(), request.startDate(), request.endDate())
+                            .withAttribute("muniId", request.muniId())
+                            .withAttribute("fuenId", request.fuenId())
+                            .withAttribute("artiId", request.artiId())
+                            .withAttribute("muniNombre", request.muniNombre())
+                            .withAttribute("deptNombre", request.deptNombre())
+                            .withAttribute("fuenNombre", request.fuenNombre())
+                            .withAttribute("artiNombre", request.artiNombre())
+                            .withAttribute("grupNombre", request.grupNombre())
                             .build();
                 }
         );
     }
 
     /**
-     * Retrieves weekly wholesale market data with optional filtering.
+     * Retrieves weekly wholesale market data with optional filtering and pagination.
      *
-     * @param fechaIni  optional filter by exact week start date
-     * @param startDate optional filter by date range start
-     * @param endDate   optional filter by date range end
-     * @param artiId    optional filter by product ID
-     * @param fuenId    optional filter by source ID
-     * @param pageable  pagination parameters
-     * @return paginated list of weekly wholesale DTOs
+     * @param request the query request containing filters and pagination parameters
+     * @return paginated list of weekly wholesale response DTOs
      */
     @Transactional(readOnly = true)
-    public Page<SipsaMayoristasSemanalDto> getMayoristasSemanal(LocalDate fechaIni, LocalDate startDate,
-                                                                LocalDate endDate, Long artiId, Long fuenId,
-                                                                Pageable pageable) {
+    public Page<SipsaMayoristasSemanalResponse> getMayoristasSemanal(MayoristasSemanalQueryRequest request) {
+        Pageable pageable = paginationConfig.buildPageable(request.page(), request.size(), request.sort());
+
         return executeQuery(
                 pageable,
                 semanalRepository,
-                mapper::toDto,
+                semanalMapper::toDto,
                 () -> {
-                    paginationConfig.validateIds(artiId, fuenId);
+                    paginationConfig.validateIds(request.artiId(), request.fuenId());
                     return SpecificationBuilder.<SipsaMayoristasSemanal>builder(timezone)
-                            .withDateOrRange("fechaIni", fechaIni, startDate, endDate)
-                            .withAttribute("artiId", artiId)
-                            .withAttribute("fuenId", fuenId)
+                            .withDateOrRange("fechaIni", request.fechaIni(), request.startDate(), request.endDate())
+                            .withAttribute("artiId", request.artiId())
+                            .withAttribute("fuenId", request.fuenId())
+                            .withAttribute("artiNombre", request.artiNombre())
+                            .withAttribute("fuenNombre", request.fuenNombre())
                             .build();
                 }
         );
     }
 
     /**
-     * Retrieves monthly supply data with optional filtering.
+     * Retrieves monthly supply data with optional filtering and pagination.
      *
-     * @param fechaMes  optional filter by exact month start date
-     * @param startDate optional filter by date range start
-     * @param endDate   optional filter by date range end
-     * @param artiId    optional filter by product ID
-     * @param fuenId    optional filter by source ID
-     * @param pageable  pagination parameters
-     * @return paginated list of monthly supply DTOs
+     * @param request the query request containing filters and pagination parameters
+     * @return paginated list of monthly supply response DTOs
      */
     @Transactional(readOnly = true)
-    public Page<SipsaAbastecimientosMensualDto> getAbastecimientosMensual(LocalDate fechaMes, LocalDate startDate,
-                                                                          LocalDate endDate, Long artiId,
-                                                                          Long fuenId, Pageable pageable) {
+    public Page<SipsaAbastecimientosMensualResponse> getAbastecimientosMensual(AbastecimientosMensualQueryRequest request) {
+        Pageable pageable = paginationConfig.buildPageable(request.page(), request.size(), request.sort());
+
         return executeQuery(
                 pageable,
                 abasRepository,
-                mapper::toDto,
+                abasMapper::toDto,
                 () -> {
-                    paginationConfig.validateIds(artiId, fuenId);
+                    paginationConfig.validateIds(request.artiId(), request.fuenId());
                     return SpecificationBuilder.<SipsaAbastecimientosMensual>builder(timezone)
-                            .withDateOrRange("fechaMesIni", fechaMes, startDate, endDate)
-                            .withAttribute("artiId", artiId)
-                            .withAttribute("fuenId", fuenId)
+                            .withDateOrRange("fechaMesIni", request.fechaMes(), request.startDate(), request.endDate())
+                            .withAttribute("artiId", request.artiId())
+                            .withAttribute("fuenId", request.fuenId())
+                            .withAttribute("artiNombre", request.artiNombre())
+                            .withAttribute("fuenNombre", request.fuenNombre())
                             .build();
                 }
         );

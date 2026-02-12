@@ -1,10 +1,10 @@
-package com.dalejandrov.sipsa.api.dto;
+package com.dalejandrov.sipsa.api.dto.response;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 /**
- * Data Transfer Object for weekly wholesale market pricing data.
+ * Response DTO for weekly wholesale market pricing data.
  * <p>
  * This record represents aggregated wholesale market prices on a weekly basis,
  * including price statistics per product and market source.
@@ -17,9 +17,9 @@ import java.time.OffsetDateTime;
  * @param minimoKg minimum price per kilogram for the week
  * @param maximoKg maximum price per kilogram for the week
  * @param promedioKg average price per kilogram for the week
- * @param lastUpdated timestamp of last update in this system (system, converted to client timezone)
+ * @param fechaSincronizacion timestamp of last update in this system (system, converted to client timezone)
  */
-public record SipsaMayoristasSemanalDto(
+public record SipsaMayoristasSemanalResponse(
         Long artiId,
         String artiNombre,
         Long fuenId,
@@ -28,5 +28,5 @@ public record SipsaMayoristasSemanalDto(
         BigDecimal minimoKg,
         BigDecimal maximoKg,
         BigDecimal promedioKg,
-        OffsetDateTime lastUpdated) {
+        OffsetDateTime fechaSincronizacion) {
 }

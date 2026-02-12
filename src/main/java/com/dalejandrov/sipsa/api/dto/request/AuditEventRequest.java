@@ -1,4 +1,4 @@
-package com.dalejandrov.sipsa.api.dto;
+package com.dalejandrov.sipsa.api.dto.request;
 
 import com.dalejandrov.sipsa.application.ingestion.core.IngestionContext;
 import com.dalejandrov.sipsa.domain.entity.AuditEventType;
@@ -7,7 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * Request object for logging audit events.
+ * Request DTO for logging audit events.
  * <p>
  * Encapsulates all parameters needed to log an audit event,
  * providing better readability, type safety, and extensibility.
@@ -45,7 +45,7 @@ public record AuditEventRequest(
      * @return new AuditEventRequest instance
      */
     public static AuditEventRequest ingestionStarted(IngestionRequest ingestionRequest,
-                                                     long runId, String windowKey) {
+                                                 long runId, String windowKey) {
         return new AuditEventRequest(
             ingestionRequest.requestId(),
             runId,
@@ -84,7 +84,7 @@ public record AuditEventRequest(
      * @return new AuditEventRequest instance
      */
     public static AuditEventRequest ingestionFailed(String requestId, Long runId,
-                                                    RequestSource requestSource, String errorMessage) {
+                                                RequestSource requestSource, String errorMessage) {
         return new AuditEventRequest(
             requestId,
             runId,
@@ -104,7 +104,7 @@ public record AuditEventRequest(
      * @return new AuditEventRequest instance
      */
     public static AuditEventRequest requestReceived(String requestId, RequestSource requestSource,
-                                                    String methodName, boolean force) {
+                                                String methodName, boolean force) {
         return new AuditEventRequest(
             requestId,
             null,
@@ -123,7 +123,7 @@ public record AuditEventRequest(
      * @return new AuditEventRequest instance
      */
     public static AuditEventRequest requestRejected(String requestId, RequestSource requestSource,
-                                                    String reason) {
+                                                String reason) {
         return new AuditEventRequest(
             requestId,
             null,
@@ -143,7 +143,7 @@ public record AuditEventRequest(
      * @return new AuditEventRequest instance
      */
     public static AuditEventRequest requestAccepted(String requestId, RequestSource requestSource,
-                                                    String methodName, boolean force) {
+                                                String methodName, boolean force) {
         return new AuditEventRequest(
             requestId,
             null,
@@ -237,6 +237,24 @@ public record AuditEventRequest(
             String.format("Final metrics - Seen: %d, Inserted: %d, Updated: %d, Rejected: %d",
                          context.getRecordsSeen(), context.getRecordsInserted(),
                          context.getRecordsUpdated(), context.getRejectCount())
+        );
+    }
+
+    /**
+     * Creates audit event for ingestion canceled.
+     *
+     * @param requestId the request ID
+     * @param runId the ingestion run ID
+     * @param requestSource the source of the request
+     * @return new AuditEventRequest instance
+     */
+    public static AuditEventRequest ingestionCanceled(String requestId, long runId, RequestSource requestSource) {
+        return new AuditEventRequest(
+            requestId,
+            runId,
+            requestSource,
+            AuditEventType.INGESTION_CANCELED,
+            "Ingestion run was canceled by operator"
         );
     }
 }

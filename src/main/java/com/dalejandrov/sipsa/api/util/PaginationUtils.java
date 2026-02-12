@@ -1,6 +1,6 @@
 package com.dalejandrov.sipsa.api.util;
 
-import com.dalejandrov.sipsa.api.dto.ApiResponse;
+import com.dalejandrov.sipsa.api.dto.response.ApiResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -56,4 +56,3 @@ public class PaginationUtils {
                 .toUriString();
     }
 }
-

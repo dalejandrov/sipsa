@@ -3,6 +3,7 @@ package com.dalejandrov.sipsa.application.service;
 import com.dalejandrov.sipsa.application.ingestion.core.IngestionContext;
 import com.dalejandrov.sipsa.application.ingestion.handler.IngestionHandler;
 import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
+import com.dalejandrov.sipsa.domain.exception.SipsaIngestionValidationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -89,6 +90,28 @@ public class IngestionService {
      */
     public Set<String> getAvailableMethodNames() {
         return handlerMap.keySet();
+    }
+
+    /**
+     * Validates the parameters for triggering an ingestion request.
+     * <p>
+     * Performs input validation and throws {@link SipsaIngestionValidationException}
+     * if the request is invalid. This ensures consistent validation across
+     * all ingestion trigger points.
+     *
+     * @param method the ingestion method name
+     * @throws SipsaIngestionValidationException if validation fails
+     */
+    public void validateTriggerRequest(String method) {
+        if (method == null || method.isBlank()) {
+            throw new SipsaIngestionValidationException(
+                "Method parameter is required and cannot be blank", getAvailableMethodNames());
+        }
+
+        if (!isValidMethod(method)) {
+            throw new SipsaIngestionValidationException(
+                "Invalid method: " + method, getAvailableMethodNames());
+        }
     }
 
     /**

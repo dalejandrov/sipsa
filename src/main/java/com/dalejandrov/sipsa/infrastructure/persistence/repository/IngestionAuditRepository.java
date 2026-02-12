@@ -2,6 +2,7 @@ package com.dalejandrov.sipsa.infrastructure.persistence.repository;
 
 import com.dalejandrov.sipsa.domain.entity.IngestionAudit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -25,7 +26,7 @@ import java.util.List;
  * @see com.dalejandrov.sipsa.application.service.IngestionAuditService
  */
 @Repository
-public interface IngestionAuditRepository extends JpaRepository<IngestionAudit, Long> {
+public interface IngestionAuditRepository extends JpaRepository<IngestionAudit, Long>, JpaSpecificationExecutor<IngestionAudit> {
 
     /**
      * Retrieves all audit events for a specific request, ordered chronologically.

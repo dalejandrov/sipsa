@@ -95,8 +95,7 @@ public class SipsaMayoristasMensual {
     @Column(name = "ingestion_run_id", nullable = false)
     private Long ingestionRunId;
 
-    /** Last updated timestamp - tracks when the record was last updated */
-    @Column(name = "last_updated")
-    @Builder.Default
-    private Instant lastUpdated = Instant.now();
+    /** Timestamp when the record was last updated in this system */
+    @Column(name = "fecha_sincronizacion")
+    private Instant fechaSincronizacion;
 }

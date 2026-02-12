@@ -22,9 +22,7 @@ import java.time.Instant;
  * </ul>
  * <p>
  * <b>Unique Hash Key:</b><br>
- * Each record has a SHA-256 hash computed from (muniId, fuenId, futiId,
- * idArtiSemana, enmaFecha, artiNombre) to ensure idempotent processing
- * and prevent duplicates across reprocessing.
+ * Each record has an auto-generated UUID for uniqueness.
  *
  * @see com.dalejandrov.sipsa.application.ingestion.handler.ParcialIngestionHandler
  */
@@ -44,8 +42,8 @@ public class SipsaParcial {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** SHA-256 hash for deduplication (based on business keys) */
-    @Column(name = "key_hash", length = 64)
+    /** Auto-generated UUID for uniqueness */
+    @Column(name = "key_hash", length = 100)
     private String keyHash;
 
     /** Municipality identifier code */
@@ -102,8 +100,8 @@ public class SipsaParcial {
     private BigDecimal minimoKg;
 
     /** Timestamp of last update in this system */
-    @Column(name = "last_updated")
-    private Instant lastUpdated;
+    @Column(name = "fecha_sincronizacion")
+    private Instant fechaSincronizacion;
 
     /** Foreign key to the ingestion run that created this record */
     @Column(name = "ingestion_run_id")

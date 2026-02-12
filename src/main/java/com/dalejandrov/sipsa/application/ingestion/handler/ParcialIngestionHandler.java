@@ -14,8 +14,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,9 +27,8 @@ import java.util.List;
  * <p>
  * <b>Processing Strategy:</b>
  * <ul>
- *   <li>Generates a unique hash key for each record to prevent duplicates</li>
- *   <li>Hash is computed from muniId, fuenId, futiId, idArtiSemana, and enmaFecha</li>
- *   <li>Uses upsert based on the hash key for idempotent processing</li>
+ *   <li>Uses upsert based on business keys for idempotent processing</li>
+ *   <li>Business key: (muniId, fuenId, futiId, idArtiSemana, enmaFecha)</li>
  * </ul>
  * <p>
  * <b>Validation Rules:</b>
@@ -43,7 +40,7 @@ import java.util.List;
  *   <li>enmaFecha (survey date) must not be null</li>
  * </ul>
  * <p>
- * The hash-based deduplication ensures that even if the same data is ingested
+ * The business key-based deduplication ensures that even if the same data is ingested
  * multiple times, only one record will exist in the database.
  *
  * @see SipsaParcial
@@ -92,14 +89,9 @@ public class ParcialIngestionHandler implements IngestionHandler {
                     continue;
                 }
 
-                String rawKey = record.muniId() + "|" + record.fuenId() + "|" + record.futiId() + "|" +
-                        record.idArtiSemana() + "|" + record.enmaFecha() + "|"
-                        + (record.artiNombre() != null ? record.artiNombre() : "");
-                String hash = sha256(rawKey);
-
                 Instant fechaEncuesta = parseDate(record.fechaEncuestaText());
 
-                batch.add(mapper.toEntity(record, hash, fechaEncuesta, context.getRunId()));
+                batch.add(mapper.toEntity(record, fechaEncuesta, context.getRunId()));
 
                 if (batch.size() >= batchSize) {
                     flushBatch(batch, context);
@@ -112,7 +104,6 @@ public class ParcialIngestionHandler implements IngestionHandler {
             log.info("SOAP method '{}' completed successfully. Total records obtained: {}, Rejected: {}",
                      getMethodName(), context.getRecordsSeen(), context.getRejectCount());
         } catch (Exception e) {
-            // ...existing code...
             log.warn("Error during ingestion, attempting to save partial progress. Processed {} records so far",
                     context.getRecordsSeen());
             try {
@@ -142,20 +133,6 @@ public class ParcialIngestionHandler implements IngestionHandler {
             context.incrementInserted();
         }
         batch.clear();
-    }
-
-    private String sha256(String input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(2 * hash.length);
-            for (byte b : hash) {
-                hex.append(String.format("%02x", b));
-            }
-            return hex.toString();
-        } catch (Exception e) {
-            throw new SipsaIngestionException("SHA-256 hashing failed", e);
-        }
     }
 
     private Instant parseDate(String dateStr) {

@@ -144,7 +144,7 @@ public interface SipsaCiudadRepository extends JpaRepository<SipsaCiudad, Long>,
                 skipped++;
             } else {
                 /* Record does not exist - INSERT it */
-                item.setFechaIngestion(now);
+                item.setFechaSincronizacion(now);
                 toInsert.add(item);
             }
         }

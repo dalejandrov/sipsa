@@ -36,7 +36,7 @@ public class TimezoneFilter extends OncePerRequestFilter {
             TimezoneUtil.setRequestTimezone(zoneId);
             log.debug("Set request timezone to: {}", zoneId);
         } catch (Exception e) {
-            log.warn("Failed to resolve timezone, using UTC: {}", e.getMessage());
+            log.debug("Failed to resolve timezone, using UTC: {}", e.getMessage());
             TimezoneUtil.setRequestTimezone(ZoneOffset.UTC);
         }
 
@@ -61,7 +61,7 @@ public class TimezoneFilter extends OncePerRequestFilter {
             try {
                 return ZoneId.of(timezoneHeader.trim());
             } catch (Exception e) {
-                log.warn("Invalid timezone header '{}': {}", timezoneHeader, e.getMessage());
+                log.debug("Invalid timezone header '{}': {}", timezoneHeader, e.getMessage());
             }
         }
 

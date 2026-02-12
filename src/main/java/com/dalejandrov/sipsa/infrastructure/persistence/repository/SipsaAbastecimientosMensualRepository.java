@@ -77,7 +77,7 @@ public interface SipsaAbastecimientosMensualRepository extends JpaRepository<Sip
                     skipped++;
                 } else {
                     /* Record does not exist - INSERT it */
-                    item.setFechaIngestion(now);
+                    item.setFechaSincronizacion(now);
                     toInsert.add(item);
                 }
                 processedTmpIds.add(item.getTmpAbasMesId());
@@ -146,7 +146,7 @@ public interface SipsaAbastecimientosMensualRepository extends JpaRepository<Sip
                 skipped++;
             } else {
                 /* Record does not exist - INSERT it */
-                item.setFechaIngestion(now);
+                item.setFechaSincronizacion(now);
                 toInsert.add(item);
             }
         }
