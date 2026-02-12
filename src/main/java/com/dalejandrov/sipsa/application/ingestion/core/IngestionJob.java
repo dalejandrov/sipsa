@@ -105,7 +105,7 @@ public abstract class IngestionJob {
         try {
             windowKey = windowPolicy.validateAndGetKey(request.methodName(), request.force());
         } catch (WindowViolationException e) {
-            log.warn("Skipping run for {}: {}", request.methodName(), e.getMessage());
+            log.debug("Skipping run for {}: {}", request.methodName(), e.getMessage());
             auditService.logEvent(AuditEventRequest.ingestionSkippedWindow(request, e.getMessage()));
             return;
         }

@@ -38,7 +38,7 @@ public class AsyncIngestionService {
     public void executeAsync(IngestionRequest request) {
         long startTime = System.currentTimeMillis();
 
-        log.info(
+        log.debug(
                 "Async ingestion started requestId={} method={} force={}",
                 request.requestId(), request.methodName(), request.force()
         );
@@ -47,7 +47,7 @@ public class AsyncIngestionService {
             ingestionJob.execute(request);
 
             long durationMs = System.currentTimeMillis() - startTime;
-            log.info(
+            log.debug(
                     "Async ingestion completed requestId={} method={} durationMs={}",
                     request.requestId(), request.methodName(), durationMs
             );

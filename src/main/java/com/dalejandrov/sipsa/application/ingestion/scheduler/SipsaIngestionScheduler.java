@@ -125,7 +125,7 @@ public class SipsaIngestionScheduler {
         String requestId = UUID.randomUUID().toString();
 
         try {
-            log.info("Scheduler triggering method={} requestId={} source=SCHEDULED", methodName, requestId);
+            log.debug("Scheduler triggering method={} requestId={} source=SCHEDULED", methodName, requestId);
             IngestionRequest request = IngestionRequest.scheduled(methodName, requestId);
             ingestionJob.execute(request);
         } catch (Exception e) {

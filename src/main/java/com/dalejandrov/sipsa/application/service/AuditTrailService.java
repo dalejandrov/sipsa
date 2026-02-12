@@ -100,7 +100,7 @@ public class AuditTrailService {
      */
     @Transactional(readOnly = true)
     public List<AuditTrailResponse.AuditEventResponse> getRecentEvents() {
-        log.info("Retrieving recent audit events");
+        log.debug("Retrieving recent audit events");
 
         List<IngestionAudit> audits = auditService.getRecentEvents();
 
