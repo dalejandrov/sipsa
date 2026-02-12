@@ -1,12 +1,22 @@
+# ==============================================================================
+# SIPSA Integration Service - Application Configuration
+# ==============================================================================
 server:
   port: ${PORT:8080}
 
+# ==============================================================================
+# SPRING FRAMEWORK CONFIGURATION
+# ==============================================================================
 spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+
   application:
     name: sipsa-api
-  
+
+  # ----------------------------------------------------------------------------
+  # Database Configuration (PostgreSQL)
+  # ----------------------------------------------------------------------------
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:sipsa_db}
     username: ${DB_USERNAME:sipsa_user}
@@ -17,20 +27,29 @@ spring:
       minimum-idle: ${DB_MIN_IDLE:2}
       idle-timeout: ${DB_IDLE_TIMEOUT:30000}
       pool-name: SipsaHikariCP
-  
+
+  # ----------------------------------------------------------------------------
+  # JPA/Hibernate Configuration
+  # ----------------------------------------------------------------------------
   jpa:
     hibernate:
-      ddl-auto: validate
-    open-in-view: false
+      ddl-auto: validate  # Don't auto-create schema, use Flyway
+    open-in-view: false   # Disable to avoid lazy loading issues
     properties:
       hibernate:
         format_sql: true
 
+  # ----------------------------------------------------------------------------
+  # Flyway Database Migration
+  # ----------------------------------------------------------------------------
   flyway:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
 
+  # ----------------------------------------------------------------------------
+  # Task Scheduling (Spring default scheduler, not used for SIPSA jobs)
+  # ----------------------------------------------------------------------------
   task:
     scheduling:
       pool:
@@ -39,71 +58,79 @@ spring:
         await-termination: true
         await-termination-period: 30s
 
+# ==============================================================================
+# SIPSA APPLICATION CONFIGURATION
+# ==============================================================================
 sipsa:
+  # ----------------------------------------------------------------------------
+  # Global Timezone
+  # ----------------------------------------------------------------------------
   timezone: ${SIPSA_TIMEZONE:America/Bogota}
 
-  # Pagination configuration
+  # ----------------------------------------------------------------------------
+  # API Pagination Configuration
+  # ----------------------------------------------------------------------------
   pagination:
-    max-page-size: ${SIPSA_MAX_PAGE_SIZE:1000}       # Maximum for internal queries (prevents memory issues)
-    default-page-size: ${SIPSA_DEFAULT_PAGE_SIZE:20}  # Default when user doesn't specify
+    max-page-size: ${SIPSA_MAX_PAGE_SIZE:1000}           # Maximum for internal queries
+    default-page-size: ${SIPSA_DEFAULT_PAGE_SIZE:20}     # Default page size
     max-user-page-size: ${SIPSA_MAX_USER_PAGE_SIZE:100}  # Maximum user can request via API
 
+  # ----------------------------------------------------------------------------
+  # SOAP Client Configuration (DANE Web Service)
+  # ----------------------------------------------------------------------------
   soap:
     endpoint: ${SOAP_ENDPOINT:https://appweb.dane.gov.co/sipsaWS/SrvSipsaUpraBeanService}
     namespace: ${SOAP_NAMESPACE:http://servicios.sipsa.co.gov.dane/}
-    # Timeouts for robustness (increased for very large datasets like Parcial: 619K+ records)
-    # The legacy SOAP service returns large responses without pagination, which can take
-    # a long time to stream completely, especially with chunked transfer encoding.
-    connect-timeout-ms: ${SOAP_CONNECT_TIMEOUT_MS:30000}   # 30 seconds to establish connection
-    read-timeout-ms: ${SOAP_READ_TIMEOUT_MS:3600000}    # 60 minutes for reading large responses
+
+    # Timeouts (increased for large datasets like Parcial: 619K+ records)
+    connect-timeout-ms: ${SOAP_CONNECT_TIMEOUT_MS:30000}   # 30 seconds
+    read-timeout-ms: ${SOAP_READ_TIMEOUT_MS:3600000}       # 60 minutes
 
     # Retry Policy
     max-retries: ${SOAP_MAX_RETRIES:3}
     retry-backoff-ms: ${SOAP_RETRY_BACKOFF_MS:2000}
 
-    # Limits
-    max-child-elements: ${SOAP_MAX_CHILD_ELEMENTS:0} # Unlimited
-    logging-enabled: ${SOAP_LOGGING_ENABLED:false}
+    # Limits and Features
+    max-child-elements: ${SOAP_MAX_CHILD_ELEMENTS:0}      # 0 = unlimited
+    logging-enabled: ${SOAP_LOGGING_ENABLED:false}        # Disable in production
 
-  # Scheduling configuration for task scheduler
+  # ----------------------------------------------------------------------------
+  # Scheduling Configuration (SIPSA Custom Scheduler)
+  # ----------------------------------------------------------------------------
   scheduling:
     pool-size: ${SIPSA_SCHEDULING_POOL_SIZE:5}
     await-termination-seconds: ${SIPSA_SCHEDULING_AWAIT_TERMINATION:30}
 
+  # ----------------------------------------------------------------------------
+  # Data Ingestion Configuration
+  # ----------------------------------------------------------------------------
   ingestion:
-    # Reduced from 2000 for more frequent saves (less data loss on timeout)
+    # Batch processing
     batch-size: ${INGESTION_BATCH_SIZE:500}
 
-    # Window config (America/Bogota)
-    # These windows control when ingestion jobs are ALLOWED to run (validation)
-    # Aligned with DANE's data publication schedule (2:00 PM daily)
-    daily-window-start: ${DAILY_WINDOW_START:14:20}
-    daily-window-end: ${DAILY_WINDOW_END:23:59}
-
-    # Monthly runs allowed on day 8 (MesMadr) and day 10 (AbasMes)
-    monthly-run-days: ${MONTHLY_RUN_DAYS:8,10}
-    # Monthly data published by DANE around 2:00 PM
-    monthly-window-start: ${MONTHLY_WINDOW_START:14:00}
-
-    # Reject thresholds
+    # Quality thresholds
     max-reject-count: ${MAX_REJECT_COUNT:5000}
-    max-reject-rate: ${MAX_REJECT_RATE:0.01}
+    max-reject-rate: ${MAX_REJECT_RATE:0.01}              # 1% max rejection rate
 
-    # Cron expressions for scheduled jobs
-    # All times are in America/Bogota timezone
-    # DANE publishes data at 2:00 PM, we add margin for safety
+    # Window validation (America/Bogota timezone)
+    # Controls when ingestion jobs are ALLOWED to run
+    # Aligned with DANE's data publication schedule (2:00 PM daily)
+    daily-window-start: ${DAILY_WINDOW_START:14:20}       # 2:20 PM
+    daily-window-end: ${DAILY_WINDOW_END:23:59}           # 11:59 PM
+    monthly-run-days: ${MONTHLY_RUN_DAYS:8,10}            # Day 8 (MesMadr), Day 10 (AbasMes)
+    monthly-window-start: ${MONTHLY_WINDOW_START:14:00}   # 2:00 PM
+
+    # Cron expressions for scheduled jobs (America/Bogota timezone)
+    # DANE publishes data at 2:00 PM, we add 20-30 minutes margin
     cron:
       # Daily ingestion: Ciudad, Parcial, Semana
-      # Default: Every day at 14:20 (2:20 PM)
-      # DANE publishes daily/weekly data at 2:00 PM
+      # Every day at 14:20 (2:20 PM)
       daily: ${SIPSA_CRON_DAILY:0 20 14 * * *}
 
-      # Monthly MesMadr: Day 8 of every month at 14:30 (2:30 PM)
-      # DANE updates monthly wholesale data on day 8
+      # Monthly MesMadr: Day 8 at 14:30 (2:30 PM)
       monthly-mes: ${SIPSA_CRON_MONTHLY_MES:0 30 14 8 * *}
 
-      # Monthly AbasMes: Day 10 of every month at 14:30 (2:30 PM)
-      # DANE updates monthly supply data on day 10
+      # Monthly AbasMes: Day 10 at 14:30 (2:30 PM)
       monthly-abas: ${SIPSA_CRON_MONTHLY_ABAS:0 30 14 10 * *}
 
     # Async executor configuration
@@ -113,30 +140,45 @@ sipsa:
       queue-capacity: ${SIPSA_ASYNC_QUEUE_CAPACITY:25}
       keep-alive-seconds: ${SIPSA_ASYNC_KEEP_ALIVE_SECONDS:60}
 
+# ==============================================================================
+# ACTUATOR & MONITORING CONFIGURATION
+# ==============================================================================
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,metrics,prometheus,loggers
   endpoint:
     health:
       show-details: always
       probes:
         enabled: true
 
+# ==============================================================================
+# LOGGING CONFIGURATION
+# ==============================================================================
 logging:
+  # Log levels by package (configurable via environment variables)
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
-    # Application logging - granular control by package
+
+    # Application packages
     com.dalejandrov.sipsa: ${LOG_LEVEL_SIPSA:INFO}
     com.dalejandrov.sipsa.api.controller: ${LOG_LEVEL_API:WARN}
     com.dalejandrov.sipsa.infrastructure.config: ${LOG_LEVEL_CONFIG:INFO}
     com.dalejandrov.sipsa.infrastructure.soap: ${LOG_LEVEL_SOAP:INFO}
-    # Framework logging - reduce noise
+
+    # Spring Framework
     org.springframework.web: ${LOG_LEVEL_SPRING_WEB:WARN}
     org.springframework.jdbc: ${LOG_LEVEL_JDBC:WARN}
+
+    # Hibernate
     org.hibernate.SQL: ${LOG_LEVEL_HIBERNATE:WARN}
+
+    # Apache CXF (SOAP client)
     org.apache.cxf.services: ${LOG_LEVEL_CXF:WARN}
+
+  # Log pattern
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
 
