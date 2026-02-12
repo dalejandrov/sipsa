@@ -1,6 +1,6 @@
 package com.dalejandrov.sipsa.application.service;
 
-import com.dalejandrov.sipsa.api.dto.IngestionRequest;
+import com.dalejandrov.sipsa.api.dto.request.IngestionRequest;
 import com.dalejandrov.sipsa.application.ingestion.core.GenericIngestionJob;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,15 +26,15 @@ public class AsyncIngestionService {
     /**
      * Executes the ingestion process asynchronously.
      * <p>
-     * This method is executed in a separate thread managed by Spring's
-     * {@link org.springframework.core.task.TaskExecutor}.
+     * This method is executed in a dedicated thread pool configured for ingestion operations.
+     * The executor provides proper resource management and monitoring capabilities.
      * <p>
      * Any exception thrown during ingestion is caught and logged,
      * preventing it from crashing the async executor.
      *
      * @param request encapsulates all ingestion parameters
      */
-    @Async
+    @Async("ingestionTaskExecutor")
     public void executeAsync(IngestionRequest request) {
         long startTime = System.currentTimeMillis();
 

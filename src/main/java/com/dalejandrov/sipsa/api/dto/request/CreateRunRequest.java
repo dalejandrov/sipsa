@@ -1,11 +1,11 @@
-package com.dalejandrov.sipsa.api.dto;
+package com.dalejandrov.sipsa.api.dto.request;
 
 import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * Request object for creating an ingestion run.
+ * Request DTO for creating an ingestion run.
  * <p>
  * Encapsulates all parameters needed to create a new ingestion run record,
  * providing better readability, type safety, and extensibility.

@@ -13,7 +13,6 @@ import java.util.List;
  * JPA Repository for managing {@link SipsaParcial} entities.
  * <p>
  * Provides data access methods for partial market data by municipality.
- * Uses hash-based deduplication strategy following Spring Data JPA best practices.
  *
  * @see SipsaParcial
  * @see com.dalejandrov.sipsa.application.ingestion.handler.ParcialIngestionHandler
@@ -31,13 +30,12 @@ public interface SipsaParcialRepository
     record UpsertMetrics(int inserted, int skipped) {}
 
     /**
-     * Batch upserts partial market records using keyHash for matching.
+     * Batch inserts partial market records.
      * <p>
-     * Strategy: If exists, SKIP (do not update). If not exists, INSERT.
-     * Uses the stored keyHash for efficient indexed lookup.
+     * Inserts all provided records without deduplication.
      *
-     * @param items list of partial market entities to upsert
-     * @return metrics with counts of inserted and skipped records
+     * @param items list of partial market entities to insert
+     * @return metrics with counts of inserted and skipped records (skipped always 0)
      */
     @Transactional
     default UpsertMetrics batchUpsert(List<SipsaParcial> items) {
@@ -46,52 +44,15 @@ public interface SipsaParcialRepository
         }
 
         Instant now = Instant.now();
-        int skipped = 0;
 
-        /* Deduplicate within batch - keep latest value */
-        java.util.Map<String, SipsaParcial> uniqueItems = new java.util.LinkedHashMap<>();
+        /* Set synchronization timestamp */
         for (SipsaParcial item : items) {
-            /* Use keyHash for deduplication */
-            uniqueItems.put(item.getKeyHash(), item);
+            item.setFechaSincronizacion(now);
         }
 
-        /* Bulk query to find all existing records using indexed keyHash */
-        List<String> keyHashes = new java.util.ArrayList<>(uniqueItems.keySet());
-        List<SipsaParcial> existingRecords = findByKeyHashIn(keyHashes);
-
-        /* Create set for fast lookup */
-        java.util.Set<String> existingKeys = existingRecords.stream()
-                .map(SipsaParcial::getKeyHash)
-                .collect(java.util.stream.Collectors.toSet());
-
-        /* Process all items */
-        List<SipsaParcial> toInsert = new java.util.ArrayList<>();
-        for (SipsaParcial item : uniqueItems.values()) {
-            if (existingKeys.contains(item.getKeyHash())) {
-                /* Record exists - SKIP it (do not update) */
-                skipped++;
-            } else {
-                /* Record does not exist - INSERT it */
-                item.setFechaSincronizacion(now);
-                toInsert.add(item);
-            }
-        }
-
-        int inserted = toInsert.size();
-        if (!toInsert.isEmpty()) {
-            saveAll(toInsert);
-            flush();
-        }
-        return new UpsertMetrics(inserted, skipped);
+        int inserted = items.size();
+        saveAll(items);
+        flush();
+        return new UpsertMetrics(inserted, 0);
     }
-
-    /**
-     * Finds all records matching the given list of key hashes.
-     * <p>
-     * Uses the idx_sipsa_parcial_key_hash index for efficient lookup.
-     *
-     * @param keyHashes list of key hashes
-     * @return list of existing records
-     */
-    List<SipsaParcial> findByKeyHashIn(List<String> keyHashes);
 }

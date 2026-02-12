@@ -1,11 +1,13 @@
 package com.dalejandrov.sipsa.application.ingestion.core;
 
-import com.dalejandrov.sipsa.api.dto.AuditEventRequest;
-import com.dalejandrov.sipsa.api.dto.CreateRunRequest;
-import com.dalejandrov.sipsa.api.dto.IngestionRequest;
+import com.dalejandrov.sipsa.api.dto.request.AuditEventRequest;
+import com.dalejandrov.sipsa.api.dto.request.CreateRunRequest;
+import com.dalejandrov.sipsa.api.dto.request.IngestionRequest;
 import com.dalejandrov.sipsa.application.service.IngestionAuditService;
 import com.dalejandrov.sipsa.application.service.IngestionControlService;
+import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
 import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
+import com.dalejandrov.sipsa.domain.exception.SipsaExternalException;
 import com.dalejandrov.sipsa.domain.exception.SipsaIngestionException;
 import com.dalejandrov.sipsa.domain.exception.WindowViolationException;
 import org.slf4j.Logger;
@@ -134,21 +136,38 @@ public abstract class IngestionJob {
             org.slf4j.MDC.put("requestId", request.requestId());
             org.slf4j.MDC.put("requestSource", request.requestSource().name());
 
-            controlService.updateStatus(runId, "RUNNING");
+            controlService.updateStatus(runId, IngestionRunStatus.RUNNING);
             auditService.logEvent(AuditEventRequest.ingestionRunning(request, runId));
             log.info("Started Ingestion Job: {} (ID: {})", request.methodName(), runId);
 
             runIngestion(context);
+
+            // Check if the run was canceled during processing
+            if (controlService.isRunCanceled(runId)) {
+                log.warn("Ingestion Job CANCELED: {} (ID: {})", request.methodName(), runId);
+                auditService.logEvent(AuditEventRequest.ingestionCanceled(request.requestId(), runId, request.requestSource()));
+                return; // Exit early without marking as succeeded
+            }
+
             validateThresholds(context);
 
-            controlService.updateStatus(runId, "SUCCEEDED");
+            controlService.updateStatus(runId, IngestionRunStatus.SUCCEEDED);
             auditService.logEvent(AuditEventRequest.ingestionSucceeded(context));
             log.info("Ingestion Job SUCCEEDED: {} (ID: {}). Stats: {}", request.methodName(), runId, context.toLogSummary());
 
         } catch (Exception e) {
             log.error("Ingestion Job FAILED: {} (ID: {})", request.methodName(), runId, e);
-            controlService.logError(runId, e.getMessage(), null, null);
-            controlService.updateStatus(runId, "FAILED");
+
+            Integer httpStatus = null;
+            String soapFaultCode = null;
+
+            if (e instanceof SipsaExternalException externalEx) {
+                httpStatus = externalEx.getHttpStatus();
+                soapFaultCode = externalEx.getSoapFaultCode();
+            }
+
+            controlService.logError(runId, e.getMessage(), httpStatus, soapFaultCode);
+            controlService.updateStatus(runId, IngestionRunStatus.FAILED);
             auditService.logEvent(AuditEventRequest.ingestionFailed(request.requestId(), runId, request.requestSource(), e.getMessage()));
 
         } finally {

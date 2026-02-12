@@ -1,4 +1,4 @@
-package com.dalejandrov.sipsa.api.dto;
+package com.dalejandrov.sipsa.api.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
@@ -74,4 +74,3 @@ public class ApiResponse<T> {
      */
     private List<T> results;
 }
-

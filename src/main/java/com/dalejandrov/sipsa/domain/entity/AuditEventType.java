@@ -55,6 +55,9 @@ public enum AuditEventType {
     /** Ingestion failed due to error (see error message for details) */
     INGESTION_FAILED("Ingestion failed with error"),
 
+    /** Ingestion was manually canceled by operator */
+    INGESTION_CANCELED("Ingestion canceled by operator"),
+
     /** Ingestion skipped because execution is outside allowed time window */
     INGESTION_SKIPPED_WINDOW("Ingestion skipped - outside window"),
 
@@ -97,4 +100,3 @@ public enum AuditEventType {
     /** Human-readable description of this audit event type */
     private final String description;
 }
-

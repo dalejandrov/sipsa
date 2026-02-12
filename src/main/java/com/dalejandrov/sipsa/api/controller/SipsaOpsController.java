@@ -1,28 +1,40 @@
 package com.dalejandrov.sipsa.api.controller;
 
-import com.dalejandrov.sipsa.api.dto.AuditEventRequest;
-import com.dalejandrov.sipsa.api.dto.IngestionRequest;
-import com.dalejandrov.sipsa.application.service.AsyncIngestionService;
-import com.dalejandrov.sipsa.application.service.IngestionAuditService;
-import com.dalejandrov.sipsa.application.service.IngestionService;
-import com.dalejandrov.sipsa.domain.entity.RequestSource;
+import com.dalejandrov.sipsa.api.dto.request.IngestionTriggerRequest;
+import com.dalejandrov.sipsa.api.dto.response.IngestionCancelResponse;
+import com.dalejandrov.sipsa.api.dto.response.IngestionMethodsResponse;
+import com.dalejandrov.sipsa.api.dto.response.IngestionRunDetailResponse;
+import com.dalejandrov.sipsa.api.dto.response.IngestionRunResponse;
+import com.dalejandrov.sipsa.api.dto.response.IngestionTriggerResponse;
+import com.dalejandrov.sipsa.application.service.IngestionControlService;
+import com.dalejandrov.sipsa.application.service.IngestionRunQueryService;
+import com.dalejandrov.sipsa.application.service.IngestionTriggerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.List;
 
 /**
  * REST controller for internal operational actions related to SIPSA ingestion.
  * <p>
- * This controller exposes endpoints intended for internal use only
- * (e.g. DevOps, scheduled jobs, or operational tooling).
+ * <b>Controller Responsibilities (HTTP Layer):</b>
+ * <ul>
+ *   <li>Handle HTTP requests and responses</li>
+ *   <li>Validate request DTOs with Jakarta Validation</li>
+ *   <li>Delegate operations to service layer</li>
+ *   <li>Return appropriate HTTP status codes</li>
+ * </ul>
  * <p>
- * IMPORTANT:
- * This controller MUST be protected in production environments
+ * <b>NOT Responsible For:</b>
+ * <ul>
+ *   <li>❌ Entity to DTO mapping</li>
+ *   <li>❌ Business logic</li>
+ *   <li>❌ Constructing response objects</li>
+ * </ul>
+ * <p>
+ * IMPORTANT: This controller MUST be protected in production environments
  * (e.g. Spring Security, IP allowlist, internal network only).
  */
 @RestController
@@ -31,85 +43,102 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SipsaOpsController {
 
-    private final AsyncIngestionService asyncIngestionService;
-    private final IngestionService ingestionService;
-    private final IngestionAuditService auditService;
+    private final IngestionTriggerService triggerService;
+    private final IngestionControlService controlService;
+    private final IngestionRunQueryService runQueryService;
 
     /**
      * Triggers an ingestion job asynchronously.
      * <p>
-     * The request returns immediately with HTTP 202 (Accepted),
-     * while the ingestion process is executed in the background.
+     * <b>Controller Role:</b> Validate parameters, build request DTO, delegate to service, return HTTP 202.
      * <p>
-     * Use the {@code force} parameter to control whether scheduler
-     * checks should be bypassed during execution.
+     * This endpoint accepts query parameters for easier manual testing and scheduled job integration.
+     * Use this for operational triggers (DevOps, scheduled tasks).
      *
-     * @param method the ingestion method identifier to execute
-     *               (must be one of the available methods)
-     * @param force  whether to bypass scheduler checks and force execution
+     * @param method the ingestion method name (e.g., "promediosSipsaCiudad")
+     * @param force whether to force ingestion (bypasses window checks), default false
      * @return HTTP 202 if the job is accepted, HTTP 400 for invalid requests
      */
     @PostMapping("/run")
-    public ResponseEntity<Map<String, Object>> triggerIngestion(
+    public ResponseEntity<IngestionTriggerResponse> triggerIngestion(
             @RequestParam String method,
             @RequestParam(defaultValue = "false") boolean force) {
 
-        String requestId = UUID.randomUUID().toString();
-
-        log.info(
-                "Ingestion request received requestId={} method={} force={}",
-                requestId, method, force
+        IngestionTriggerRequest request = new IngestionTriggerRequest(
+                method,
+                force,
+                com.dalejandrov.sipsa.domain.entity.RequestSource.MANUAL
         );
 
-        auditService.logEventSync(AuditEventRequest.requestReceived(requestId, RequestSource.MANUAL, method, force));
-
-        if (method == null || method.isBlank()) {
-            auditService.logEventSync(AuditEventRequest.requestRejected(requestId, RequestSource.MANUAL,
-                    "Method parameter is required and cannot be blank"));
-            return ResponseEntity.badRequest().body(Map.of(
-                    "error", "Method parameter is required and cannot be blank",
-                    "availableMethods", ingestionService.getAvailableMethodNames(),
-                    "requestId", requestId
-            ));
-        }
-
-        if (!ingestionService.isValidMethod(method)) {
-            auditService.logEventSync(AuditEventRequest.requestRejected(requestId, RequestSource.MANUAL,
-                    "Invalid method: " + method));
-            return ResponseEntity.badRequest().body(Map.of(
-                    "error", "Invalid method: " + method,
-                    "availableMethods", ingestionService.getAvailableMethodNames(),
-                    "requestId", requestId
-            ));
-        }
-
-        auditService.logEvent(AuditEventRequest.requestAccepted(requestId, RequestSource.MANUAL, method, force));
-
-        IngestionRequest ingestionRequest = force ?
-            IngestionRequest.manualForced(method, requestId) :
-            IngestionRequest.manual(method, requestId);
-        asyncIngestionService.executeAsync(ingestionRequest);
-
-        return ResponseEntity.accepted().body(Map.of(
-                "requestId", requestId,
-                "status", "ACCEPTED",
-                "method", method,
-                "force", force
-        ));
+        IngestionTriggerResponse response = triggerService.triggerIngestion(request);
+        return ResponseEntity.accepted().body(response);
     }
 
     /**
      * Lists all available ingestion methods.
+     * <p>
+     * <b>Controller Role:</b> Receive HTTP request, delegate to service, return HTTP response.
      *
      * @return list of available method names
      */
     @GetMapping("/methods")
-    public ResponseEntity<Map<String, Object>> getAvailableMethods() {
-        Set<String> methods = ingestionService.getAvailableMethodNames();
+    public ResponseEntity<IngestionMethodsResponse> getAvailableMethods() {
+        IngestionMethodsResponse response = runQueryService.getAvailableMethods();
+        return ResponseEntity.ok(response);
+    }
 
-        return ResponseEntity.ok(Map.of(
-                "methods", methods,
-                "count", methods.size()
-        ));
+    /**
+     * Cancels an active ingestion run.
+     * <p>
+     * <b>Controller Role:</b> Receive HTTP request, delegate to service, return HTTP response.
+     *
+     * @param runId the run identifier to cancel
+     * @return HTTP 200 if canceled
+     */
+    @PostMapping("/cancel/{runId}")
+    public ResponseEntity<IngestionCancelResponse> cancelRun(@PathVariable Long runId) {
+        controlService.cancelRun(runId);
+        return ResponseEntity.ok(new IngestionCancelResponse(runId, "CANCELED"));
+    }
+
+    /**
+     * Lists all currently active ingestion runs.
+     * <p>
+     * <b>Controller Role:</b> Receive HTTP request, delegate to service, return HTTP response.
+     *
+     * @return list of active runs
+     */
+    @GetMapping("/running")
+    public ResponseEntity<List<IngestionRunResponse>> getActiveRuns() {
+        List<IngestionRunResponse> response = runQueryService.getActiveRuns();
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Lists all ingestion runs.
+     * <p>
+     * <b>Controller Role:</b> Receive HTTP request, delegate to service, return HTTP response.
+     *
+     * @return list of all runs with full details
+     */
+    @GetMapping("/runs")
+    public ResponseEntity<List<IngestionRunDetailResponse>> getAllRuns() {
+        List<IngestionRunDetailResponse> response = runQueryService.getAllRuns();
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Gets the status of a specific ingestion run.
+     * <p>
+     * <b>Controller Role:</b> Receive HTTP request, delegate to service, return HTTP 200.
+     * Service throws exception if not found (handled by GlobalExceptionHandler).
+     *
+     * @param runId the run identifier
+     * @return HTTP 200 with run details
+     */
+    @GetMapping("/runs/{runId}")
+    public ResponseEntity<IngestionRunDetailResponse> getRunStatus(@PathVariable Long runId) {
+        IngestionRunDetailResponse response = runQueryService.getRunStatus(runId);
+        return ResponseEntity.ok(response);
     }
 }

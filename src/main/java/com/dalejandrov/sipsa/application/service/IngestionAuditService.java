@@ -1,18 +1,25 @@
 package com.dalejandrov.sipsa.application.service;
 
-import com.dalejandrov.sipsa.api.dto.AuditEventRequest;
+import com.dalejandrov.sipsa.api.dto.request.AuditEventRequest;
+import com.dalejandrov.sipsa.api.dto.request.AuditQueryRequest;
 import com.dalejandrov.sipsa.domain.entity.AuditEventType;
 import com.dalejandrov.sipsa.domain.entity.IngestionAudit;
 import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.IngestionAuditRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.criteria.Predicate;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -157,5 +164,38 @@ public class IngestionAuditService {
     public List<IngestionAudit> getRecentEvents() {
         return auditRepository.findTop100ByOrderByOccurredAtDesc();
     }
-}
 
+    /**
+     * Retrieves paginated audit events with optional filters.
+     * <p>
+     * Supports filtering by requestId, specific date, or date range.
+     * If fecha is provided, it filters for that specific date.
+     * Otherwise, uses startDate and endDate for range filtering.
+     *
+     * @param request the query request containing all filter parameters
+     * @param pageable pagination information
+     * @return page of audit events
+     */
+    @Transactional(readOnly = true)
+    public Page<IngestionAudit> getAudits(AuditQueryRequest request, Pageable pageable) {
+        // Normalize date filters
+        LocalDate effectiveStart = request.fecha() != null ? request.fecha() : request.startDate();
+        LocalDate effectiveEnd = request.fecha() != null ? request.fecha().plusDays(1) : request.endDate();
+
+        return auditRepository.findAll((root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (request.requestId() != null && !request.requestId().isBlank()) {
+                predicates.add(cb.equal(root.get("requestId"), request.requestId()));
+            }
+
+            if (effectiveStart != null || effectiveEnd != null) {
+                Instant start = effectiveStart != null ? effectiveStart.atStartOfDay(ZoneOffset.UTC).toInstant() : Instant.MIN;
+                Instant end = effectiveEnd != null ? effectiveEnd.atStartOfDay(ZoneOffset.UTC).toInstant() : Instant.MAX;
+                predicates.add(cb.between(root.get("occurredAt"), start, end));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        }, pageable);
+    }
+}

@@ -1,5 +1,6 @@
 package com.dalejandrov.sipsa.infrastructure.observability;
 
+import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.IngestionRunRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.actuate.health.Health;
@@ -89,7 +90,7 @@ public class SipsaHealthIndicator implements HealthIndicator {
      */
     @Override
     public Health health() {
-        List<Object[]> lastRuns = runRepository.findLastSuccessPerMethod();
+        List<Object[]> lastRuns = runRepository.findLastRunPerMethodByStatus(IngestionRunStatus.SUCCEEDED);
 
         Map<String, Object> details = new HashMap<>();
         boolean isUp = true;

@@ -131,9 +131,18 @@ public class SoapStreamingClient {
 
             try {
                 return executeCall(envelope);
+            } catch (SipsaExternalException e) {
+                lastException = e;
+                if (isNonRetryable(e)) {
+                    log.error("Non-retryable SOAP error: {} (HTTP: {}, Fault: {})",
+                            e.getMessage(), e.getHttpStatus(), e.getSoapFaultCode());
+                    throw e;
+                }
+                log.warn("Retryable SOAP error on attempt {}: {} (HTTP: {})",
+                        attempt, e.getMessage(), e.getHttpStatus());
             } catch (Exception e) {
                 lastException = e;
-                if (!isRetryable(e)) {
+                if (isNonRetryable(e)) {
                     log.error("Non-retryable error encountered: {}", e.getMessage());
                     throw new SipsaExternalException("SOAP call failed (non-retryable)", e);
                 }
@@ -142,6 +151,10 @@ public class SoapStreamingClient {
             attempt++;
         }
 
+        // After all retries failed, throw with context
+        if (lastException instanceof SipsaExternalException) {
+            throw (SipsaExternalException) lastException;
+        }
         throw new SipsaExternalException("SOAP call failed after " + soapProperties.getMaxRetries() + " retries", lastException);
     }
 
@@ -180,7 +193,6 @@ public class SoapStreamingClient {
         int status = response.statusCode();
         InputStream stream = response.body();
 
-        /* Decompress GZIP response if Content-Encoding header indicates compression */
         String encoding = response.headers().firstValue("Content-Encoding").orElse("");
         if ("gzip".equalsIgnoreCase(encoding)) {
             stream = new GZIPInputStream(stream);
@@ -195,54 +207,66 @@ public class SoapStreamingClient {
              */
             return stream;
         } else if (status >= 500) {
-            /* Server errors (5xx) are retryable */
-            throw new IOException("Server Error " + status);
+            throw new SipsaExternalException("Server Error " + status, status);
         } else {
-            /* Client errors (4xx) are non-retryable */
-            throw new IOException("HTTP Client Error " + status);
+            throw new SipsaExternalException("HTTP Client Error " + status, status);
         }
     }
 
     /**
-     * Determines if an exception represents a retryable error.
+     * Determines if an exception represents a non-retryable error.
      * <p>
-     * <b>Retryable errors:</b>
+     * <b>Non-retryable errors:</b>
+     * <ul>
+     *   <li>SipsaExternalException with 4xx HTTP status - Client errors</li>
+     *   <li>SipsaExternalException with SOAP fault - Business errors</li>
+     *   <li>IOException with "HTTP Client Error" - HTTP 4xx responses (legacy)</li>
+     *   <li>Other unexpected exceptions</li>
+     * </ul>
+     * <p>
+     * <b>Retryable errors (return false):</b>
      * <ul>
      *   <li>TimeoutException - Request timed out</li>
      *   <li>SocketTimeoutException - Socket read/write timeout</li>
      *   <li>ConnectException - Cannot establish connection</li>
-     *   <li>IOException with "Server Error" - HTTP 5xx responses</li>
+     *   <li>SipsaExternalException with 5xx HTTP status - Server errors</li>
+     *   <li>IOException with "Server Error" - HTTP 5xx responses (legacy)</li>
      *   <li>Other IOExceptions - General network issues</li>
-     * </ul>
-     * <p>
-     * <b>Non-retryable errors:</b>
-     * <ul>
-     *   <li>IOException with "HTTP Client Error" - HTTP 4xx responses</li>
-     *   <li>Other exceptions - Unexpected errors</li>
      * </ul>
      *
      * @param e the exception to evaluate
-     * @return true if the error should trigger a retry, false otherwise
+     * @return true if the error should NOT trigger a retry, false if it should retry
      */
-    private boolean isRetryable(Exception e) {
+    private boolean isNonRetryable(Exception e) {
+        if (e instanceof SipsaExternalException sipsaEx) {
+            if (sipsaEx.getSoapFaultCode() != null) {
+                return true;
+            }
+
+            Integer httpStatus = sipsaEx.getHttpStatus();
+            if (httpStatus != null) {
+                return httpStatus < 500 || httpStatus >= 600;
+            }
+        }
+
         if (e instanceof java.util.concurrent.TimeoutException)
-            return true;
+            return false;
         if (e instanceof java.net.SocketTimeoutException)
-            return true;
+            return false;
         if (e instanceof java.net.ConnectException)
-            return true;
+            return false;
+
         if (e instanceof IOException) {
             String message = e.getMessage();
-            /* Null message means generic network error, which is typically retryable */
             if (message == null)
-                return true;
-            /* Server errors (5xx) are retryable */
+                return false;
             if (message.contains("Server Error"))
+                return false;
+            if (message.contains("HTTP Client Error"))
                 return true;
-            /* Client errors (4xx) are not retryable */
-            return !message.contains("HTTP Client Error");
         }
-        return false;
+
+        return true;
     }
 
     /**

@@ -28,6 +28,7 @@ import java.time.Instant;
  *   <li>RUNNING - Actively processing data</li>
  *   <li>SUCCEEDED - Completed successfully</li>
  *   <li>FAILED - Terminated with error</li>
+ *   <li>CANCELED - Run was canceled by the user or system</li>
  * </ul>
  * <p>
  * <b>Window Keys:</b>
@@ -85,9 +86,10 @@ public class IngestionRun {
     @Column(name = "end_time")
     private Instant endTime;
 
-    /** Current status: STARTED, RUNNING, SUCCEEDED, or FAILED */
+    /** Current status: STARTED, RUNNING, SUCCEEDED, FAILED, or CANCELED */
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    private String status;
+    private IngestionRunStatus status;
 
     /** Total number of records encountered during parsing */
     @Column(name = "records_seen")

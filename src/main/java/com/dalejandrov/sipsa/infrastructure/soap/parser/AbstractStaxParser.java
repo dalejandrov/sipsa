@@ -124,14 +124,33 @@ public abstract class AbstractStaxParser<T> implements Iterator<T> {
             logger.debug("Error closing reader: {}", e.getMessage());
         }
     }
-
+    /**
+     * Handles SOAP fault elements by extracting fault code and message.
+     * <p>
+     * Supports both SOAP 1.1 and SOAP 1.2 formats:
+     * <ul>
+     *   <li>SOAP 1.1: {@code faultcode} and {@code faultstring} elements</li>
+     *   <li>SOAP 1.2: {@code Code} and {@code Reason} elements</li>
+     * </ul>
+     *
+     * @throws XMLStreamException if XML parsing error occurs
+     * @throws SipsaExternalException containing the fault code and message
+     */
     private void handleSoapFault() throws XMLStreamException {
+        String faultCode = null;
         String faultString = "Unknown Fault";
+
         while (reader.hasNext()) {
             int event = reader.next();
             if (event == XMLStreamConstants.START_ELEMENT) {
                 String elementName = reader.getLocalName();
-                if (FAULT_TEXT_ELEMENT.equals(elementName) || FAULT_STRING_ELEMENT.equals(elementName)) {
+
+                // Capture faultcode element (SOAP 1.1) or Code element (SOAP 1.2)
+                if ("faultcode".equalsIgnoreCase(elementName) || "Code".equals(elementName)) {
+                    faultCode = reader.getElementText();
+                }
+                // Capture faultstring element (SOAP 1.1) or faultText/Reason (SOAP 1.2)
+                else if (FAULT_TEXT_ELEMENT.equals(elementName) || FAULT_STRING_ELEMENT.equals(elementName)) {
                     faultString = reader.getElementText();
                     break;
                 }
@@ -140,8 +159,9 @@ public abstract class AbstractStaxParser<T> implements Iterator<T> {
                 break;
             }
         }
-        logger.error("SOAP Fault: {}", faultString);
-        throw new SipsaExternalException("SOAP Fault in response: " + faultString);
+
+        logger.error("SOAP Fault - Code: {}, Message: {}", faultCode, faultString);
+        throw new SipsaExternalException("SOAP Fault in response: " + faultString, faultCode);
     }
 
     /**

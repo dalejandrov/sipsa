@@ -7,6 +7,7 @@ import org.mapstruct.Mapping;
 import org.mapstruct.Named;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * MapStruct mapper for converting SOAP DTOs to domain entities.
@@ -152,18 +153,15 @@ public interface SipsaIngestionMapper {
     }
 
     /**
-     * Computes a hash for the business key of SipsaParcial records.
+     * Generates an auto-generated UUID for the keyHash of SipsaParcial records.
      * <p>
-     * The hash is based on (muniId, fuenId, futiId, idArtiSemana, enmaFecha, artiNombre)
-     * to ensure idempotent processing and prevent duplicates.
+     * Returns a random UUID as a string for uniqueness.
      *
      * @param record the parsed partial market record
      * @param fechaEncuesta the survey date
-     * @return hash code as String
+     * @return UUID as String
      */
     default String computeKeyHash(SipsaParcialRecord record, Instant fechaEncuesta) {
-        String key = record.muniId() + "|" + record.fuenId() + "|" + record.futiId() + "|" +
-                     record.idArtiSemana() + "|" + fechaEncuesta + "|" + record.artiNombre();
-        return key;
+        return UUID.randomUUID().toString();
     }
 }
