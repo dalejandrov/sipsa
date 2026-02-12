@@ -14,11 +14,18 @@ import java.util.UUID;
  * Scheduler for automatic execution of SIPSA ingestion jobs.
  * <p>
  * This component triggers ingestion jobs at predefined times using Spring's
- * {@code @Scheduled} annotation. It manages:
+ * {@code @Scheduled} annotation. Schedules are aligned with DANE's data publication times:
  * <ul>
- *   <li>Daily ingestion window (14:20 America/Bogota) for Ciudad, Parcial, and Semana</li>
- *   <li>Monthly ingestion on day 8 (06:00) for MesMadr</li>
- *   <li>Monthly ingestion on day 10 (06:00) for AbasMes</li>
+ *   <li>Daily/Weekly data (Ciudad, Parcial, Semana): 14:20 COT (20 min after DANE publishes at 14:00)</li>
+ *   <li>Monthly wholesale data (MesMadr): Day 8 at 14:30 COT (30 min after DANE publishes)</li>
+ *   <li>Monthly supply data (AbasMes): Day 10 at 14:30 COT (30 min after DANE publishes)</li>
+ * </ul>
+ * <p>
+ * <b>DANE Publication Schedule:</b>
+ * <ul>
+ *   <li>Mayoristas (daily/weekly): Available from 2:00 PM (14:00) each day</li>
+ *   <li>Mayoristas (monthly): Updated on day 8 of each month</li>
+ *   <li>Abastecimientos (monthly): Updated on day 10 of each month</li>
  * </ul>
  * <p>
  * All scheduled executions use {@link RequestSource#SCHEDULED} to differentiate
@@ -30,8 +37,8 @@ import java.util.UUID;
  * <b>Configuration Properties:</b>
  * <ul>
  *   <li>{@code sipsa.ingestion.cron.daily} - Daily window cron (default: 0 20 14 * * *)</li>
- *   <li>{@code sipsa.ingestion.cron.monthly-mes} - Day 8 cron (default: 0 0 6 8 * *)</li>
- *   <li>{@code sipsa.ingestion.cron.monthly-abas} - Day 10 cron (default: 0 0 6 10 * *)</li>
+ *   <li>{@code sipsa.ingestion.cron.monthly-mes} - Day 8 cron (default: 0 30 14 8 * *)</li>
+ *   <li>{@code sipsa.ingestion.cron.monthly-abas} - Day 10 cron (default: 0 30 14 10 * *)</li>
  *   <li>{@code sipsa.timezone} - Timezone for scheduling (default: America/Bogota)</li>
  * </ul>
  *
@@ -76,10 +83,13 @@ public class SipsaIngestionScheduler {
     /**
      * Executes monthly MesMadr ingestion.
      * <p>
-     * Triggered on day 8 of each month at 06:00 (America/Bogota timezone).
+     * Triggered on day 8 of each month at 14:30 (2:30 PM America/Bogota timezone).
      * Processes monthly wholesale market aggregated data.
+     * <p>
+     * DANE updates this data on day 8 around 14:00, so we run at 14:30 to ensure
+     * data is available.
      */
-    @Scheduled(cron = "${sipsa.ingestion.cron.monthly-mes:0 0 6 8 * *}", zone = "${sipsa.timezone:America/Bogota}")
+    @Scheduled(cron = "${sipsa.ingestion.cron.monthly-mes:0 30 14 8 * *}", zone = "${sipsa.timezone:America/Bogota}")
     public void runMonthlyMes() {
         log.info("Triggering Monthly MesMadr");
         runSafely("promediosSipsaMesMadr");
@@ -88,10 +98,13 @@ public class SipsaIngestionScheduler {
     /**
      * Executes monthly AbasMes ingestion.
      * <p>
-     * Triggered on day 10 of each month at 06:00 (America/Bogota timezone).
+     * Triggered on day 10 of each month at 14:30 (2:30 PM America/Bogota timezone).
      * Processes monthly supply data to wholesale markets.
+     * <p>
+     * DANE updates this data on day 10 around 14:00, so we run at 14:30 to ensure
+     * data is available.
      */
-    @Scheduled(cron = "${sipsa.ingestion.cron.monthly-abas:0 0 6 10 * *}", zone = "${sipsa.timezone:America/Bogota}")
+    @Scheduled(cron = "${sipsa.ingestion.cron.monthly-abas:0 30 14 10 * *}", zone = "${sipsa.timezone:America/Bogota}")
     public void runMonthlyAbas() {
         log.info("Triggering Monthly AbasMes");
         runSafely("promedioAbasSipsaMesMadr");

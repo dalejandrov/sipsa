@@ -65,20 +65,46 @@ sipsa:
     max-child-elements: ${SOAP_MAX_CHILD_ELEMENTS:0} # Unlimited
     logging-enabled: ${SOAP_LOGGING_ENABLED:false}
 
+  # Scheduling configuration for task scheduler
+  scheduling:
+    pool-size: ${SIPSA_SCHEDULING_POOL_SIZE:5}
+    await-termination-seconds: ${SIPSA_SCHEDULING_AWAIT_TERMINATION:30}
+
   ingestion:
     # Reduced from 2000 for more frequent saves (less data loss on timeout)
     batch-size: ${INGESTION_BATCH_SIZE:500}
 
     # Window config (America/Bogota)
+    # These windows control when ingestion jobs are ALLOWED to run (validation)
+    # Aligned with DANE's data publication schedule (2:00 PM daily)
     daily-window-start: ${DAILY_WINDOW_START:14:20}
     daily-window-end: ${DAILY_WINDOW_END:23:59}
 
+    # Monthly runs allowed on day 8 (MesMadr) and day 10 (AbasMes)
     monthly-run-days: ${MONTHLY_RUN_DAYS:8,10}
-    monthly-window-start: ${MONTHLY_WINDOW_START:06:00}
+    # Monthly data published by DANE around 2:00 PM
+    monthly-window-start: ${MONTHLY_WINDOW_START:14:00}
 
     # Reject thresholds
     max-reject-count: ${MAX_REJECT_COUNT:5000}
     max-reject-rate: ${MAX_REJECT_RATE:0.01}
+
+    # Cron expressions for scheduled jobs
+    # All times are in America/Bogota timezone
+    # DANE publishes data at 2:00 PM, we add margin for safety
+    cron:
+      # Daily ingestion: Ciudad, Parcial, Semana
+      # Default: Every day at 14:20 (2:20 PM)
+      # DANE publishes daily/weekly data at 2:00 PM
+      daily: ${SIPSA_CRON_DAILY:0 20 14 * * *}
+
+      # Monthly MesMadr: Day 8 of every month at 14:30 (2:30 PM)
+      # DANE updates monthly wholesale data on day 8
+      monthly-mes: ${SIPSA_CRON_MONTHLY_MES:0 30 14 8 * *}
+
+      # Monthly AbasMes: Day 10 of every month at 14:30 (2:30 PM)
+      # DANE updates monthly supply data on day 10
+      monthly-abas: ${SIPSA_CRON_MONTHLY_ABAS:0 30 14 10 * *}
 
     # Async executor configuration
     async:
