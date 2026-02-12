@@ -25,13 +25,6 @@ import java.util.List;
  *   <li>Always return ResponseEntity.ok() - exceptions handled by GlobalExceptionHandler</li>
  * </ul>
  * <p>
- * <b>NOT Responsible For:</b>
- * <ul>
- *   <li>❌ Business logic or validation</li>
- *   <li>❌ Data transformation or mapping</li>
- *   <li>❌ Pagination logic construction</li>
- *   <li>❌ Query specification building</li>
- * </ul>
  * <p>
  * All business logic is delegated to {@link SipsaReadService}.
  *

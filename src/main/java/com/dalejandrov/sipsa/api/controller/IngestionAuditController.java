@@ -25,12 +25,6 @@ import java.util.List;
  * </ul>
  * <p>
  * <b>NOT Responsible For:</b>
- * <ul>
- *   <li>❌ Building response DTOs</li>
- *   <li>❌ Entity to DTO mapping</li>
- *   <li>❌ Timezone conversions</li>
- *   <li>❌ Business logic or data aggregation</li>
- * </ul>
  * <p>
  * All business logic is delegated to {@link AuditTrailService}.
  *

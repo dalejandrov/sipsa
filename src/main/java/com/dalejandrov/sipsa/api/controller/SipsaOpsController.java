@@ -27,14 +27,8 @@ import java.util.List;
  *   <li>Return appropriate HTTP status codes</li>
  * </ul>
  * <p>
- * <b>NOT Responsible For:</b>
- * <ul>
- *   <li>❌ Entity to DTO mapping</li>
- *   <li>❌ Business logic</li>
- *   <li>❌ Constructing response objects</li>
- * </ul>
  * <p>
- * IMPORTANT: This controller MUST be protected in production environments
+ * TODO: This controller MUST be protected in production environments
  * (e.g. Spring Security, IP allowlist, internal network only).
  */
 @RestController
