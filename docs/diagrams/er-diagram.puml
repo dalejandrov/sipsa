@@ -1,0 +1,165 @@
+@startuml ER Diagram
+
+title Database Entity-Relationship Diagram for SIPSA Project
+
+skinparam backgroundColor #FFFFFF
+skinparam entity {
+  BackgroundColor #F8F9FA
+  BorderColor #495057
+  BorderThickness 1.5
+  FontColor #212529
+}
+skinparam relationship {
+  LineColor #6C757D
+  LineThickness 1.5
+}
+skinparam package {
+  BackgroundColor #E9ECEF
+  BorderColor #ADB5BD
+  BorderThickness 1
+  FontStyle bold
+}
+
+legend right
+  |= Type |= Description |
+  | PK | Primary Key |
+  | FK | Foreign Key |
+  | ENUM | Enumeration Type |
+endlegend
+
+package "Ingestion Management" #D1ECF1 {
+  entity IngestionRun {
+    * runId : BIGINT <<PK>>
+    methodName : VARCHAR
+    windowKey : VARCHAR
+    requestId : VARCHAR
+    requestSource : ENUM
+    startTime : TIMESTAMP
+    endTime : TIMESTAMP
+    status : ENUM
+    recordsSeen : INT
+    recordsInserted : INT
+    recordsUpdated : INT
+    rejectCount : INT
+    lastErrorMessage : TEXT
+    httpStatus : INT
+    soapFaultCode : VARCHAR
+  }
+
+  entity IngestionAudit {
+    * auditId : BIGINT <<PK>>
+    runId : BIGINT <<FK>>
+    requestId : VARCHAR
+    requestSource : ENUM
+    eventType : VARCHAR
+    message : TEXT
+    occurredAt : TIMESTAMP
+  }
+
+  entity IngestionReject {
+    * rejectId : BIGINT <<PK>>
+    runId : BIGINT <<FK>>
+    rawData : TEXT
+    reason : VARCHAR
+    isParseError : BOOLEAN
+    createdAt : TIMESTAMP
+  }
+}
+
+package "SIPSA Data Entities" #FFF3CD {
+  entity SipsaCiudad {
+    * id : BIGINT <<PK>>
+    regId : BIGINT
+    ciudad : VARCHAR
+    codProducto : BIGINT
+    producto : VARCHAR
+    fechaCaptura : TIMESTAMP
+    fechaCreacion : TIMESTAMP
+    precioPromedio : DECIMAL
+    enviado : DECIMAL
+    fechaSincronizacion : TIMESTAMP
+    ingestionRunId : BIGINT <<FK>>
+  }
+
+  entity SipsaMayoristasMensual {
+    * id : BIGINT <<PK>>
+    tmpMayoMesId : BIGINT
+    artiId : BIGINT
+    artiNombre : VARCHAR
+    fuenId : BIGINT
+    fuenNombre : VARCHAR
+    futiId : BIGINT
+    fechaMesIni : TIMESTAMP
+    fechaCreacion : TIMESTAMP
+    minimoKg : DECIMAL
+    maximoKg : DECIMAL
+    promedioKg : DECIMAL
+    enviado : DECIMAL
+    ingestionRunId : BIGINT <<FK>>
+    fechaSincronizacion : TIMESTAMP
+  }
+
+  entity SipsaAbastecimientosMensual {
+    * id : BIGINT <<PK>>
+    tmpAbasMesId : BIGINT
+    artiId : BIGINT
+    artiNombre : VARCHAR
+    fuenId : BIGINT
+    fuenNombre : VARCHAR
+    futiId : BIGINT
+    fechaMesIni : TIMESTAMP
+    fechaCreacion : TIMESTAMP
+    cantidadTon : DECIMAL
+    enviado : DECIMAL
+    ingestionRunId : BIGINT <<FK>>
+    fechaSincronizacion : TIMESTAMP
+  }
+
+  entity SipsaMayoristasSemanal {
+    * id : BIGINT <<PK>>
+    tmpMayoSemId : BIGINT
+    artiId : BIGINT
+    artiNombre : VARCHAR
+    fuenId : BIGINT
+    fuenNombre : VARCHAR
+    futiId : BIGINT
+    fechaIni : TIMESTAMP
+    minimoKg : DECIMAL
+    maximoKg : DECIMAL
+    promedioKg : DECIMAL
+    fechaCreacion : TIMESTAMP
+    enviado : DECIMAL
+    fechaSincronizacion : TIMESTAMP
+    ingestionRunId : BIGINT <<FK>>
+  }
+
+  entity SipsaParcial {
+    * id : BIGINT <<PK>>
+    keyHash : VARCHAR
+    muniId : VARCHAR
+    muniNombre : VARCHAR
+    deptNombre : VARCHAR
+    fuenId : BIGINT
+    fuenNombre : VARCHAR
+    futiId : BIGINT
+    idArtiSemana : BIGINT
+    artiNombre : VARCHAR
+    grupNombre : VARCHAR
+    enmaFecha : TIMESTAMP
+    promedioKg : DECIMAL
+    maximoKg : DECIMAL
+    minimoKg : DECIMAL
+    fechaSincronizacion : TIMESTAMP
+    ingestionRunId : BIGINT <<FK>>
+  }
+}
+
+IngestionRun ||--o{ IngestionAudit : "1 to *"
+IngestionRun ||--o{ IngestionReject : "1 to *"
+IngestionRun ||--o{ SipsaCiudad : "1 to *"
+IngestionRun ||--o{ SipsaMayoristasMensual : "1 to *"
+IngestionRun ||--o{ SipsaAbastecimientosMensual : "1 to *"
+IngestionRun ||--o{ SipsaMayoristasSemanal : "1 to *"
+IngestionRun ||--o{ SipsaParcial : "1 to *"
+
+@enduml
