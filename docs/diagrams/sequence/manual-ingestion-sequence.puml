@@ -1,0 +1,39 @@
+@startuml Manual Ingestion Trigger Process
+title Manual Ingestion Trigger Process
+
+actor Operator
+participant SipsaOpsController
+participant IngestionTriggerService
+participant IngestionTriggerRequest
+participant GenericIngestionJob
+participant IngestionJob
+participant AsyncIngestionService
+
+== Trigger Request ==
+Operator -> SipsaOpsController: POST /api/internal/ingestion/run\n?method=promediosSipsaCiudad&force=false
+SipsaOpsController -> IngestionTriggerRequest: new(method, force, MANUAL)
+SipsaOpsController -> IngestionTriggerService: triggerIngestion(request)
+
+IngestionTriggerService -> IngestionTriggerService: validate request
+IngestionTriggerService -> AsyncIngestionService: triggerAsync(request)
+AsyncIngestionService -> AsyncIngestionService: submit to ExecutorService
+
+== Asynchronous Execution ==
+AsyncIngestionService -> GenericIngestionJob: execute(request)
+note right: Same flow as scheduled ingestion
+
+GenericIngestionJob -> IngestionJob: execute(request)
+... (same as scheduled flow) ...
+
+== Response ==
+IngestionTriggerService -> IngestionTriggerService: build response with requestId
+IngestionTriggerService --> SipsaOpsController: IngestionTriggerResponse
+SipsaOpsController --> Operator: HTTP 202 Accepted + response
+
+note right of AsyncIngestionService
+    Ingestion runs asynchronously.
+    Client gets immediate response
+    with requestId for tracking.
+end note
+
+@enduml

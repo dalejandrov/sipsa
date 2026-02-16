@@ -1,0 +1,117 @@
+@startuml Component Diagram
+title SIPSA System Component Diagram
+
+package "Presentation Layer" #E3F2FD {
+  [SipsaRestController] as REST
+  [SipsaOpsController] as OPS
+  [IngestionAuditController] as AUDIT
+  [GlobalExceptionHandler] as EXCEPTION
+}
+
+package "Application Layer" #F3E5F5 {
+  [SipsaReadService] as READ_SVC
+  [IngestionService] as INGEST_SVC
+  [IngestionTriggerService] as TRIGGER_SVC
+  [IngestionControlService] as CONTROL_SVC
+  [IngestionAuditService] as AUDIT_SVC
+  [IngestionRunQueryService] as QUERY_SVC
+  [AsyncIngestionService] as ASYNC_SVC
+}
+
+package "Domain Layer" #E8F5E8 {
+  [IngestionRun] as RUN_ENTITY
+  [IngestionAudit] as AUDIT_ENTITY
+  [IngestionReject] as REJECT_ENTITY
+  [SipsaCiudad] as CIUDAD_ENTITY
+  [SipsaParcial] as PARCIAL_ENTITY
+  [SipsaMayoristasMensual] as MES_ENTITY
+  [SipsaAbastecimientosMensual] as ABAS_ENTITY
+  [SipsaMayoristasSemanal] as SEMANA_ENTITY
+}
+
+package "Infrastructure Layer" #FFF3E0 {
+  [SoapGateway] as SOAP_GATEWAY
+  [SipsaCiudadRepository] as CIUDAD_REPO
+  [SipsaParcialRepository] as PARCIAL_REPO
+  [IngestionRunRepository] as RUN_REPO
+  [TimezoneFilter] as TIMEZONE_FILTER
+  [RequestContextFilter] as CONTEXT_FILTER
+  [WindowPolicy] as WINDOW_POLICY
+  [GenericIngestionJob] as GENERIC_JOB
+  [CiudadIngestionHandler] as CIUDAD_HANDLER
+  [ParcialIngestionHandler] as PARCIAL_HANDLER
+  [MesIngestionHandler] as MES_HANDLER
+  [SemanaIngestionHandler] as SEMANA_HANDLER
+  [AbasIngestionHandler] as ABAS_HANDLER
+}
+
+package "External Systems" #FCE4EC {
+  [DANE SOAP Service] as DANE_SOAP
+  [PostgreSQL Database] as DB
+}
+
+' Relationships
+REST --> READ_SVC : queries data
+OPS --> TRIGGER_SVC : triggers ingestion
+OPS --> CONTROL_SVC : manages runs
+OPS --> QUERY_SVC : queries runs
+AUDIT --> AUDIT_SVC : logs events
+
+READ_SVC --> CIUDAD_REPO : reads
+READ_SVC --> PARCIAL_REPO : reads
+READ_SVC --> RUN_REPO : reads
+
+INGEST_SVC --> CIUDAD_HANDLER : dispatches
+INGEST_SVC --> PARCIAL_HANDLER : dispatches
+INGEST_SVC --> MES_HANDLER : dispatches
+INGEST_SVC --> SEMANA_HANDLER : dispatches
+INGEST_SVC --> ABAS_HANDLER : dispatches
+
+TRIGGER_SVC --> ASYNC_SVC : async execution
+ASYNC_SVC --> GENERIC_JOB : executes
+
+GENERIC_JOB --> WINDOW_POLICY : validates window
+GENERIC_JOB --> CONTROL_SVC : manages lifecycle
+GENERIC_JOB --> AUDIT_SVC : logs events
+GENERIC_JOB --> INGEST_SVC : delegates
+
+CIUDAD_HANDLER --> SOAP_GATEWAY : fetches data
+CIUDAD_HANDLER --> CIUDAD_REPO : persists
+PARCIAL_HANDLER --> SOAP_GATEWAY : fetches data
+PARCIAL_HANDLER --> PARCIAL_REPO : persists
+MES_HANDLER --> SOAP_GATEWAY : fetches data
+SEMANA_HANDLER --> SOAP_GATEWAY : fetches data
+ABAS_HANDLER --> SOAP_GATEWAY : fetches data
+
+CONTROL_SVC --> RUN_REPO : CRUD operations
+AUDIT_SVC --> RUN_REPO : logs
+QUERY_SVC --> RUN_REPO : queries
+
+TIMEZONE_FILTER --> REST : filters requests
+CONTEXT_FILTER --> REST : filters requests
+
+SOAP_GATEWAY --> DANE_SOAP : SOAP calls
+CIUDAD_REPO --> DB : JPA
+PARCIAL_REPO --> DB : JPA
+RUN_REPO --> DB : JPA
+
+' Entity relationships
+RUN_ENTITY --> AUDIT_ENTITY : 1..*
+RUN_ENTITY --> REJECT_ENTITY : 1..*
+RUN_ENTITY --> CIUDAD_ENTITY : 1..*
+RUN_ENTITY --> PARCIAL_ENTITY : 1..*
+RUN_ENTITY --> MES_ENTITY : 1..*
+RUN_ENTITY --> ABAS_ENTITY : 1..*
+RUN_ENTITY --> SEMANA_ENTITY : 1..*
+
+note right of TIMEZONE_FILTER
+    Handles X-Timezone header
+    for date formatting
+end note
+
+note right of CONTEXT_FILTER
+    Handles X-Timezone and X-Location
+    headers for context
+end note
+
+@enduml

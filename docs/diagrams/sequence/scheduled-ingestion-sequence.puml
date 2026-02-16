@@ -1,0 +1,67 @@
+@startuml Scheduled Ingestion Process
+title Scheduled Ingestion Process
+
+actor Scheduler
+participant SipsaIngestionScheduler
+participant GenericIngestionJob
+participant IngestionJob
+participant WindowPolicy
+participant IngestionControlService
+participant IngestionAuditService
+participant IngestionService
+participant IngestionHandler
+participant SoapGateway
+participant Repository
+
+== Window Validation ==
+Scheduler -> SipsaIngestionScheduler: runDailyWindow() / runMonthlyMes() / runMonthlyAbas()
+SipsaIngestionScheduler -> GenericIngestionJob: execute(request)
+GenericIngestionJob -> IngestionJob: execute(request)
+IngestionJob -> WindowPolicy: validateAndGetKey(methodName, force)
+WindowPolicy --> IngestionJob: windowKey
+
+== Duplicate Check ==
+IngestionJob -> IngestionControlService: isRunComplete(methodName, windowKey)
+IngestionControlService --> IngestionJob: isComplete
+alt Run already complete and not forced
+    IngestionJob -> IngestionAuditService: logEvent(skippedDuplicate)
+    note right: Skip ingestion
+else Not complete or forced
+    IngestionJob -> IngestionControlService: createRun(request, windowKey)
+    IngestionControlService --> IngestionJob: runId
+    IngestionJob -> IngestionAuditService: logEvent(ingestionStarted)
+
+    == Ingestion Execution ==
+    IngestionJob -> IngestionControlService: updateStatus(runId, RUNNING)
+    IngestionJob -> IngestionAuditService: logEvent(ingestionRunning)
+    IngestionJob -> GenericIngestionJob: runIngestion(context)
+    GenericIngestionJob -> IngestionService: execute(methodName, context)
+    IngestionService -> IngestionHandler: execute(context)
+
+    == Data Fetching and Processing ==
+    IngestionHandler -> SoapGateway: getData() (e.g., getCiudadData())
+    SoapGateway --> IngestionHandler: InputStream
+    loop For each record
+        IngestionHandler -> IngestionHandler: parse record
+        IngestionHandler -> IngestionHandler: validate record
+        alt Valid record
+            IngestionHandler -> Repository: batchUpsert(batch)
+            Repository --> IngestionHandler: metrics
+            IngestionHandler -> IngestionContext: incrementInserted()
+        else Invalid record
+            IngestionHandler -> IngestionContext: addRejectedRecord()
+        end
+    end
+
+    == Completion ==
+    IngestionJob -> IngestionJob: validateThresholds(context)
+    IngestionJob -> IngestionControlService: updateStatus(runId, SUCCEEDED)
+    IngestionJob -> IngestionAuditService: logEvent(ingestionSucceeded)
+end
+
+== Cleanup ==
+IngestionJob -> IngestionControlService: updateMetrics(runId, ...)
+IngestionJob -> IngestionJob: persistRejectedRecords(context)
+IngestionJob -> IngestionAuditService: logEvent(metricsUpdated)
+
+@enduml

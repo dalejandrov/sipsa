@@ -1,0 +1,258 @@
+@startuml Class Diagram
+title SIPSA Class Diagram
+
+package "API Layer" #E3F2FD {
+  class SipsaRestController {
+    + SipsaReadService readService
+    + getCiudad(CiudadQueryRequest): ResponseEntity<ApiResponse<SipsaCiudadResponse>>
+    + getMayoristasMensual(MayoristasMensualQueryRequest): ResponseEntity<ApiResponse<SipsaMayoristasMensualResponse>>
+    + getParcial(ParcialQueryRequest): ResponseEntity<ApiResponse<SipsaParcialResponse>>
+    + getMayoristasSemanal(MayoristasSemanalQueryRequest): ResponseEntity<ApiResponse<SipsaMayoristasSemanalResponse>>
+    + getAbastecimientosMensual(AbastecimientosMensualQueryRequest): ResponseEntity<ApiResponse<SipsaAbastecimientosMensualResponse>>
+  }
+
+  class SipsaOpsController {
+    + IngestionTriggerService triggerService
+    + IngestionControlService controlService
+    + IngestionRunQueryService runQueryService
+    + triggerIngestion(String method, boolean force): ResponseEntity<IngestionTriggerResponse>
+    + getAvailableMethods(): ResponseEntity<IngestionMethodsResponse>
+    + cancelRun(Long runId): ResponseEntity<IngestionCancelResponse>
+  }
+
+  class GlobalExceptionHandler {
+    + handleValidationException(ValidationException): ResponseEntity<ErrorResponse>
+    + handleBusinessException(SipsaBusinessException): ResponseEntity<ErrorResponse>
+    + handleExternalException(SipsaExternalException): ResponseEntity<ErrorResponse>
+  }
+}
+
+package "Application Layer" #F3E5F5 {
+  class SipsaReadService {
+    + getCiudad(CiudadQueryRequest): Page<SipsaCiudadResponse>
+    + getParcial(ParcialQueryRequest): Page<SipsaParcialResponse>
+    + getMayoristasMensual(MayoristasMensualQueryRequest): Page<SipsaMayoristasMensualResponse>
+    + getMayoristasSemanal(MayoristasSemanalQueryRequest): Page<SipsaMayoristasSemanalResponse>
+    + getAbastecimientosMensual(AbastecimientosMensualQueryRequest): Page<SipsaAbastecimientosMensualResponse>
+  }
+
+  class IngestionService {
+    + Map<String, IngestionHandler> handlerMap
+    + execute(String methodName, IngestionContext): void
+    + isValidMethod(String methodName): boolean
+    + getAvailableMethodNames(): Set<String>
+  }
+
+  class IngestionTriggerService {
+    + triggerIngestion(IngestionTriggerRequest): IngestionTriggerResponse
+  }
+
+  class AsyncIngestionService {
+    + triggerAsync(IngestionTriggerRequest): void
+  }
+
+  class IngestionControlService {
+    + createRun(CreateRunRequest): long
+    + updateStatus(long runId, IngestionRunStatus status): void
+    + updateMetrics(long runId, int seen, int inserted, int updated, int rejected): void
+    + isRunComplete(String methodName, String windowKey): boolean
+  }
+
+  class IngestionAuditService {
+    + logEvent(AuditEventRequest): void
+  }
+
+  class IngestionRunQueryService {
+    + getAvailableMethods(): IngestionMethodsResponse
+    + getRuns(IngestionRunQueryRequest): Page<IngestionRunResponse>
+  }
+}
+
+package "Domain Layer" #E8F5E8 {
+  class IngestionRun {
+    - long runId
+    - String methodName
+    - String windowKey
+    - String requestId
+    - RequestSource requestSource
+    - Instant startTime
+    - Instant endTime
+    - IngestionRunStatus status
+    - int recordsSeen
+    - int recordsInserted
+    - int recordsUpdated
+    - int rejectCount
+    - String lastErrorMessage
+    - Integer httpStatus
+    - String soapFaultCode
+  }
+
+  class IngestionAudit {
+    - long auditId
+    - long runId
+    - String requestId
+    - RequestSource requestSource
+    - String eventType
+    - String message
+    - Instant occurredAt
+  }
+
+  class IngestionReject {
+    - long rejectId
+    - long runId
+    - String rawData
+    - String reason
+    - boolean isParseError
+    - Instant createdAt
+  }
+
+  class SipsaCiudad {
+    - long id
+    - long regId
+    - String ciudad
+    - long codProducto
+    - String producto
+    - Instant fechaCaptura
+    - Instant fechaCreacion
+    - BigDecimal precioPromedio
+    - BigDecimal enviado
+    - Instant fechaSincronizacion
+    - long ingestionRunId
+  }
+
+  class SipsaParcial {
+    - long id
+    - String keyHash
+    - String muniId
+    - String muniNombre
+    - String deptNombre
+    - long fuenId
+    - String fuenNombre
+    - long futiId
+    - long idArtiSemana
+    - String artiNombre
+    - String grupNombre
+    - Instant enmaFecha
+    - BigDecimal promedioKg
+    - BigDecimal maximoKg
+    - BigDecimal minimoKg
+    - Instant fechaSincronizacion
+    - long ingestionRunId
+  }
+}
+
+package "Infrastructure Layer" #FFF3E0 {
+  class GenericIngestionJob {
+    - IngestionService ingestionService
+    + execute(IngestionRequest): void
+  }
+
+  abstract class IngestionJob {
+    # WindowPolicy windowPolicy
+    # IngestionControlService controlService
+    # IngestionAuditService auditService
+    # double maxRejectRate
+    # int maxRejectCount
+    {abstract} + runIngestion(IngestionContext): void
+    + execute(IngestionRequest): void
+  }
+
+  class WindowPolicy {
+    - LocalTime dailyStart
+    - LocalTime dailyEnd
+    - Set<Integer> monthlyRunDays
+    - LocalTime monthlyStart
+    - ZoneId zone
+    + validateAndGetKey(String methodName, boolean force): String
+  }
+
+  class IngestionContext {
+    - long runId
+    - String methodName
+    - String windowKey
+    - String requestId
+    - RequestSource requestSource
+    - int recordsSeen
+    - int recordsInserted
+    - int recordsUpdated
+    - int rejectCount
+    - List<RejectedRecord> rejectedRecords
+  }
+
+  interface IngestionHandler {
+    + getMethodName(): String
+    + execute(IngestionContext): void
+  }
+
+  class CiudadIngestionHandler {
+    + getMethodName(): String
+    + execute(IngestionContext): void
+  }
+
+  class ParcialIngestionHandler {
+    + getMethodName(): String
+    + execute(IngestionContext): void
+  }
+
+  class MesIngestionHandler {
+    + getMethodName(): String
+    + execute(IngestionContext): void
+  }
+
+  class SemanaIngestionHandler {
+    + getMethodName(): String
+    + execute(IngestionContext): void
+  }
+
+  class AbasIngestionHandler {
+    + getMethodName(): String
+    + execute(IngestionContext): void
+  }
+
+  class SipsaIngestionScheduler {
+    - GenericIngestionJob ingestionJob
+    + runDailyWindow(): void
+    + runMonthlyMes(): void
+    + runMonthlyAbas(): void
+  }
+
+  class TimezoneFilter {
+    + doFilterInternal(HttpServletRequest, HttpServletResponse, FilterChain): void
+  }
+
+  class RequestContextFilter {
+    + doFilterInternal(HttpServletRequest, HttpServletResponse, FilterChain): void
+  }
+}
+
+' Relationships
+SipsaRestController --> SipsaReadService : uses
+SipsaOpsController --> IngestionTriggerService : uses
+SipsaOpsController --> IngestionControlService : uses
+SipsaOpsController --> IngestionRunQueryService : uses
+
+IngestionTriggerService --> AsyncIngestionService : uses
+AsyncIngestionService --> GenericIngestionJob : executes
+
+GenericIngestionJob ..|> IngestionJob : extends
+IngestionJob --> WindowPolicy : uses
+IngestionJob --> IngestionControlService : uses
+IngestionJob --> IngestionAuditService : uses
+IngestionJob --> IngestionService : uses
+
+IngestionService --> IngestionHandler : dispatches
+
+CiudadIngestionHandler ..|> IngestionHandler : implements
+ParcialIngestionHandler ..|> IngestionHandler : implements
+MesIngestionHandler ..|> IngestionHandler : implements
+SemanaIngestionHandler ..|> IngestionHandler : implements
+AbasIngestionHandler ..|> IngestionHandler : implements
+
+SipsaIngestionScheduler --> GenericIngestionJob : triggers
+
+IngestionRun --> IngestionAudit : 1..*
+IngestionRun --> IngestionReject : 1..*
+IngestionRun --> SipsaCiudad : 1..*
+IngestionRun --> SipsaParcial : 1..*
+
+@enduml
