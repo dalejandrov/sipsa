@@ -64,7 +64,9 @@ package "Application Layer" #F3E5F5 {
 
   class IngestionRunQueryService {
     + getAvailableMethods(): IngestionMethodsResponse
-    + getRuns(IngestionRunQueryRequest): Page<IngestionRunResponse>
+    + getActiveRuns(): List<IngestionRunResponse>
+    + getAllRuns(): List<IngestionRunDetailResponse>
+    + getRunStatus(Long runId): IngestionRunDetailResponse
   }
 }
 

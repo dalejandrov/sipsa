@@ -1,0 +1,43 @@
+@startuml API Query Request Flow
+title Public API Query Request Flow
+
+actor Client
+participant TimezoneFilter
+participant SipsaRestController
+participant SipsaReadService
+participant PaginationConfig
+participant SpecificationBuilder
+participant Repository
+participant PaginationUtils
+
+== Request Handling ==
+Client -> TimezoneFilter: GET /api/sipsa/ciudad?...\nX-Timezone: America/Bogota (optional)
+TimezoneFilter -> TimezoneFilter: resolve timezone header
+TimezoneFilter -> SipsaRestController: continue filter chain
+
+== Query Execution ==
+SipsaRestController -> SipsaReadService: getCiudad(request)
+SipsaReadService -> PaginationConfig: buildPageable(page, size, sort)
+SipsaReadService -> PaginationConfig: validatePageable(pageable)
+SipsaReadService -> PaginationConfig: validateIds(filters)
+SipsaReadService -> SpecificationBuilder: build specification
+SipsaReadService -> Repository: findAll(spec, pageable)
+Repository --> SipsaReadService: Page<Entity>
+SipsaReadService -> SipsaReadService: map entities to DTOs
+SipsaReadService --> SipsaRestController: Page<Response>
+SipsaRestController -> PaginationUtils: toApiResponse(page)
+PaginationUtils --> SipsaRestController: ApiResponse
+
+== Response ==
+SipsaRestController --> Client: HTTP 200 OK + paginated results
+
+note right of TimezoneFilter
+    Resolves X-Timezone and defaults to UTC.
+end note
+
+note right of PaginationUtils
+    Converts Spring Data pages to the API's 1-based pagination format.
+end note
+
+@enduml
+
