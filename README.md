@@ -140,12 +140,13 @@ Infrastructure (repositories, SOAP client, schedulers)
 
 ## Documentation
 
-Detailed technical documentation and diagrams available in [docs/](docs/):
+Detailed technical documentation and diagrams are available in `docs/`:
 
+- **[REST API Documentation](docs/SipsaRestController-API-Documentation.md)**: Public `/api/sipsa` reference with examples
 - **[ER Diagram](docs/diagrams/er-diagram.puml)**: Database schema with entities and relationships
 - **[Class Diagram](docs/diagrams/class-diagram.puml)**: System architecture organized by layers
 - **[Component Diagram](docs/diagrams/component-diagram.puml)**: Component interactions and dependencies
-- **[Sequence Diagrams](docs/diagrams/sequence/)**: Process flows for ingestion and API queries
+- **Sequence Diagrams** (`docs/diagrams/sequence/`): Process flows for ingestion and API queries
 
 View diagrams using [PlantUML Online](https://www.plantuml.com/plantuml/) or IDE plugins.
 
