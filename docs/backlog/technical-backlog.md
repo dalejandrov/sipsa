@@ -46,6 +46,7 @@ When a story is implemented:
 | TECH-080 | Write ADR-002 (security) | Low | 6 | Pending |
 | TECH-081 | Write ADR-001 (deduplication) | Low | 6 | Pending |
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
+| TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | Pending — plan approved, not yet implemented |
 
 ---
 
@@ -889,3 +890,373 @@ zone, or a wrong method name passed to `runSafely()` would not be caught by
 
 **Completed:** `test/scheduled-ingestion-jobs` (2026-07-13), see
 [Scheduled Ingestion Validation](../architecture/scheduled-ingestion-validation.md).
+
+---
+
+### TECH-111
+
+**Title:** Correct monthly `WindowPolicy` method binding, grace days, and stable window keys
+**Classification:** Corrective / Business rule / Idempotency (**not** a refactoring —
+this changes observable validation and key-generation behavior, on purpose)
+**Type:** Correctiva
+**Priority:** High
+**Phase:** 3
+**Status:** Pending — implementation plan approved 2026-07-13, code not yet written
+**Complexity:** M
+**Branch (when approved for implementation):** `fix/window-policy-monthly-rules`, from
+`main` updated. **Not created yet.**
+
+**Depends on:** None (see §3 of the plan below — explicitly does not block on TECH-055 or
+ADR-006).
+
+**Origin:** Confirmed during [TECH-110](#tech-110)'s validation
+([scheduled-ingestion-validation.md](../architecture/scheduled-ingestion-validation.md),
+findings F-WP-01, F-WP-02, F-WP-03). This entry formalizes those findings into an
+implementation-ready story. **The cron expressions, `America/Bogota` zone, and
+`SchedulingConfig` are confirmed correct by TECH-110 and are explicitly out of scope here
+— see "Contracts that must be preserved" below.**
+
+---
+
+#### Problem — three confirmed defects, all in `WindowPolicy.validateMonthly()`
+
+**F-WP-01 — Monthly day not bound to the specific method.**
+`WindowPolicy.java:169-180` validates both `promediosSipsaMesMadr` and
+`promedioAbasSipsaMesMadr` against the same day set (`{8,9,10,11}`), because
+`validateMonthly(ZonedDateTime, boolean)` never receives the method name. Confirmed live by
+`WindowPolicyTest.MonthlyWindowConfirmedBugDemonstration` (2 passing tests pin the bug; 2
+`@Disabled` tests specify the fix).
+
+**F-WP-02 — Monthly `windowKey` is the raw run date, not a stable period marker.**
+`WindowPolicy.java:164`, `String key = now.format(DATE_FMT)`, always `yyyy-MM-dd`. A day-8
+run and a day-9 retry of the same logical period produce different keys, breaking the
+`(method_name, window_key)` idempotency guarantee. Confirmed by
+`WindowPolicyTest.retryOnGraceDay_producesDifferentWindowKey_forSameLogicalPeriod`.
+
+**F-WP-03 — Grace days skip the time check.**
+`WindowPolicy.java:174,178`: `(day == 8 && !time.isBefore(monthlyStart)) || day == 9` — by
+operator precedence, `day == 9` alone (any time, including midnight) returns true.
+Confirmed by `WindowPolicyTest.day9_anyTime_acceptedForBothMethods_evenAtMidnight`.
+
+---
+
+#### Where the day/grace-day rule comes from (not silently adopted)
+
+The exact rule requested — MesMadr: principal day 8, grace day 9; AbasMes: principal day
+10, grace day 11 — is **independently corroborated by three sources already in this
+repository**, not invented for this story:
+
+1. **DANE's documented schedule** (`DANE-webservice-SIPSA.pdf`, March 2020): Mayoristas
+   monthly updates on day 8; Abastecimientos monthly updates on day 10.
+2. **`application.yaml:121`**, the deployed configuration's own comment:
+   `monthly-run-days: ${MONTHLY_RUN_DAYS:8,10}   # Day 8 (MesMadr), Day 10 (AbasMes)`.
+3. **`WindowPolicy.java`'s own pre-existing inline comment** (`validateMonthly`, currently
+   unenforced by the actual conditional logic): `// Day 8 06:00 -> Day 9 23:59 (for M8)` /
+   `// Day 10 06:00 -> Day 11 23:59 (for M10/Abas)`.
+
+No other grace-day scheme (e.g., a wider multi-day window, or no grace day at all) is
+documented anywhere in the codebase, commit history, or the DANE PDF. If a different grace
+policy is intended, it must come from an explicit decision now, not from this story
+inferring one.
+
+---
+
+#### Test matrix (exact cases to implement; all via the existing injected `Clock` seam)
+
+**`promediosSipsaMesMadr` (principal day 8, grace day 9):**
+
+| Day | Time | Expected |
+|---|---|---|
+| 7 | any | rejected |
+| 8 | before `monthlyStart` | rejected |
+| 8 | exactly `monthlyStart` | allowed |
+| 8 | after `monthlyStart` | allowed |
+| 9 | before `monthlyStart` | **rejected** (fixes F-WP-03 — currently allowed) |
+| 9 | exactly `monthlyStart` | allowed |
+| 9 | after `monthlyStart` | allowed |
+| 10 | any | **rejected** (fixes F-WP-01 — currently allowed) |
+| 11 | any | rejected |
+| any | any, `force=true` | allowed |
+
+**`promedioAbasSipsaMesMadr` (principal day 10, grace day 11):**
+
+| Day | Time | Expected |
+|---|---|---|
+| 8 | any | **rejected** (fixes F-WP-01 — currently allowed) |
+| 9 | any | rejected |
+| 10 | before `monthlyStart` | rejected |
+| 10 | exactly `monthlyStart` | allowed |
+| 10 | after `monthlyStart` | allowed |
+| 11 | before `monthlyStart` | **rejected** (fixes F-WP-03 — currently allowed) |
+| 11 | exactly `monthlyStart` | allowed |
+| 11 | after `monthlyStart` | allowed |
+| 12 | any | rejected |
+| any | any, `force=true` | allowed |
+
+**`windowKey`:**
+
+| Scenario | Expected |
+|---|---|
+| MesMadr day 8 and MesMadr day 9 retry | same key |
+| AbasMes day 10 and AbasMes day 11 retry | same key |
+| MesMadr vs. AbasMes, same month | different keys |
+| Same method, month changes | different keys |
+| Same method, December → January | different keys, correct year rollover |
+| `force=true`, any day of the month | key of the **correct period** (current year-month +
+  the method's own marker), not the arbitrary forced-on date |
+
+**Mandatory:** the 2 tests currently `@Disabled` in
+`WindowPolicyTest.MonthlyWindowConfirmedBugDemonstration`
+(`abastecimientosMensual_diaOcho_deberiaSerRechazadoTrasElFix`,
+`mayoristasMensual_diaDiez_deberiaSerRechazadoTrasElFix`) must be **re-enabled** and pass.
+**No test may remain `@Disabled` when this story closes.** Daily/weekly behavior
+(`promediosSipsaCiudad`, `promediosSipsaParcial`, `promediosSipsaSemanaMadr`) is unaffected
+and must continue passing unchanged — `validateDaily()` is not touched by this story.
+
+---
+
+#### `windowKey` format — recommendation, pending confirmation before implementation
+
+**Recommended format:** `YYYY-MM-M{principalDay}` (e.g., `2026-08-M8`, `2026-08-M10`) —
+derived from the current year/month plus the method's fixed marker, **independent of which
+day-of-month the run actually happened on**. This is not a new invention: it is the format
+already documented (but never implemented) in `WindowPolicy.java:36`'s Javadoc and
+`IngestionRun.java:37`'s Javadoc, and it matches the migration's own column comment
+(`V1__initial_schema.sql:25`: `-- YYYY-MM-DD | YYYY-MM | YYYY-MM-M8`).
+
+**Conflicting documentation found (must be reconciled, comment-only fix):**
+`IngestionControlService.java:72`'s Javadoc says `"2026-01-02" for daily, "2026-01" for
+monthly` (no `M8`/`M10` marker) — this is the one outlier against three other sources
+(`WindowPolicy`, `IngestionRun`, `IngestionRunRepository:45`) that agree on
+`YYYY-MM-M8`/`YYYY-MM-M10`. Recommend correcting this one Javadoc to match, not the other
+way around.
+
+**Confirmed before recommending this format (per this story's own requirement):**
+- ✅ **DB unique constraint:** `(method_name, window_key)`, unaffected by format —
+  uniqueness only ever compares full-string equality, never parses the value
+  (`IngestionRunRepository.findByMethodNameAndWindowKey`,
+  `countByMethodNameAndWindowKeyAndStatus`).
+- ✅ **Column length:** `window_key VARCHAR(50)` — `2026-08-M8` (10 chars) fits with large
+  headroom. **No migration needed.**
+- ✅ **Consumers of `windowKey`, all confirmed to treat it as an opaque string (no
+  parsing/regex/substring extraction anywhere in the codebase — verified by
+  `grep -rn windowKey`):** `IngestionContext` (log summary only), `IngestionJob` (pass-through
+  + MDC + audit), `IngestionControlService`/`IngestionRunRepository` (exact-match queries
+  only), `CreateRunRequest`/`AuditEventRequest` (internal DTOs, embed the string in
+  human-readable audit messages, never parse it), `IngestionRunResponse` /
+  `IngestionRunDetailResponse` (**public-facing** — `GET /api/internal/ingestion/runs`,
+  `/runs/{runId}`, `/running` — expose `windowKey` as an opaque string field; no known
+  consumer parses its structure, but this is the one surface where an *external* client
+  could theoretically depend on the old format — flagged, not blocking).
+- ✅ **Logs/audit:** `IngestionJob`'s SLF4J/MDC logging and `AuditEventRequest`'s
+  human-readable messages both interpolate the string as-is — no format assumption.
+
+---
+
+#### Historical / existing `window_key` compatibility — no data migration proposed
+
+Per this story's explicit constraint, **no existing data will be modified**. Analysis:
+
+- **No collision risk.** New format (`YYYY-MM-M8`/`M10`, contains a literal `M`) is
+  structurally distinct from the old raw-date format (`YYYY-MM-DD`, three numeric groups)
+  and from daily methods' keys (different `method_name`, so the compound unique constraint
+  never confuses them regardless of string shape).
+- **Old rows remain as historical artifacts.** A pre-fix `SUCCEEDED` run for
+  `promediosSipsaMesMadr` with `window_key = "2026-07-08"` simply stays in the table;
+  nothing reads it expecting the new format.
+- **One real transition-month risk (operational, not a data-integrity risk):** if a monthly
+  method already ran `SUCCEEDED` **this month** under the **old** key format before the fix
+  is deployed, the new code will compute a **new** key (`YYYY-MM-M8`) that does not match
+  the old row, so `isRunComplete()` returns `false` and the system will allow (or the cron
+  will trigger) a **second** ingestion of the same logical period in that one transition
+  month. This is not a correctness catastrophe — `SipsaMayoristasMensual` and
+  `SipsaAbastecimientosMensual` are upserted, not duplicated, per their existing upsert
+  strategy — but it does mean one extra DANE SOAP call, one extra `IngestionRun` audit row,
+  and duplicate audit-trail entries for that single month. **Mitigation (operational, not
+  code):** prefer deploying this fix shortly **after** a monthly window has already
+  completed for the current cycle (i.e., not on days 8–11), so the transition does not land
+  inside an active monthly period. This should be called out in the PR description when
+  TECH-111 is implemented, not solved in code.
+- **No backfill, no `UPDATE` statement, no new migration file is proposed by this story.**
+  If historical `window_key` normalization is ever wanted (e.g., for reporting
+  consistency), that is explicitly a **separate, future story** — not authorized here.
+
+---
+
+#### Alternatives considered
+
+**Alternative A — Explicit per-method rule map inside `WindowPolicy` (recommended).**
+Conceptually:
+```
+method name (matched the same way isMonthlyMethod() already does)
+  -> { principalDay, graceDay, windowKeySuffix }
+```
+`validateMonthly` receives the resolved rule (or the method name) instead of validating
+generically; the time check (`!time.isBefore(monthlyStart)`) is applied explicitly and
+identically to both `principalDay` and `graceDay`, removing the F-WP-03 operator-precedence
+trap entirely (no implicit `&&`/`||` chaining). `windowKey` is built from
+`(now.getYear(), now.getMonthValue(), rule.windowKeySuffix())`, never from `now.getDayOfMonth()`.
+
+- **Pros:** Fixes all three defects without touching `IngestionHandler`, the SOAP layer, or
+  any REST/DB contract. Fully containable inside `WindowPolicy.java` (plus Javadoc fixes in
+  3 other files). Matches this story's minimal-scope mandate.
+- **Cons:** The method-name-to-rule mapping is still string-based (same matching style as
+  today's `isMonthlyMethod()`), not compiler-enforced — a future third monthly method with
+  an unrecognized name would need an explicit new map entry (recommend: fail fast with a
+  clear `SipsaConfigurationException` if a method is classified monthly but has no rule
+  entry, rather than silently falling back to shared/no validation — this preserves the
+  safety property this story is fixing, for any future method too).
+
+**Alternative B — Add `publicationSchedule()`/`isMonthly()` metadata to `IngestionHandler`.**
+Moves the day/grace-day/key-marker declaration onto each handler
+(`MesIngestionHandler`, `AbasIngestionHandler`), read by `WindowPolicy` via the handler
+registry instead of string matching.
+
+- **Pros:** Eliminates method-name string matching entirely, for both this bug and the
+  adjacent, already-tracked TECH-055/ADR-006 concern (`isMonthly()` classification).
+  Compiler-enforced: every handler must declare its schedule.
+- **Cons:** Changes the `IngestionHandler` contract — all 5 handlers must be touched (3
+  return "not monthly", 2 declare their schedule). Requires ADR-006 to move from `Proposed`
+  to `Accepted` first, per this repository's own rule (`AGENTS.md`: "implementing a story
+  whose corresponding ADR is in Proposed state" requires the ADR to be accepted first).
+  Broader blast radius for a story whose actual defect is fully contained inside one method
+  of one class.
+
+**Decision: Alternative A.** It fully fixes F-WP-01, F-WP-02, and F-WP-03 without expanding
+scope beyond `WindowPolicy`, and does not require ADR-006 to be decided first.
+
+---
+
+#### Dependency on TECH-055 / ADR-006 — explicitly NOT required
+
+**TECH-111 does not depend on TECH-055 or ADR-006.** Reasoning:
+- Only 2 monthly methods exist today, both already explicitly named in
+  `application.yaml`'s own comment and in `WindowPolicy`'s existing (unenforced) inline
+  comment — an explicit 2-entry map inside `WindowPolicy` is sufficient and proportionate,
+  not a workaround.
+- TECH-055/ADR-006 addresses a **different, adjacent** problem (daily-vs-monthly
+  *classification* generalizing to future handlers via string matching,
+  `technical-debt.md` item A-02) — real, but not what causes F-WP-01/02/03. Fixing F-WP-01
+  does not require resolving A-02 first.
+- **When to revisit:** if a **third** monthly method with a genuinely different
+  publication schedule is ever added, that is the trigger to reopen ADR-006 and migrate the
+  per-method rule map (and `isMonthlyMethod()` itself) onto `IngestionHandler` — not before.
+
+---
+
+#### Open design decision to confirm before/at implementation start (not silently decided here)
+
+`sipsa.ingestion.monthly-run-days` (default `"8,10"`) is currently parsed as one flat
+`Set<Integer>` shared across both methods — the exact mechanism this story removes from the
+*validation* path. Per "contracts that must be preserved" (property names must not change),
+**the property name stays**, but its *role* must be decided:
+- **Recommended:** repurpose it as a **startup sanity check only** (e.g., assert `{8,10}`
+  is a subset of the configured set at construction time, failing fast on misconfiguration)
+  while the actual per-method day binding becomes an explicit, code-level fact (matching
+  the DANE-contractual nature of these dates — they are not meant to be casually
+  reconfigured per environment).
+- **Alternative:** leave `monthly-run-days` fully unused/vestigial and document why in its
+  Javadoc.
+
+This should be confirmed (or delegated to the implementer's judgment, explicitly) before
+`fix/window-policy-monthly-rules` starts.
+
+---
+
+#### Contracts that MUST NOT change
+
+- Cron expressions (`sipsa.ingestion.cron.daily/monthly-mes/monthly-abas`) and their
+  defaults — **confirmed correct by TECH-110, untouched by this story.**
+- `America/Bogota` as the configured zone, and how it is resolved (`sipsa.timezone`).
+- All REST routes, request/response JSON shapes (`windowKey`'s *type* stays `String`; only
+  its *value format* for monthly methods changes going forward).
+- Database schema — no migration (`VARCHAR(50)` already sufficient).
+- Property names (`sipsa.ingestion.daily-window-start`, `daily-window-end`,
+  `monthly-run-days`, `monthly-window-start`, `sipsa.timezone` — all retained, see the open
+  decision above for `monthly-run-days`'s role).
+- SOAP integration — untouched, `WindowPolicy` has no SOAP dependency.
+- `force=true` semantics — still bypasses the window check entirely for both daily and
+  monthly; still returns a key (now the correct period key for monthly, not the arbitrary
+  forced-on date).
+- Daily/weekly method behavior (`promediosSipsaCiudad`, `promediosSipsaParcial`,
+  `promediosSipsaSemanaMadr`) — `validateDaily()` is not modified by this story.
+
+---
+
+#### Files that would be modified (implementation not started)
+
+| File | Change |
+|---|---|
+| `src/main/java/.../application/ingestion/core/WindowPolicy.java` | Core fix: per-method rule resolution in `validateMonthly`, explicit time check for both principal and grace day, `windowKey` built from year/month/marker instead of the raw date |
+| `src/main/java/.../domain/entity/IngestionRun.java` | Javadoc only — already correct, verify still accurate after the fix |
+| `src/main/java/.../application/service/IngestionControlService.java` | Javadoc only — fix the outlier `"2026-01"` example to match `YYYY-MM-M8`/`M10` |
+| `src/main/java/.../infrastructure/persistence/repository/IngestionRunRepository.java` | Javadoc only — already correct, verify still accurate |
+| `src/test/java/.../application/ingestion/core/WindowPolicyTest.java` | Re-enable the 2 `@Disabled` tests; add the full test matrix above (new day-9/day-11 time-boundary cases, new day-10/day-8 per-method rejection cases, updated `windowKey` cases) |
+| `docs/architecture/scheduled-ingestion-validation.md` | Update F-WP-01/02/03 status from "confirmed, not fixed" to "fixed", with a pointer to this story |
+| `docs/backlog/technical-backlog.md` | Mark TECH-111 `Done`, fill in `Completed` |
+| `CHANGELOG.md` | `[Unreleased]` entry under `Fixed` |
+
+**Explicitly NOT modified:** any DTO, controller, migration, `SchedulingConfig`,
+`SipsaIngestionScheduler`, or any file outside the list above.
+
+---
+
+#### Risks
+
+| Risk | Assessment |
+|---|---|
+| Manual/forced executions previously accepted on the "wrong" day (e.g., AbasMes on day 8) will now be rejected without `force=true` | **Intentional** — this is the fix. No known legitimate workflow relies on the current cross-acceptance (confirmed in the TECH-110 investigation: no test, ADR, or comment defends it). Operationally, anyone who was relying on it must add `force=true`. |
+| Historical rows with the old `YYYY-MM-DD` monthly key coexist with new `YYYY-MM-M8`/`M10` rows | No collision (see compatibility analysis above); no migration proposed. |
+| Idempotency during the deploy transition month | One-time possible redundant re-ingestion of the current month's data if deployed mid-window (see analysis above); mitigated by upsert strategy + suggested deploy timing, not by code. |
+| Audit-trail queries (`IngestionAuditController`, `AuditTrailService`) | No impact — they query by `requestId`/`runId`, never by `windowKey` pattern (confirmed by code inspection). |
+| Collision with existing records | None possible — compound unique constraint + structurally distinct formats (see above). |
+| `monthly-run-days` property's role changes from "the rule" to "a sanity check" | Property name preserved; semantic role change is a judgment call flagged above for confirmation, not silently decided. |
+| Scope creep into TECH-055/ADR-006 | Explicitly avoided — see dependency analysis above. |
+| Scope creep into ADR-008 (timezone/locale) | Explicitly avoided — see below. |
+
+---
+
+#### ADR-008 — untouched
+
+[ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md) remains `Proposed`. TECH-111
+fixes confirmed calendar/idempotency defects in `WindowPolicy` only. It does **not** decide,
+imply, or depend on any resolution of ADR-008's open questions (response timezone,
+locale/i18n, canonical temporal types, JSON serialization, `X-Timezone` handling). Nothing
+in this plan touches `TimezoneFilter`, `TimezoneUtil`, or any API response DTO's temporal
+field types.
+
+---
+
+#### Planned commit sequence (for when implementation is approved)
+
+1. `fix(window-policy): bind monthly day and grace day to the specific ingestion method`
+   — the core `WindowPolicy.java` change (F-WP-01 + F-WP-03 together, since both live in
+   the same conditional block).
+2. `fix(window-policy): derive monthly windowKey from year, month, and method marker`
+   — the `windowKey` format change (F-WP-02).
+3. `test(window-policy): re-enable and extend monthly rule tests for TECH-111`
+   — re-enable the 2 `@Disabled` tests, add the full new test matrix.
+4. `docs(window-policy): update window key format and mark TECH-111 done`
+   — Javadoc corrections (`IngestionControlService`, verify `IngestionRun`/
+   `IngestionRunRepository`), `scheduled-ingestion-validation.md`, backlog, CHANGELOG.
+
+(Commits 1–2 could be squashed into one if the reviewer prefers — both are small,
+same-file, same-root-cause changes. Kept separate above because F-WP-01/03 and F-WP-02 are
+independently testable and independently revertable.)
+
+**Acceptance Criteria:**
+- [ ] All test matrix cases above implemented and passing.
+- [ ] The 2 currently-`@Disabled` tests are re-enabled and pass; zero `@Disabled` tests
+      remain in `WindowPolicyTest`.
+- [ ] `windowKey` for monthly methods follows `YYYY-MM-M{principalDay}`, stable across a
+      principal-day/grace-day retry of the same period, and correct across month/year
+      rollover.
+- [ ] No change to cron expressions, zone, REST contracts, JSON shapes, DB schema, or
+      property names.
+- [ ] `./mvnw clean verify` passes with zero failures and zero skips introduced by this
+      story.
+- [ ] `docs/architecture/scheduled-ingestion-validation.md` updated to reflect F-WP-01/02/03
+      as fixed.
+- [ ] ADR-008 left untouched, still `Proposed`.
+
+**Completed:** —
