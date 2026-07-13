@@ -112,8 +112,8 @@ For advanced configuration, see [application.yaml](src/main/resources/applicatio
 
 ## Tech Stack
 
-- Java 21
-- Spring Boot 3.5.9
+- Java 25
+- Spring Boot 4.1.0
 - PostgreSQL 18
 - Apache CXF (SOAP client)
 - Resilience4j (circuit breaker)

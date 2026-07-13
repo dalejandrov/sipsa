@@ -584,7 +584,10 @@ TECH-110's broader scheduling validation; see TECH-110 for why)
 **Complexity:** XS  
 **Branch:** `refactor/optional-return-types`
 
-**Evidence:** `IngestionControlService.java:261`: `return runRepository.findById(runId).orElse(null)`
+**Evidence:** `IngestionControlService.java:263`: `return runRepository.findById(runId).orElse(null)`.
+Two additional `findById(runId).orElse(null)` call sites exist in the same class
+(`IngestionControlService.java:314,329`) and should be reviewed under the same criteria
+("all callers updated" already covers them).
 
 **Dependencies:** None.
 

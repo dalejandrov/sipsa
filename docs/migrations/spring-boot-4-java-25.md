@@ -227,6 +227,12 @@ docker compose up -d db
 
 ## Rollback Procedure
 
+> **Historical note (2026-07-13):** this section was written while the migration lived on
+> `chore/migrate-spring-boot-4-java-25` and `main` still ran Spring Boot 3.5.9 + Java 21.
+> The migration is now **merged**: `main` runs Spring Boot 4.1.0 + Java 25. Rolling back
+> today would mean reverting the migration merge commit on `main` (`git revert -m 1 <merge>`),
+> not switching branches. The original guidance is kept below for the record.
+
 ```bash
 # Restore main branch
 git checkout main
@@ -235,8 +241,8 @@ git checkout main
 git log chore/migrate-spring-boot-4-java-25 --oneline
 ```
 
-The main branch retains Spring Boot 3.5.9 + Java 21. No schema or data changes were
-made, so no database rollback is needed.
+At the time of writing, the main branch retained Spring Boot 3.5.9 + Java 21. No schema or
+data changes were made, so no database rollback is needed.
 
 ## Pending Risks
 
