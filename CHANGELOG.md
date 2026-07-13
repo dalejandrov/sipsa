@@ -8,6 +8,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Testing
+
+- **TECH-110/TECH-040** — Added a full automated validation suite for scheduled ingestion:
+  `WindowPolicyTest` (25 cases, deterministic via injected `Clock`), `SipsaSchedulingCronTest`
+  (18 cases validating the 3 production cron expressions with `CronExpression`, no system
+  clock dependency), `SipsaIngestionSchedulerTest` (8 cases verifying dispatch, `force`,
+  `requestSource`, and per-job exception isolation with `GenericIngestionJob` mocked), and
+  two Spring context tests (`SipsaSchedulingContextTest`,
+  `SipsaSchedulingDisabledByDefaultTest`) proving the scheduling wiring both when enabled
+  and disabled. Total: 59 tests (was 1), 0 failures, 2 tests intentionally `@Disabled`
+  pending TECH-111. See `docs/architecture/scheduled-ingestion-validation.md`.
+- Two tests in `WindowPolicyTest` are intentionally `@Disabled`, documenting the desired
+  behavior of a confirmed-but-unfixed defect in `WindowPolicy.validateMonthly()` (see
+  Findings below); they are the acceptance criteria for a future story (TECH-111).
+
+### Added
+
+- `WindowPolicy` now accepts an injectable `Clock` via a package-private, test-only seam
+  (`setClock`, defaults to `Clock.system(zone)` — behaviorally identical to the previous
+  `ZonedDateTime.now(zone)` call). No public API or functional behavior changed.
+- `sipsa.scheduling.enabled` property (default `true`, backward-compatible). Set to
+  `false` to prevent Spring from registering `@EnableScheduling`'s bean post-processor at
+  all, guaranteeing no `@Scheduled` method fires. Used by
+  `src/test/resources/application.yaml` to disable real scheduling for the test suite by
+  default.
+
+### Findings (not fixed in this change — see `docs/architecture/scheduled-ingestion-validation.md`)
+
+- **Confirmed bug (F-WP-01):** `WindowPolicy.validateMonthly()` does not bind the allowed
+  day-of-month to the specific ingestion method — `promedioAbasSipsaMesMadr` (documented
+  day 10) currently passes validation on day 8, and `promediosSipsaMesMadr` (documented
+  day 8) currently passes on day 10. The cron scheduler itself is correctly separated by
+  method; only `WindowPolicy`'s independent safety check is affected.
+- **Confirmed bug (F-WP-02):** the monthly `windowKey` is the raw run date
+  (`yyyy-MM-dd`), not the `YYYY-MM-M8`/`YYYY-MM-M10` format documented in `WindowPolicy`'s
+  own Javadoc, so a retry on the grace day (e.g., day 9 after a day 8 attempt) mints a new
+  key instead of reusing the one for the same logical period — breaking the
+  `(method_name, window_key)` idempotency guarantee across grace-day retries.
+- Both are tracked for a follow-up story (TECH-111, proposed, not yet added to the
+  backlog with a final ID).
+
 ### Changed
 
 - **Java 21 → Java 25 (LTS)**. Runtime updated to Eclipse Temurin 25.0.3. Maven compiler
@@ -86,6 +127,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `application.yaml`. Without this, Hibernate 7 cannot start without a database connection
   to auto-detect the dialect (unlike Hibernate 6 which inferred it from the JDBC URL).
 
+- `SchedulingConfig`'s Javadoc incorrectly stated the two monthly ingestion jobs run at
+  "06:00 COT"; the actual `@Scheduled` cron expressions fire at 14:30 COT (06:00 was
+  `WindowPolicy`'s unrelated Java-level fallback default for `monthly-window-start`, never
+  what `application.yaml` or the cron itself configure). Comment-only fix, no behavior
+  change. Found during TECH-110's scheduling inventory.
+
 ### Documentation
 
 - `docs/architecture/architecture-review.md` — Full architectural review with 25 accepted
@@ -96,6 +143,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and conditions for revisiting.
 - `docs/architecture/implementation-roadmap.md` — 6-phase implementation plan.
 - `docs/architecture/testing-strategy.md` — Test pyramid, mandatory test cases, tooling strategy.
+  Updated to reflect the `WindowPolicyTest`/`SipsaSchedulingCronTest`/`SipsaIngestionSchedulerTest`/
+  scheduling-context tests actually implemented by TECH-110.
+- `docs/architecture/scheduled-ingestion-validation.md` — Full validation of the scheduled
+  ingestion pipeline: job inventory, cron table, `WindowPolicy` contrast, DANE schedule
+  matrix (with 2020 currency caveat), concurrency analysis, and classified findings
+  (TECH-110).
 - `docs/architecture/timezone-locale-date-strategy-review.md` — Temporal inventory (all
   `Instant`/`LocalDate`/`OffsetDateTime` fields across entities, DTOs, and infrastructure),
   a contrast matrix against DANE's documented SOAP method semantics (with the March-2020

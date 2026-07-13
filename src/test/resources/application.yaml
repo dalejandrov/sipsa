@@ -50,6 +50,7 @@ sipsa:
       queue-capacity: 5
       keep-alive-seconds: 60
   scheduling:
+    enabled: false      # prevents any @Scheduled method from firing during tests (see SchedulingConfig)
     pool-size: 1
     await-termination-seconds: 5
 

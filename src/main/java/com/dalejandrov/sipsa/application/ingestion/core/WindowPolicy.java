@@ -55,6 +55,18 @@ public class WindowPolicy {
     private final ZoneId zone;
 
     /**
+     * Clock used to determine "now" for window validation.
+     * <p>
+     * Defaults to a system clock pinned to {@link #zone}, which is behaviorally identical
+     * to the previous {@code ZonedDateTime.now(zone)} call. Package-private mutability
+     * exists solely so tests in this package can substitute a {@link Clock#fixed} instance
+     * for deterministic boundary testing (e.g., exact 14:00:00 window edges, day 8 vs. day
+     * 9, month/year rollovers) without waiting for the system clock or depending on the
+     * machine running the tests. Production code never calls {@link #setClock}.
+     */
+    private Clock clock;
+
+    /**
      * Creates the window policy with configured time windows and timezone.
      *
      * @param dailyStartStr daily window start time (HH:mm format)
@@ -80,6 +92,20 @@ public class WindowPolicy {
                 .collect(Collectors.toSet());
 
         this.zone = ZoneId.of(zoneStr);
+        this.clock = Clock.system(this.zone);
+    }
+
+    /**
+     * Test-only seam: replaces the clock used for "now" calculations.
+     * <p>
+     * Package-private by design — only test classes in
+     * {@code com.dalejandrov.sipsa.application.ingestion.core} may call this. Not part of
+     * the public API and not used by any production code path.
+     *
+     * @param clock a fixed or otherwise controlled clock for deterministic testing
+     */
+    void setClock(Clock clock) {
+        this.clock = clock;
     }
 
     /**
@@ -101,7 +127,7 @@ public class WindowPolicy {
      * @throws WindowViolationException if called outside allowed window and force=false
      */
     public String validateAndGetKey(String methodName, boolean force) {
-        ZonedDateTime now = ZonedDateTime.now(zone);
+        ZonedDateTime now = ZonedDateTime.now(clock);
 
         if (isMonthlyMethod(methodName)) {
             return validateMonthly(now, force);
