@@ -1,4 +1,4 @@
-package com.dalejandrov.sipsa.infrastructure.config;
+package com.dalejandrov.sipsa.api.filter;
 
 import com.dalejandrov.sipsa.api.util.TimezoneUtil;
 import jakarta.servlet.FilterChain;
