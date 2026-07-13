@@ -53,6 +53,17 @@ The following refactorings were analyzed in depth and explicitly **not included*
 **Risk of implementing:** Medium — many files changed, no functional improvement.
 **Risk of not implementing:** Low — coupling is stable, no growth pressure.
 
+**Status update (2026-07-13):** [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md)
+partially reopened this item at class-level granularity and was **Accepted, scoped to this
+narrow slice only**. Re-verification showed the "15+ files" estimate above was for the full
+unstated scope of RF-01; the actual set of classes with **zero** HTTP usage is exactly the 3
+named above, touching ~9 files. The broader question this RF-01 entry originally covered
+(whether to also move `IngestionTriggerRequest`, `AuditQueryRequest`, or any
+`*QueryRequest` class) was re-investigated and confirmed **not applicable** — those are
+genuinely HTTP-bound and stay. See ADR-007 §F1 and
+[TECH-090](../backlog/technical-backlog.md#tech-090) (`Ready`). RF-01 as a general "move all
+internal DTOs" idea remains **not recommended** — only the 3 named classes are approved.
+
 ---
 
 ### RF-02 — Divide `IngestionControlService` into smaller services
@@ -209,11 +220,33 @@ See [ADR-003](../adr/ADR-003-error-response-model.md) for the formal decision.
 
 ---
 
+## Findings Under ADR-007 (2026-07-13, updated 2026-07-13)
+
+A structural diagnosis on branch `refactor/package-structure-and-boundaries` found four
+additional narrow package-boundary issues not previously documented here.
+[ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) is now **Accepted**,
+but **scoped only to F1, F2, F4, F5** — F3 remains gated behind a SPIKE.
+
+| ID | Finding | Backlog | Status | Risk |
+|---|---|---|---|---|
+| F1 | Internal ingestion commands (`IngestionRequest`, `CreateRunRequest`, `AuditEventRequest`) stored as HTTP `*Request` DTOs | [TECH-090](../backlog/technical-backlog.md#tech-090) | **Ready** | Low |
+| F2 | `TimezoneFilter` (an HTTP request filter) is placed under `infrastructure/config` and is the only confirmed `infrastructure → api` import in the codebase | [TECH-091](../backlog/technical-backlog.md#tech-091) | **Ready** | Very low |
+| F3 | CXF-generated SOAP stubs are generated into the same package as hand-written `SoapStreamingClient` | [TECH-092](../backlog/technical-backlog.md#tech-092) | **Blocked** — needs [TECH-094](../backlog/technical-backlog.md#tech-094) SPIKE first | Low (unverified) |
+| F4 | `domain/gateway/SoapGateway` imports `infrastructure.soap.gateway.SoapGatewayImpl` for a Javadoc `@see` tag only — the only confirmed `domain → infrastructure` import | [TECH-095](../backlog/technical-backlog.md#tech-095) | **Ready** | None |
+| F5 | No ArchUnit tests exist to prevent regression on any of the above | [TECH-093](../backlog/technical-backlog.md#tech-093) | Pending — blocked until TECH-090/TECH-091 merge | Low |
+
+See ADR-007 for full evidence, cost, and the list of related items investigated and
+explicitly **not** recommended (`SipsaReadService`/`IngestionRunQueryService`/`AuditTrailService`
+using `api.mapper`/`api.dto.response`, and `TimezoneUtil`'s placement) — none of those are
+authorized by this acceptance.
+
+---
+
 ## Future Refactorings Summary
 
 | ID | Refactoring | Decision | Revisit Condition |
 |---|---|---|---|
-| RF-01 | Move DTOs to `application/` | Deferred | ArchUnit rules or module extraction |
+| RF-01 | Move DTOs to `application/` | Deferred (narrow slice reopened — see ADR-007) | ArchUnit rules or module extraction |
 | RF-02 | Split `IngestionControlService` | Deferred | Class exceeds 500 lines or navigation issues |
 | RF-03 | Feature-based package structure | Deferred | 5+ independent bounded contexts |
 | RF-04 | Move exceptions between layers | **Not recommended** | Only if SOAP layer extracted as module |

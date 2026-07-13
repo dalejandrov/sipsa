@@ -45,6 +45,12 @@ When a story is implemented:
 | TECH-071 | Align `batch-size` defaults | Low | 1 | Pending |
 | TECH-080 | Write ADR-002 (security) | Low | 6 | Pending |
 | TECH-081 | Write ADR-001 (deduplication) | Low | 6 | Pending |
+| TECH-090 | Move internal ingestion commands to `application/command` | Low | — | **Ready** |
+| TECH-091 | Move `TimezoneFilter` out of `infrastructure/config` into `api` | Low | — | **Ready** |
+| TECH-092 | Separate generated SOAP sources from manual code | Low | — | **Blocked** (needs TECH-094 SPIKE) |
+| TECH-093 | Add ArchUnit package-boundary rules (Historia B) | Low | — | Pending (blocked until TECH-090 + TECH-091 merge) |
+| TECH-094 | SPIKE: Evaluate relocating CXF-generated SOAP sources | Low | — | Pending |
+| TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A) | Low | — | **Ready** |
 
 ---
 
@@ -771,5 +777,294 @@ each record in the batch, producing N database queries for N records.
 **Acceptance Criteria:**
 - [ ] `docs/adr/ADR-001-data-deduplication.md` is updated from `Proposed` to `Accepted`.
 - [ ] Natural keys for all five data types are documented.
+
+**Completed:** —
+
+---
+
+### TECH-090
+
+**Title:** Move internal ingestion commands from `api/dto/request` to `application/command`
+**Type:** Refactor
+**Priority:** Low
+**Phase:** —
+**Status:** **Ready** — approved by [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) (`Accepted`, scoped to F1)
+**Complexity:** S
+**Branch:** `refactor/internal-models-and-api-filter`
+
+**Problem:**
+`IngestionRequest`, `CreateRunRequest`, and `AuditEventRequest` live in `api/dto/request/`
+but are never bound from an HTTP request. All instances are built via internal static
+factories and consumed exclusively by `application/*` classes.
+
+**Evidence:** ADR-007 §F1. `grep -RIn "IngestionRequest\|CreateRunRequest\|AuditEventRequest" src/main/java`
+shows zero usages inside `api/controller/*`.
+
+**Scope — exact classes:**
+- `src/main/java/com/dalejandrov/sipsa/api/dto/request/IngestionRequest.java` → `application/command/`
+- `src/main/java/com/dalejandrov/sipsa/api/dto/request/CreateRunRequest.java` → `application/command/`
+- `src/main/java/com/dalejandrov/sipsa/api/dto/request/AuditEventRequest.java` → `application/command/`
+
+**Consumers to update (imports only, no logic changes):**
+`application/ingestion/core/IngestionJob.java`,
+`application/ingestion/scheduler/SipsaIngestionScheduler.java`,
+`application/service/IngestionControlService.java`,
+`application/service/IngestionTriggerService.java`,
+`application/service/IngestionAuditService.java`,
+`application/service/AsyncIngestionService.java`.
+
+**Dependencies:** None remaining — ADR-007 is `Accepted` (scoped to F1).
+
+**Pre-move verification (mandatory before moving any file):** confirm by search that none
+of the three classes is used as `@RequestBody`, `@ModelAttribute`, a direct controller
+method parameter, a serialized external contract, or a type referenced in OpenAPI/Swagger
+documentation. If any of them turns out to be a real HTTP contract, do not move it — split
+a separate application-layer model out first instead.
+
+**Risk:** Low. Package move + import updates only. This iteration's preference is:
+1. move packages, 2. keep names as-is, 3. leave any rename (e.g. `IngestionRequest` →
+`RunIngestionCommand`) for a separate follow-up story. Do not mix moving and renaming in
+this story if the diff would grow meaningfully.
+
+**Contracts to preserve:** No REST route, JSON body, or HTTP status changes — these classes
+were never part of the public HTTP contract.
+
+**Acceptance Criteria:**
+- [ ] The three classes live under `application/command/`.
+- [ ] `api/dto/request/` no longer contains them.
+- [ ] All 6 consumer files compile against the new package.
+- [ ] `./mvnw clean verify` passes.
+- [ ] `application → api` import count in `architecture-review.md`'s dependency table
+      drops from 6 files to 3 (the explicitly-kept `SipsaReadService`,
+      `IngestionRunQueryService`, `AuditTrailService`).
+
+**Completed:** —
+
+---
+
+### TECH-091
+
+**Title:** Move `TimezoneFilter` from `infrastructure/config` to `api/filter`
+**Type:** Refactor
+**Priority:** Low
+**Phase:** —
+**Status:** **Ready** — approved by [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) (`Accepted`, scoped to F2)
+**Complexity:** XS
+**Branch:** `refactor/internal-models-and-api-filter`
+
+**Problem:**
+`TimezoneFilter` is an HTTP request filter (`OncePerRequestFilter`) but is placed under
+`infrastructure/config`. It imports `api.util.TimezoneUtil`
+(`TimezoneFilter.java:3`) — the only confirmed `infrastructure → api` import in the
+codebase.
+
+**Evidence:** ADR-007 §F2. `grep -RIn "import .*\.api\." src/main/java/.../infrastructure` → 1 hit.
+
+**Scope — exact class:**
+- `src/main/java/com/dalejandrov/sipsa/infrastructure/config/TimezoneFilter.java` → `api/filter/`
+
+**Dependencies:** None remaining — ADR-007 is `Accepted` (scoped to F2). Do **not** move
+`TimezoneUtil` in this story — its placement is deferred (see ADR-007). Preserve exactly:
+behavior, filter order, headers, the `ThreadLocal`, `finally`-block cleanup, and its
+registration as a Spring bean (`@Component`) — do not change the filter's logic, only its
+package.
+
+**Risk:** Very low. `TimezoneFilter` is `@Component`-scanned by Spring Boot's default
+component scan (`com.dalejandrov.sipsa` base package); no explicit registration bean
+references its current package.
+
+**Contracts to preserve:** `X-Timezone` header handling, response conversion behavior,
+filter ordering — no change.
+
+**Acceptance Criteria:**
+- [ ] `TimezoneFilter` lives under `api/filter/`.
+- [ ] `infrastructure/config/` no longer contains it.
+- [ ] `./mvnw clean verify` passes, including a manual check that `X-Timezone` header
+      handling is unaffected (existing behavior, no new test required unless one does not
+      already exist for this filter).
+- [ ] `infrastructure → api` import count drops from 1 to 0.
+
+**Completed:** —
+
+---
+
+### TECH-092
+
+**Title:** Separate generated SOAP sources from manual code
+**Type:** Refactor
+**Priority:** Low
+**Phase:** —
+**Status:** **Blocked** — F3 is explicitly **not** part of ADR-007's scoped acceptance.
+Requires [TECH-094](#tech-094) (SPIKE) to complete first; TECH-094's findings determine
+whether this story is approved as-is, re-scoped, or rejected. **Do not move any generated
+code before TECH-094 reports back.**
+**Complexity:** S
+**Branch:** `refactor/soap-generated-package` (not created yet)
+
+**Problem:**
+`cxf-codegen-plugin` generates 24 JAXB classes into
+`com.dalejandrov.sipsa.infrastructure.soap.client` — the same package as the hand-written
+`SoapStreamingClient.java`. Generated and manual code are not distinguishable by package.
+
+**Evidence:** ADR-007 §F3. `pom.xml:264` (`-p com.dalejandrov.sipsa.infrastructure.soap.client`);
+`find target/generated-sources -name "*.java"` → 24 files in that package.
+
+**Scope:**
+- `pom.xml`: change the `wsdl2java` `-p` argument to `com.dalejandrov.sipsa.infrastructure.soap.generated`.
+- `src/main/java/com/dalejandrov/sipsa/infrastructure/soap/gateway/SoapGatewayImpl.java:5`: update the wildcard import.
+- `src/main/java/com/dalejandrov/sipsa/infrastructure/soap/config/SipsaSoapClientConfig.java:4-5`: update the two explicit imports.
+
+**Dependencies:** [TECH-094](#tech-094) (SPIKE) must complete first.
+
+**Risk:** Low, but must be verified, not assumed — JAXB `@XmlType`/`@XmlSchema` bindings
+occasionally reference the generated package implicitly.
+
+**Verification steps (mandatory, per this story's acceptance criteria):**
+1. Confirm the WSDL and JAX-WS catalog are unchanged.
+2. `./mvnw clean generate-sources` and inspect the new
+   `target/generated-sources/.../infrastructure/soap/generated/` output for any unexpected
+   class differences beyond the package declaration (`diff` against the current output with
+   only the package line changed).
+3. `./mvnw clean verify` passes end to end (SOAP marshalling included).
+
+**Contracts to preserve:** WSDL contract, SOAP request/response marshalling, XML namespace
+bindings — no change.
+
+**Acceptance Criteria:**
+- [ ] Generated classes are emitted under `infrastructure/soap/generated`.
+- [ ] `SoapGatewayImpl` and `SipsaSoapClientConfig` compile against the new package.
+- [ ] `./mvnw clean verify` passes.
+- [ ] Diff of generated output (excluding the package declaration) is empty.
+
+**Completed:** —
+
+---
+
+### TECH-093
+
+**Title:** Add ArchUnit package-boundary rules (Historia B)
+**Type:** Testing
+**Priority:** Low
+**Phase:** —
+**Status:** Pending — **blocked until TECH-090 and TECH-091 are merged** (ADR-007 is
+already `Accepted`, scoped to F5; the block is sequencing, not approval)
+**Complexity:** S
+**Branch:** `test/architecture-boundaries`
+
+**Problem:** No ArchUnit (or equivalent) test exists to prevent the boundaries fixed by
+TECH-090, TECH-091, and TECH-095 from regressing.
+
+**Evidence:** ADR-007 §F5.
+
+**Scope:**
+- Add `com.tngtech.archunit:archunit-junit5` (test scope) to `pom.xml`.
+- Add one ArchUnit test class asserting exactly these 3 rules (no more in this first version):
+  1. `application` does not depend on `api`.
+  2. `domain` does not depend on `infrastructure`.
+  3. `api.controller..` does not depend on `infrastructure.persistence.repository..`.
+
+**Explicitly out of scope for this story's rules:** any additional rule beyond the 3 above.
+In particular, rule 1 (`application` must not depend on `api`) must be written narrowly
+enough to pass against the classes ADR-007 explicitly keeps as-is
+(`SipsaReadService`, `IngestionRunQueryService`, `AuditTrailService` using
+`api.mapper`/`api.dto.response`/`api.dto.request.*QueryRequest`) — either by excluding
+those specific classes or by scoping the rule to `api.dto.request..IngestionRequest`,
+`CreateRunRequest`, `AuditEventRequest` (which TECH-090 removes anyway). Do not write a
+rule that fails against an accepted decision.
+
+**Dependencies:** TECH-090 and TECH-091 must be merged first so the ArchUnit rules assert
+the *post*-move state rather than failing immediately. TECH-095 (Javadoc fix) must also be
+merged first so rule 2 passes on day one.
+
+**Risk:** Low.
+
+**Acceptance Criteria:**
+- [ ] ArchUnit test class exists with the 3 rules above, all green.
+- [ ] `./mvnw clean verify` passes.
+- [ ] No rule beyond the 3 listed was added.
+
+**Completed:** —
+
+---
+
+### TECH-094
+
+**Title:** SPIKE — Evaluate relocating CXF-generated SOAP sources
+**Type:** SPIKE
+**Priority:** Low
+**Phase:** —
+**Status:** Pending
+**Complexity:** XS
+**Branch:** `spike/soap-generated-package`
+**Dependencies:** None.
+
+**Problem:** ADR-007 §F3 identified that CXF-generated JAXB classes share a package with
+hand-written code, but the risk assessment ("low, but non-zero") was a judgment call, not
+verified evidence. TECH-092 must not proceed until this is investigated directly.
+
+**Objective:** Investigate and report on:
+1. Which plugin and version generates the classes (`cxf-codegen-plugin`, version — confirm
+   against `pom.xml`).
+2. From which WSDL (`SrvSipsaUpraBeanService.wsdl` — confirm path and catalog).
+3. The currently configured target package (`pom.xml`'s `wsdl2java` `-p` argument).
+4. Whether the generated classes are version-controlled (they should not be — confirm
+   `.gitignore` covers `target/`).
+5. Whether `./mvnw clean generate-sources` reproduces the classes exactly on a clean run
+   (run it twice, diff the output).
+6. The expected diff size if the package is retargeted to
+   `infrastructure/soap/generated` (estimate file count and import-site count — already
+   known to be 24 generated files + 2 manual import sites from ADR-007 §F3, but this SPIKE
+   should verify that count is still accurate).
+7. Import impact on `SoapGatewayImpl.java` and `SipsaSoapClientConfig.java`.
+8. CXF compatibility — confirm the `-p` argument is respected consistently across the CXF
+   version in use, with no known issues in that version's changelog.
+9. Whether the relocation is worth the generated noise, given the actual (not assumed) diff
+   size and risk found above.
+
+**Acceptance Criteria:**
+- [ ] Report answering all 9 points above, added to this story's **Completed** section or
+      linked as a separate note.
+- [ ] Explicit recommendation: proceed with TECH-092 as scoped, re-scope it, or reject it.
+- [ ] No source code changed as part of this SPIKE.
+
+**Completed:** —
+
+---
+
+### TECH-095
+
+**Title:** Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A)
+**Type:** QA
+**Priority:** Low
+**Phase:** —
+**Status:** **Ready** — approved by [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) (`Accepted`, scoped to F4)
+**Complexity:** XS
+**Branch:** `refactor/internal-models-and-api-filter` (may be implemented together with
+TECH-090/TECH-091 in the same iteration; keep as its own commit)
+
+**Problem:** `domain/gateway/SoapGateway.java:3` imports
+`infrastructure.soap.gateway.SoapGatewayImpl` solely to support a `@see SoapGatewayImpl`
+Javadoc tag (line 39) — the only confirmed `domain → infrastructure` import in the codebase.
+
+**Evidence:** ADR-007 §F4. `grep -RIn "import .*\.infrastructure\." src/main/java/.../domain` → 1 hit.
+
+**Scope — exact class:**
+- `src/main/java/com/dalejandrov/sipsa/domain/gateway/SoapGateway.java`: remove the
+  `SoapGatewayImpl` import; replace the `@see SoapGatewayImpl` tag with a plain-text
+  mention (e.g. `{@code SoapGatewayImpl} (infrastructure layer)`).
+
+**Dependencies:** None remaining — ADR-007 is `Accepted` (scoped to F4).
+
+**Risk:** None. Javadoc-only change, no compiled behavior difference beyond the removed import.
+
+**Contracts to preserve:** No behavior change. This is a precondition for TECH-093's
+`domain`-must-not-depend-on-`infrastructure` ArchUnit rule to pass on day one.
+
+**Acceptance Criteria:**
+- [ ] `SoapGateway.java` no longer imports anything from `infrastructure`.
+- [ ] Javadoc still points a reader to the implementation class (as plain text, not a
+      compiled `@see` reference).
+- [ ] `./mvnw clean verify` passes.
+- [ ] `domain → infrastructure` import count drops from 1 to 0.
 
 **Completed:** —
