@@ -149,6 +149,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ingestion pipeline: job inventory, cron table, `WindowPolicy` contrast, DANE schedule
   matrix (with 2020 currency caveat), concurrency analysis, and classified findings
   (TECH-110).
+- `docs/architecture/timezone-locale-date-strategy-review.md` — Temporal inventory (all
+  `Instant`/`LocalDate`/`OffsetDateTime` fields across entities, DTOs, and infrastructure),
+  a contrast matrix against DANE's documented SOAP method semantics (with the March-2020
+  currency caveat), an evaluation of `TimezoneFilter`/`WindowPolicy`, and a comparison of
+  four timezone/locale strategy alternatives. Evidence for ADR-008.
+- `docs/adr/ADR-008-timezone-locale-and-date-semantics.md` — Proposed strategy for
+  timezone, locale, and date-semantics handling across the API. **Status: Proposed, not
+  accepted.** No code changed as part of this documentation.
 - `docs/adr/ADR-000-current-architecture.md` — Architecture snapshot after migration.
 - `docs/adr/ADR-001` through `ADR-006` — Architecture decision records (ADR-004 accepted;
   ADR-001, ADR-002, ADR-003, ADR-005, ADR-006 proposed).
