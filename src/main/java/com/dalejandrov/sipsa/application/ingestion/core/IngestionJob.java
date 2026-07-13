@@ -1,8 +1,8 @@
 package com.dalejandrov.sipsa.application.ingestion.core;
 
-import com.dalejandrov.sipsa.api.dto.request.AuditEventRequest;
-import com.dalejandrov.sipsa.api.dto.request.CreateRunRequest;
-import com.dalejandrov.sipsa.api.dto.request.IngestionRequest;
+import com.dalejandrov.sipsa.application.command.AuditEventRequest;
+import com.dalejandrov.sipsa.application.command.CreateRunRequest;
+import com.dalejandrov.sipsa.application.command.IngestionRequest;
 import com.dalejandrov.sipsa.application.service.IngestionAuditService;
 import com.dalejandrov.sipsa.application.service.IngestionControlService;
 import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
