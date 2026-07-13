@@ -29,6 +29,30 @@ Before starting any phase:
 
 ---
 
+## Parallel Track — Package Boundary Refactoring (ADR-007)
+
+Not part of the phase sequence below. [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md)
+was accepted in a narrow, scoped form (F1, F2, F4, F5 — not F3) after a structural
+diagnosis found a small set of verifiable, low-risk package-boundary issues. This track ran
+independently of Phase 1–6 and did not block or get blocked by them.
+
+| Story | Title | Status |
+|---|---|---|
+| TECH-090 | Move internal ingestion commands to `application/command` | **Done** (`refactor/internal-models-and-api-filter`) |
+| TECH-091 | Move `TimezoneFilter` to `api/filter` | **Done** (`refactor/internal-models-and-api-filter`) |
+| TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` | **Done** (`refactor/internal-models-and-api-filter`) |
+| TECH-093 | Add ArchUnit package-boundary rules | Pending — dependencies (TECH-090/091/095) now merged; story itself not started |
+| TECH-094 | SPIKE: Evaluate relocating CXF-generated SOAP sources | Pending |
+| TECH-092 | Separate generated SOAP sources from manual code | **Blocked** on TECH-094 |
+
+`./mvnw clean verify` passed after TECH-090/091/095 (7 tests, 0 failures). No REST route,
+JSON body, HTTP status, DB schema, or SOAP integration behavior changed. See ADR-007 for
+full evidence and the explicit list of package moves this track does **not** authorize
+(general DTO/mapper/exception relocation, JPA/domain model separation, `SipsaParcial`
+deduplication changes, or general service refactoring).
+
+---
+
 ## Phase 1 — Foundation Cleanup
 
 **Objective:** Fix bugs, enforce minimum security, and remove low-risk debt.

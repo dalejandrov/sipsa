@@ -8,6 +8,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Testing
+
+- **TECH-110/TECH-040** — Added a full automated validation suite for scheduled ingestion:
+  `WindowPolicyTest` (25 cases, deterministic via injected `Clock`), `SipsaSchedulingCronTest`
+  (18 cases validating the 3 production cron expressions with `CronExpression`, no system
+  clock dependency), `SipsaIngestionSchedulerTest` (8 cases verifying dispatch, `force`,
+  `requestSource`, and per-job exception isolation with `GenericIngestionJob` mocked), and
+  two Spring context tests (`SipsaSchedulingContextTest`,
+  `SipsaSchedulingDisabledByDefaultTest`) proving the scheduling wiring both when enabled
+  and disabled. Total: 59 tests (was 1), 0 failures, 2 tests intentionally `@Disabled`
+  pending TECH-111. See `docs/architecture/scheduled-ingestion-validation.md`.
+- Two tests in `WindowPolicyTest` are intentionally `@Disabled`, documenting the desired
+  behavior of a confirmed-but-unfixed defect in `WindowPolicy.validateMonthly()` (see
+  Findings below); they are the acceptance criteria for a future story (TECH-111).
+
+### Added
+
+- `WindowPolicy` now accepts an injectable `Clock` via a package-private, test-only seam
+  (`setClock`, defaults to `Clock.system(zone)` — behaviorally identical to the previous
+  `ZonedDateTime.now(zone)` call). No public API or functional behavior changed.
+- `sipsa.scheduling.enabled` property (default `true`, backward-compatible). Set to
+  `false` to prevent Spring from registering `@EnableScheduling`'s bean post-processor at
+  all, guaranteeing no `@Scheduled` method fires. Used by
+  `src/test/resources/application.yaml` to disable real scheduling for the test suite by
+  default.
+
+### Findings (not fixed in this change — see `docs/architecture/scheduled-ingestion-validation.md`)
+
+- **Confirmed bug (F-WP-01):** `WindowPolicy.validateMonthly()` does not bind the allowed
+  day-of-month to the specific ingestion method — `promedioAbasSipsaMesMadr` (documented
+  day 10) currently passes validation on day 8, and `promediosSipsaMesMadr` (documented
+  day 8) currently passes on day 10. The cron scheduler itself is correctly separated by
+  method; only `WindowPolicy`'s independent safety check is affected.
+- **Confirmed bug (F-WP-02):** the monthly `windowKey` is the raw run date
+  (`yyyy-MM-dd`), not the `YYYY-MM-M8`/`YYYY-MM-M10` format documented in `WindowPolicy`'s
+  own Javadoc, so a retry on the grace day (e.g., day 9 after a day 8 attempt) mints a new
+  key instead of reusing the one for the same logical period — breaking the
+  `(method_name, window_key)` idempotency guarantee across grace-day retries.
+- Both are tracked for a follow-up story (TECH-111, proposed, not yet added to the
+  backlog with a final ID).
+
 ### Changed
 
 - **Java 21 → Java 25 (LTS)**. Runtime updated to Eclipse Temurin 25.0.3. Maven compiler
@@ -55,6 +96,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Maven Wrapper recreated**. `.mvn/wrapper/maven-wrapper.properties` was missing from the
   repository. Recreated pointing to Maven 3.9.9. File removed from `.gitignore`.
 
+- **Internal ingestion commands moved out of the HTTP DTO package** ([ADR-007](docs/adr/ADR-007-package-boundaries-and-internal-models.md),
+  TECH-090). `IngestionRequest`, `CreateRunRequest`, and `AuditEventRequest` moved from
+  `api.dto.request` to `application.command` — they were never bound from an HTTP request
+  and are internal to the ingestion/audit pipeline. Import-only change in the 6 consumer
+  classes; no REST route, JSON body, or HTTP status changed.
+
+- **`TimezoneFilter` relocated to the API layer** (ADR-007, TECH-091). Moved from
+  `infrastructure.config` to `api.filter` — it is an HTTP request filter, not a technical
+  config class, and was the codebase's only `infrastructure → api` dependency. Package
+  declaration only; behavior, filter order, headers, `ThreadLocal` lifecycle, and Spring
+  bean registration are unchanged.
+
+- **`SoapGateway` no longer references an infrastructure class** (ADR-007, TECH-095).
+  Removed the `SoapGatewayImpl` import used only for a Javadoc `@see` tag — the codebase's
+  only `domain → infrastructure` dependency. Javadoc-only change.
+
 ### Fixed
 
 - `SipsaHealthIndicator` import updated from `org.springframework.boot.actuate.health` to
@@ -70,6 +127,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `application.yaml`. Without this, Hibernate 7 cannot start without a database connection
   to auto-detect the dialect (unlike Hibernate 6 which inferred it from the JDBC URL).
 
+- `SchedulingConfig`'s Javadoc incorrectly stated the two monthly ingestion jobs run at
+  "06:00 COT"; the actual `@Scheduled` cron expressions fire at 14:30 COT (06:00 was
+  `WindowPolicy`'s unrelated Java-level fallback default for `monthly-window-start`, never
+  what `application.yaml` or the cron itself configure). Comment-only fix, no behavior
+  change. Found during TECH-110's scheduling inventory.
+
 ### Documentation
 
 - `docs/architecture/architecture-review.md` — Full architectural review with 25 accepted
@@ -80,6 +143,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and conditions for revisiting.
 - `docs/architecture/implementation-roadmap.md` — 6-phase implementation plan.
 - `docs/architecture/testing-strategy.md` — Test pyramid, mandatory test cases, tooling strategy.
+  Updated to reflect the `WindowPolicyTest`/`SipsaSchedulingCronTest`/`SipsaIngestionSchedulerTest`/
+  scheduling-context tests actually implemented by TECH-110.
+- `docs/architecture/scheduled-ingestion-validation.md` — Full validation of the scheduled
+  ingestion pipeline: job inventory, cron table, `WindowPolicy` contrast, DANE schedule
+  matrix (with 2020 currency caveat), concurrency analysis, and classified findings
+  (TECH-110).
+- `docs/architecture/timezone-locale-date-strategy-review.md` — Temporal inventory (all
+  `Instant`/`LocalDate`/`OffsetDateTime` fields across entities, DTOs, and infrastructure),
+  a contrast matrix against DANE's documented SOAP method semantics (with the March-2020
+  currency caveat), an evaluation of `TimezoneFilter`/`WindowPolicy`, and a comparison of
+  four timezone/locale strategy alternatives. Evidence for ADR-008.
+- `docs/adr/ADR-008-timezone-locale-and-date-semantics.md` — Proposed strategy for
+  timezone, locale, and date-semantics handling across the API. **Status: Proposed, not
+  accepted.** No code changed as part of this documentation.
 - `docs/adr/ADR-000-current-architecture.md` — Architecture snapshot after migration.
 - `docs/adr/ADR-001` through `ADR-006` — Architecture decision records (ADR-004 accepted;
   ADR-001, ADR-002, ADR-003, ADR-005, ADR-006 proposed).
@@ -95,3 +172,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   run without a PostgreSQL instance, making `./mvnw clean verify` self-contained.
 - `src/test/resources/application.yaml` — Test configuration with H2 in-memory database,
   disabled Flyway, and minimal SOAP configuration for context load tests.
+- `InternalIngestionCommandsTest` — unit tests for `IngestionRequest`, `CreateRunRequest`,
+  and `AuditEventRequest` static factory methods, verifying construction behavior is
+  unchanged after their move to `application.command` (TECH-090).

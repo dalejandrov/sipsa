@@ -8,11 +8,14 @@ Technical documentation for the SIPSA Integration Service.
 
 | Document | Description |
 |---|---|
+| [**Project Architecture**](architecture/project-architecture.md) | **Start here.** The canonical, consolidated description of the currently approved architecture — vision, style, principles, package rules, request flow, domain model, scheduling, time strategy, error handling, testing, technical debt, and future evolution. |
+| [Agent Architecture Guide](architecture/AGENT_ARCHITECTURE.md) | Short, agent-focused quickstart: what to read, what never to do, when to create an ADR or a story, when to stop and ask. |
 | [Architecture Review](architecture/architecture-review.md) | Findings, accepted/discarded recommendations, known risks, domain model assessment |
 | [Technical Debt Registry](architecture/technical-debt.md) | All known technical debt, classified by category and priority |
 | [Refactoring Roadmap](architecture/refactoring-roadmap.md) | Active and deferred refactorings, with justifications for deferral |
 | [Implementation Roadmap](architecture/implementation-roadmap.md) | Phased plan for all backlog items |
 | [Testing Strategy](architecture/testing-strategy.md) | Test pyramid, mandatory/recommended/optional tests, tooling |
+| [Timezone/Locale Strategy Review](architecture/timezone-locale-date-strategy-review.md) | Temporal inventory, DANE contrast matrix, `TimezoneFilter`/`WindowPolicy` evaluation, alternatives comparison — evidence for ADR-008 (Proposed) |
 
 ## Architecture Decision Records
 
@@ -25,6 +28,7 @@ Technical documentation for the SIPSA Integration Service.
 | [ADR-004](adr/ADR-004-transaction-boundaries.md) | Transaction Boundaries in Ingestion | **Accepted** |
 | [ADR-005](adr/ADR-005-scheduler-execution-model.md) | Scheduler Execution Model | Proposed |
 | [ADR-006](adr/ADR-006-ingestion-handler-contract.md) | Ingestion Handler Contract | Proposed |
+| [ADR-008](adr/ADR-008-timezone-locale-and-date-semantics.md) | Timezone, Locale, and Date Semantics Strategy | Proposed |
 
 See [ADR Index](adr/README.md) for the full list and status guide.
 
@@ -72,7 +76,7 @@ See [ADR Index](adr/README.md) for the full list and status guide.
 **Start here:** [`/AGENTS.md`](../AGENTS.md) — authoritative guide for contributors (human and AI).
 
 Then:
-1. Read [ADR-000](adr/ADR-000-current-architecture.md) — understand the system in 5 minutes.
+1. Read [Project Architecture](architecture/project-architecture.md) — understand the system's current, approved structure in a few minutes. AI agents should also read the shorter [Agent Architecture Guide](architecture/AGENT_ARCHITECTURE.md).
 2. Read [Technical Backlog](backlog/technical-backlog.md) — find the next story to implement.
 3. Read [ADR-004](adr/ADR-004-transaction-boundaries.md) — critical before any ingestion changes.
 4. Read [Refactoring Roadmap](architecture/refactoring-roadmap.md) — what NOT to refactor and why.

@@ -1,17 +1,17 @@
-package com.dalejandrov.sipsa.api.dto.request;
+package com.dalejandrov.sipsa.application.command;
 
 import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * Request DTO for creating an ingestion run.
+ * Internal command for creating an ingestion run.
  * <p>
  * Encapsulates all parameters needed to create a new ingestion run record,
  * providing better readability, type safety, and extensibility.
  * <p>
- * This DTO is used by the application layer to pass run creation
- * information to the control service.
+ * This is an internal application command, used by the application layer to pass run
+ * creation information to the control service. It is never bound from an HTTP request.
  *
  * @param methodName the ingestion method identifier
  * @param windowKey the window key for this run
@@ -51,4 +51,3 @@ public record CreateRunRequest(
         );
     }
 }
-
