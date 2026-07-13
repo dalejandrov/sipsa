@@ -32,14 +32,68 @@ Jackson 3, Micrometer, Logback, JUnit 5, Mockito, and AssertJ.
 | `org.mapstruct:mapstruct` | 1.6.3 | Spring Boot BOM does not manage MapStruct |
 | `org.wiremock:wiremock` | 3.13.2 | Test dependency, standalone |
 
-### Removed dependencies
+### Removed explicit dependencies
 | Artifact | Reason |
 |---|---|
-| `io.github.resilience4j:resilience4j-spring-boot3` | Spring Boot 3 specific; removed |
-| `io.github.resilience4j:resilience4j-spring6` | Spring 6 specific; removed |
+| `io.github.resilience4j:resilience4j-spring-boot3` | Explicit direct dependency removed |
+| `io.github.resilience4j:resilience4j-spring6` | Explicit direct dependency removed |
 
 Resilience4j is now sourced exclusively via `spring-cloud-starter-circuitbreaker-resilience4j`
 managed by Spring Cloud 2025.1.2 BOM.
+
+### New test dependency
+| Artifact | Version | Reason |
+|---|---|---|
+| `com.h2database:h2` | managed by Boot BOM | Enables context load test without PostgreSQL |
+
+### Known transitive dependency incompatibility: Resilience4j Spring Boot 3 in Spring Boot 4
+
+**Evidence** (from `./mvnw dependency:tree`):
+```
+spring-cloud-starter-circuitbreaker-resilience4j:5.0.2
+  └─ spring-cloud-circuitbreaker-resilience4j:5.0.2
+       └─ resilience4j-spring-boot3:2.3.0   ← Spring Boot 3 integration
+```
+
+Spring Cloud 2025.1.2 has not yet updated its internal dependency to
+`resilience4j-spring-boot4`. This means `resilience4j-spring-boot3:2.3.0` is on
+the runtime classpath of a Spring Boot 4.1.0 application.
+
+**Impact assessment** (verified by bytecode inspection):
+
+`resilience4j-spring-boot3` registers auto-configurations via
+`META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
+The health indicator auto-configurations declare:
+
+```java
+@ConditionalOnClass(value = {
+    CircuitBreaker.class,
+    org.springframework.boot.actuate.health.HealthIndicator.class,   // moved in SB4
+    org.springframework.boot.actuate.health.StatusAggregator.class   // moved in SB4
+})
+```
+
+In Spring Boot 4, `org.springframework.boot.actuate.health.HealthIndicator` and
+`StatusAggregator` do not exist in the actuator jar (they moved to
+`org.springframework.boot.health.contributor` and
+`org.springframework.boot.health.actuate.endpoint` respectively).
+
+**Result**: The `@ConditionalOnClass` check fails silently. Spring Boot skips
+`CircuitBreakersHealthIndicatorAutoConfiguration` and
+`RateLimitersHealthIndicatorAutoConfiguration` without throwing an error. The
+application starts normally. No `ClassNotFoundException` is thrown.
+
+**Verified**: `./mvnw clean verify` passes with Spring Boot 4.1.0 and this
+transitive dependency present. The test `contextLoads()` passes with H2.
+
+**Functional consequence**: Resilience4j health endpoint integration
+(`/actuator/health/circuitbreakers`) is non-functional. Since the project does
+not use `@CircuitBreaker` annotations or monitor circuit breaker state, this has
+no current impact.
+
+**Resolution path**: When Spring Cloud releases a version that uses
+`resilience4j-spring-boot4`, the issue will resolve automatically. Until then,
+the health monitoring gap is acceptable for this project's current usage level.
 
 ## Breaking Changes and Fixes
 
@@ -150,17 +204,26 @@ PostgreSQL 18 compatibility was already present before this migration.
 | Command | Result |
 |---|---|
 | `./mvnw clean compile` | BUILD SUCCESS |
-| `./mvnw clean compile -Dmaven.compiler.showDeprecation=true` | BUILD SUCCESS (no source deprecations) |
+| `./mvnw clean compile -Dmaven.compiler.showDeprecation=true` | BUILD SUCCESS (zero source deprecations) |
 | `./mvnw clean package -DskipTests` | BUILD SUCCESS |
-| `./mvnw test` | 1 test run, 1 error (PostgreSQL not running — pre-existing) |
+| `./mvnw clean verify` | BUILD SUCCESS — 1 test, 0 failures, 0 errors |
 | `docker compose config` | Valid |
-| Docker build | Not tested (Docker daemon not running in build environment) |
+| Docker build | Not tested (Docker daemon unavailable in build environment) |
+| PostgreSQL + Docker Compose startup | Not tested (Docker daemon unavailable) |
 
-### Note on test failure
-`SipsaApplicationTests.contextLoads()` uses `@SpringBootTest` with `ddl-auto: validate`
-and Flyway enabled. This test REQUIRES a running PostgreSQL instance. The failure is
-pre-existing and occurs with any Spring Boot version when no database is available.
-To run tests: start PostgreSQL with `docker compose up -d db` before running `./mvnw test`.
+### Test infrastructure
+A `src/test/resources/application.yaml` was added that substitutes PostgreSQL with
+H2 (in-memory, PostgreSQL compatibility mode) for the `contextLoads()` test only.
+Flyway is disabled in the test profile; Hibernate creates the schema from JPA entities
+via `create-drop`. This makes `./mvnw clean verify` self-contained.
+
+Production configuration in `src/main/resources/application.yaml` is unchanged.
+
+To run tests against real PostgreSQL:
+```bash
+docker compose up -d db
+./mvnw test
+```
 
 ## Rollback Procedure
 
@@ -180,22 +243,30 @@ made, so no database rollback is needed.
 1. **Docker build not verified** — Docker daemon was not available in the build
    environment. The Dockerfile uses `eclipse-temurin:25-jre-noble` which should be
    a valid Eclipse Temurin image, but requires manual verification.
+   Checklist: `docker compose build --no-cache && docker compose up -d && curl http://localhost:8080/actuator/health`
 
-2. **WireMock 3.x on Java 25** — WireMock 3.13.2 (standalone) is used in tests.
-   It should work on Java 25 (JDK compatibility), but has not been tested since no
-   WireMock-based tests exist currently. If future tests use WireMock, validate
-   compatibility or migrate to `wiremock-spring-boot 4.x`.
+2. **WireMock 3.x on Java 25** — WireMock 3.13.2 (standalone) is present in the
+   classpath but not used in any test currently. If future tests use WireMock,
+   validate compatibility with Java 25 or migrate to `wiremock-spring-boot:4.x`.
 
-3. **Resilience4j version mismatch** — Spring Cloud 2025.1.2 manages Resilience4j
-   2.3.0. The `resilience4j-spring-boot4` artifact was introduced in 2.4.0 and is
-   NOT managed by the current Spring Cloud BOM. The project removed the explicit
-   Resilience4j Boot starter dependency; if Resilience4j annotations or auto-config
-   are needed in the future, add `resilience4j-spring-boot4:2.4.0` explicitly.
+3. **Resilience4j Spring Boot 3 integration on Spring Boot 4 classpath** — Documented
+   in detail above. Health indicator auto-configurations are silently skipped by
+   `@ConditionalOnClass`. Application starts and functions normally. No action needed
+   until circuit breaker features are used or Spring Cloud updates to
+   `resilience4j-spring-boot4`.
 
-4. **Spring Cloud Circuit Breaker runtime** — The `spring-cloud-starter-circuitbreaker-resilience4j`
-   integration has not been validated end-to-end since the project does not use
-   `@CircuitBreaker` annotations. If circuit breaker features are added later,
-   verify the integration against Spring Cloud 2025.1.2.
+4. **SOAP endpoint not validated** — `SipsaSoapClientConfig` creates a JAX-WS proxy
+   at startup pointing to the live DANE service. With Docker not available, the
+   endpoint `https://appweb.dane.gov.co/sipsaWS/SrvSipsaUpraBeanService` has not
+   been reached in this validation cycle. Validate after Docker deployment.
+
+5. **`// ...existing code...` placeholder comments in 4 handlers** —
+   `CiudadIngestionHandler.java:115`, `SemanaIngestionHandler.java:103`,
+   `AbasIngestionHandler.java:123`, `MesIngestionHandler.java:109` contain
+   placeholder comments inside exception handlers. The code surrounding them is
+   functional (catch → warn → flush → rethrow), but the comments indicate incomplete
+   refinement of that error path. No functional impact detected; review in the
+   architecture improvement phase.
 
 ## Post-Migration Recommendations
 
