@@ -1,17 +1,17 @@
-package com.dalejandrov.sipsa.api.dto.request;
+package com.dalejandrov.sipsa.application.command;
 
 import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * Request DTO for initiating an ingestion job.
+ * Internal command for initiating an ingestion job.
  * <p>
  * Encapsulates all parameters needed to start an ingestion process,
  * providing better readability, type safety, and extensibility.
  * <p>
- * This DTO is used by the API layer to pass ingestion requests
- * to the application layer services.
+ * This is an internal application command. It is never bound from an HTTP request;
+ * instances are always built through the static factory methods below.
  *
  * @param methodName the ingestion method identifier (e.g., "promediosSipsaCiudad")
  * @param force if true, bypasses window checks and duplicate prevention
@@ -63,4 +63,3 @@ public record IngestionRequest(
         return new IngestionRequest(methodName, false, requestId, RequestSource.SCHEDULED);
     }
 }
-

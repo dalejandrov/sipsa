@@ -1,6 +1,6 @@
 package com.dalejandrov.sipsa.application.ingestion.scheduler;
 
-import com.dalejandrov.sipsa.api.dto.request.IngestionRequest;
+import com.dalejandrov.sipsa.application.command.IngestionRequest;
 import com.dalejandrov.sipsa.application.ingestion.core.GenericIngestionJob;
 import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import lombok.RequiredArgsConstructor;

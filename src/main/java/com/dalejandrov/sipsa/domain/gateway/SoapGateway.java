@@ -1,7 +1,5 @@
 package com.dalejandrov.sipsa.domain.gateway;
 
-import com.dalejandrov.sipsa.infrastructure.soap.gateway.SoapGatewayImpl;
-
 import java.io.InputStream;
 
 /**
@@ -36,7 +34,8 @@ import java.io.InputStream;
  *   <li>{@link #getAbastecimientosMensualData()} → {@code promedioAbasSipsaMesMadr}</li>
  * </ul>
  *
- * @see SoapGatewayImpl
+ * <p>
+ * See {@code SoapGatewayImpl} (infrastructure layer) for the concrete implementation.
  */
 public interface SoapGateway {
 

@@ -25,6 +25,7 @@ the decision taken, and its consequences.
 | [ADR-004](ADR-004-transaction-boundaries.md) | Transaction Boundaries in Ingestion | **Accepted** | 2026-07-13 |
 | [ADR-005](ADR-005-scheduler-execution-model.md) | Scheduler Execution Model | Proposed | 2026-07-13 |
 | [ADR-006](ADR-006-ingestion-handler-contract.md) | Ingestion Handler Contract | Proposed | 2026-07-13 |
+| [ADR-007](ADR-007-package-boundaries-and-internal-models.md) | Package Boundaries and Internal Models | Accepted (scoped to F1, F2, F4, F5 — F3 pending SPIKE) | 2026-07-13 |
 
 ## How to create a new ADR
 
