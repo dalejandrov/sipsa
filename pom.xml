@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.9</version>
+        <version>4.1.0</version>
         <relativePath/>
     </parent>
 
@@ -26,10 +26,10 @@
     <!-- ===================== -->
     <properties>
         <!-- Set the Java version we compile to -->
-        <java.version>21</java.version>
+        <java.version>25</java.version>
 
         <!-- Latest stable Apache CXF version (SOAP client infrastructure) -->
-        <cxf.version>4.1.4</cxf.version>
+        <cxf.version>4.2.2</cxf.version>
 
         <!-- WireMock version for test mocking -->
         <wiremock.version>3.13.2</wiremock.version>
@@ -46,7 +46,7 @@
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
-                <version>2025.0.0</version>
+                <version>2025.1.2</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -87,20 +87,6 @@
         <dependency>
             <groupId>org.apache.cxf</groupId>
             <artifactId>cxf-rt-features-logging</artifactId>
-        </dependency>
-
-        <!-- ===================== -->
-        <!-- Resilience4j for resilience patterns -->
-        <!-- ===================== -->
-        <dependency>
-            <groupId>io.github.resilience4j</groupId>
-            <artifactId>resilience4j-spring-boot3</artifactId>
-        </dependency>
-
-        <!-- So Spring Boot’s auto-configuration doesn’t break (fallback decorators, etc.) -->
-        <dependency>
-            <groupId>io.github.resilience4j</groupId>
-            <artifactId>resilience4j-spring6</artifactId>
         </dependency>
 
         <!-- ===================== -->
@@ -217,8 +203,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.14.1</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>${java.version}</release>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>
