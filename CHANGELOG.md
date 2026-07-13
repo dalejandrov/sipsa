@@ -55,6 +55,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Maven Wrapper recreated**. `.mvn/wrapper/maven-wrapper.properties` was missing from the
   repository. Recreated pointing to Maven 3.9.9. File removed from `.gitignore`.
 
+- **Internal ingestion commands moved out of the HTTP DTO package** ([ADR-007](docs/adr/ADR-007-package-boundaries-and-internal-models.md),
+  TECH-090). `IngestionRequest`, `CreateRunRequest`, and `AuditEventRequest` moved from
+  `api.dto.request` to `application.command` — they were never bound from an HTTP request
+  and are internal to the ingestion/audit pipeline. Import-only change in the 6 consumer
+  classes; no REST route, JSON body, or HTTP status changed.
+
+- **`TimezoneFilter` relocated to the API layer** (ADR-007, TECH-091). Moved from
+  `infrastructure.config` to `api.filter` — it is an HTTP request filter, not a technical
+  config class, and was the codebase's only `infrastructure → api` dependency. Package
+  declaration only; behavior, filter order, headers, `ThreadLocal` lifecycle, and Spring
+  bean registration are unchanged.
+
+- **`SoapGateway` no longer references an infrastructure class** (ADR-007, TECH-095).
+  Removed the `SoapGatewayImpl` import used only for a Javadoc `@see` tag — the codebase's
+  only `domain → infrastructure` dependency. Javadoc-only change.
+
 ### Fixed
 
 - `SipsaHealthIndicator` import updated from `org.springframework.boot.actuate.health` to
@@ -95,3 +111,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   run without a PostgreSQL instance, making `./mvnw clean verify` self-contained.
 - `src/test/resources/application.yaml` — Test configuration with H2 in-memory database,
   disabled Flyway, and minimal SOAP configuration for context load tests.
+- `InternalIngestionCommandsTest` — unit tests for `IngestionRequest`, `CreateRunRequest`,
+  and `AuditEventRequest` static factory methods, verifying construction behavior is
+  unchanged after their move to `application.command` (TECH-090).

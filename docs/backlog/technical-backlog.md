@@ -45,12 +45,12 @@ When a story is implemented:
 | TECH-071 | Align `batch-size` defaults | Low | 1 | Pending |
 | TECH-080 | Write ADR-002 (security) | Low | 6 | Pending |
 | TECH-081 | Write ADR-001 (deduplication) | Low | 6 | Pending |
-| TECH-090 | Move internal ingestion commands to `application/command` | Low | — | **Ready** |
-| TECH-091 | Move `TimezoneFilter` out of `infrastructure/config` into `api` | Low | — | **Ready** |
+| TECH-090 | Move internal ingestion commands to `application/command` | Low | — | **Done** |
+| TECH-091 | Move `TimezoneFilter` out of `infrastructure/config` into `api` | Low | — | **Done** |
 | TECH-092 | Separate generated SOAP sources from manual code | Low | — | **Blocked** (needs TECH-094 SPIKE) |
-| TECH-093 | Add ArchUnit package-boundary rules (Historia B) | Low | — | Pending (blocked until TECH-090 + TECH-091 merge) |
+| TECH-093 | Add ArchUnit package-boundary rules (Historia B) | Low | — | Pending (TECH-090/TECH-091 merged; still not started) |
 | TECH-094 | SPIKE: Evaluate relocating CXF-generated SOAP sources | Low | — | Pending |
-| TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A) | Low | — | **Ready** |
+| TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A) | Low | — | **Done** |
 
 ---
 
@@ -788,7 +788,7 @@ each record in the batch, producing N database queries for N records.
 **Type:** Refactor
 **Priority:** Low
 **Phase:** —
-**Status:** **Ready** — approved by [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) (`Accepted`, scoped to F1)
+**Status:** **Done** — implemented on branch `refactor/internal-models-and-api-filter`, approved by [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) (`Accepted`, scoped to F1)
 **Complexity:** S
 **Branch:** `refactor/internal-models-and-api-filter`
 
@@ -830,15 +830,19 @@ this story if the diff would grow meaningfully.
 were never part of the public HTTP contract.
 
 **Acceptance Criteria:**
-- [ ] The three classes live under `application/command/`.
-- [ ] `api/dto/request/` no longer contains them.
-- [ ] All 6 consumer files compile against the new package.
-- [ ] `./mvnw clean verify` passes.
-- [ ] `application → api` import count in `architecture-review.md`'s dependency table
-      drops from 6 files to 3 (the explicitly-kept `SipsaReadService`,
-      `IngestionRunQueryService`, `AuditTrailService`).
+- [x] The three classes live under `application/command/`.
+- [x] `api/dto/request/` no longer contains them.
+- [x] All 6 consumer files compile against the new package.
+- [x] `./mvnw clean verify` passes.
+- [x] `application → api` import count (full codebase `grep`, not just the
+      `architecture-review.md` curated table) drops from 9 files to 5 files after this
+      story and TECH-091/TECH-095: `SipsaIngestionScheduler`, `IngestionJob`,
+      `IngestionControlService`, and `AsyncIngestionService` no longer import anything from
+      `api`. The 5 remaining files (`IngestionTriggerService`, `SipsaReadService`,
+      `IngestionRunQueryService`, `IngestionAuditService`, `AuditTrailService`) keep
+      genuinely-justified imports — see ADR-007 Consequences.
 
-**Completed:** —
+**Completed:** 2026-07-13, branch `refactor/internal-models-and-api-filter`.
 
 ---
 
@@ -848,7 +852,7 @@ were never part of the public HTTP contract.
 **Type:** Refactor
 **Priority:** Low
 **Phase:** —
-**Status:** **Ready** — approved by [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) (`Accepted`, scoped to F2)
+**Status:** **Done** — implemented on branch `refactor/internal-models-and-api-filter`, approved by [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) (`Accepted`, scoped to F2)
 **Complexity:** XS
 **Branch:** `refactor/internal-models-and-api-filter`
 
@@ -877,14 +881,14 @@ references its current package.
 filter ordering — no change.
 
 **Acceptance Criteria:**
-- [ ] `TimezoneFilter` lives under `api/filter/`.
-- [ ] `infrastructure/config/` no longer contains it.
-- [ ] `./mvnw clean verify` passes, including a manual check that `X-Timezone` header
-      handling is unaffected (existing behavior, no new test required unless one does not
-      already exist for this filter).
-- [ ] `infrastructure → api` import count drops from 1 to 0.
+- [x] `TimezoneFilter` lives under `api/filter/`.
+- [x] `infrastructure/config/` no longer contains it.
+- [x] `./mvnw clean verify` passes. Diff against the pre-move file is exactly one line
+      (the `package` declaration) — behavior, filter order, headers, `ThreadLocal`,
+      `finally`-block cleanup, and `@Component` registration are byte-for-byte unchanged.
+- [x] `infrastructure → api` import count drops from 1 to 0.
 
-**Completed:** —
+**Completed:** 2026-07-13, branch `refactor/internal-models-and-api-filter`.
 
 ---
 
@@ -1037,7 +1041,7 @@ verified evidence. TECH-092 must not proceed until this is investigated directly
 **Type:** QA
 **Priority:** Low
 **Phase:** —
-**Status:** **Ready** — approved by [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) (`Accepted`, scoped to F4)
+**Status:** **Done** — implemented on branch `refactor/internal-models-and-api-filter`, approved by [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) (`Accepted`, scoped to F4)
 **Complexity:** XS
 **Branch:** `refactor/internal-models-and-api-filter` (may be implemented together with
 TECH-090/TECH-091 in the same iteration; keep as its own commit)
@@ -1061,10 +1065,10 @@ Javadoc tag (line 39) — the only confirmed `domain → infrastructure` import 
 `domain`-must-not-depend-on-`infrastructure` ArchUnit rule to pass on day one.
 
 **Acceptance Criteria:**
-- [ ] `SoapGateway.java` no longer imports anything from `infrastructure`.
-- [ ] Javadoc still points a reader to the implementation class (as plain text, not a
+- [x] `SoapGateway.java` no longer imports anything from `infrastructure`.
+- [x] Javadoc still points a reader to the implementation class (as plain text, not a
       compiled `@see` reference).
-- [ ] `./mvnw clean verify` passes.
-- [ ] `domain → infrastructure` import count drops from 1 to 0.
+- [x] `./mvnw clean verify` passes.
+- [x] `domain → infrastructure` import count drops from 1 to 0.
 
-**Completed:** —
+**Completed:** 2026-07-13, branch `refactor/internal-models-and-api-filter`.
