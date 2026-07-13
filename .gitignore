@@ -83,3 +83,8 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+### Claude Code ###
+# User-local Claude Code settings (permissions, personal overrides).
+# Project-level .claude/settings.json can be committed if needed.
+.claude/settings.local.json
