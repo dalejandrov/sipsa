@@ -1,6 +1,6 @@
 package com.dalejandrov.sipsa.application.service;
 
-import com.dalejandrov.sipsa.api.dto.request.AuditEventRequest;
+import com.dalejandrov.sipsa.application.command.AuditEventRequest;
 import com.dalejandrov.sipsa.api.dto.request.AuditQueryRequest;
 import com.dalejandrov.sipsa.domain.entity.AuditEventType;
 import com.dalejandrov.sipsa.domain.entity.IngestionAudit;

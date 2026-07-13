@@ -1,4 +1,4 @@
-package com.dalejandrov.sipsa.api.dto.request;
+package com.dalejandrov.sipsa.application.command;
 
 import com.dalejandrov.sipsa.application.ingestion.core.IngestionContext;
 import com.dalejandrov.sipsa.domain.entity.AuditEventType;
@@ -7,13 +7,13 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * Request DTO for logging audit events.
+ * Internal command for logging audit events.
  * <p>
  * Encapsulates all parameters needed to log an audit event,
  * providing better readability, type safety, and extensibility.
  * <p>
- * This DTO is used by the application layer to pass audit event
- * information to the audit service.
+ * This is an internal application command, used by the application layer to pass audit
+ * event information to the audit service. It is never bound from an HTTP request.
  *
  * @param requestId correlation ID for the request
  * @param runId ingestion run ID (nullable for events before run creation)

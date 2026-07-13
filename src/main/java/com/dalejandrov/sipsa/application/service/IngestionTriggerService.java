@@ -1,7 +1,7 @@
 package com.dalejandrov.sipsa.application.service;
 
-import com.dalejandrov.sipsa.api.dto.request.AuditEventRequest;
-import com.dalejandrov.sipsa.api.dto.request.IngestionRequest;
+import com.dalejandrov.sipsa.application.command.AuditEventRequest;
+import com.dalejandrov.sipsa.application.command.IngestionRequest;
 import com.dalejandrov.sipsa.api.dto.request.IngestionTriggerRequest;
 import com.dalejandrov.sipsa.api.dto.response.IngestionTriggerResponse;
 import lombok.RequiredArgsConstructor;
