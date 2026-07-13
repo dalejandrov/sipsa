@@ -32,6 +32,7 @@ spring:
   # JPA/Hibernate Configuration
   # ----------------------------------------------------------------------------
   jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: validate  # Don't auto-create schema, use Flyway
     open-in-view: false   # Disable to avoid lazy loading issues
