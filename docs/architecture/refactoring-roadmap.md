@@ -229,11 +229,11 @@ but **scoped only to F1, F2, F4, F5** — F3 remains gated behind a SPIKE.
 
 | ID | Finding | Backlog | Status | Risk |
 |---|---|---|---|---|
-| F1 | Internal ingestion commands (`IngestionRequest`, `CreateRunRequest`, `AuditEventRequest`) stored as HTTP `*Request` DTOs | [TECH-090](../backlog/technical-backlog.md#tech-090) | **Ready** | Low |
-| F2 | `TimezoneFilter` (an HTTP request filter) is placed under `infrastructure/config` and is the only confirmed `infrastructure → api` import in the codebase | [TECH-091](../backlog/technical-backlog.md#tech-091) | **Ready** | Very low |
+| F1 | Internal ingestion commands (`IngestionRequest`, `CreateRunRequest`, `AuditEventRequest`) stored as HTTP `*Request` DTOs | [TECH-090](../backlog/technical-backlog.md#tech-090) | **Done** (`refactor/internal-models-and-api-filter`) | Low |
+| F2 | `TimezoneFilter` (an HTTP request filter) is placed under `infrastructure/config` and is the only confirmed `infrastructure → api` import in the codebase | [TECH-091](../backlog/technical-backlog.md#tech-091) | **Done** (`refactor/internal-models-and-api-filter`) | Very low |
 | F3 | CXF-generated SOAP stubs are generated into the same package as hand-written `SoapStreamingClient` | [TECH-092](../backlog/technical-backlog.md#tech-092) | **Blocked** — needs [TECH-094](../backlog/technical-backlog.md#tech-094) SPIKE first | Low (unverified) |
-| F4 | `domain/gateway/SoapGateway` imports `infrastructure.soap.gateway.SoapGatewayImpl` for a Javadoc `@see` tag only — the only confirmed `domain → infrastructure` import | [TECH-095](../backlog/technical-backlog.md#tech-095) | **Ready** | None |
-| F5 | No ArchUnit tests exist to prevent regression on any of the above | [TECH-093](../backlog/technical-backlog.md#tech-093) | Pending — blocked until TECH-090/TECH-091 merge | Low |
+| F4 | `domain/gateway/SoapGateway` imports `infrastructure.soap.gateway.SoapGatewayImpl` for a Javadoc `@see` tag only — the only confirmed `domain → infrastructure` import | [TECH-095](../backlog/technical-backlog.md#tech-095) | **Done** (`refactor/internal-models-and-api-filter`) | None |
+| F5 | No ArchUnit tests exist to prevent regression on any of the above | [TECH-093](../backlog/technical-backlog.md#tech-093) | Pending — TECH-090/TECH-091/TECH-095 merged, story not started | Low |
 
 See ADR-007 for full evidence, cost, and the list of related items investigated and
 explicitly **not** recommended (`SipsaReadService`/`IngestionRunQueryService`/`AuditTrailService`

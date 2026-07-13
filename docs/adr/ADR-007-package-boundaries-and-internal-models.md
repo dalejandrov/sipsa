@@ -290,10 +290,20 @@ warranted), and whether `TimezoneUtil` should eventually move (deferred, see tab
 
 ## Consequences
 
-**If accepted and all four stories implemented:**
-- `application → api` imports drop from 6 files to 3 (`SipsaReadService`,
-  `IngestionRunQueryService`, `AuditTrailService` — all explicitly kept, see "Not Found to
-  Justify a Move").
+**If accepted and all four stories implemented (verified 2026-07-13 after TECH-090,
+TECH-091, TECH-095 landed on `refactor/internal-models-and-api-filter`):**
+- `application → api` imports drop from **9 files to 5 files**. The correction here
+  matters: the "6 files" figure quoted earlier in this ADR (§F1) was the count of files
+  importing specifically `IngestionRequest`/`CreateRunRequest`/`AuditEventRequest`, not the
+  total `application → api` count across the codebase — a full `grep` found 9 distinct
+  files with some `api` import before this change. The 4 files that imported *only* the 3
+  moved classes (`SipsaIngestionScheduler`, `IngestionJob`, `IngestionControlService`,
+  `AsyncIngestionService`) now import nothing from `api` at all. The 5 remaining files
+  (`IngestionTriggerService`, `SipsaReadService`, `IngestionRunQueryService`,
+  `IngestionAuditService`, `AuditTrailService`) all import genuinely-kept classes: HTTP
+  DTOs (`IngestionTriggerRequest`, `AuditQueryRequest`, `*QueryRequest`), API mappers, API
+  response DTOs, or (in `AuditTrailService`'s case) the still-deferred `TimezoneUtil` — see
+  "What Was Investigated and Found Not to Justify a Move".
 - `infrastructure → api` imports drop from 1 to 0.
 - `domain → infrastructure` imports drop from 1 to 0.
 - Generated and hand-written SOAP code become visually and physically distinguishable.
