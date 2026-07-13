@@ -93,7 +93,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(SipsaBusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(SipsaBusinessException ex) {
         log.error("Business logic error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(HttpStatus.UNPROCESSABLE_ENTITY, "BUSINESS_ERROR", ex.getMessage());
+        return buildErrorResponse(HttpStatus.UNPROCESSABLE_CONTENT, "BUSINESS_ERROR", ex.getMessage());
     }
 
     /**
