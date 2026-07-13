@@ -1,7 +1,7 @@
 # SIPSA Integration Service
 
-![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.9-brightgreen?logo=springboot)
+![Java](https://img.shields.io/badge/Java-25-orange?logo=openjdk)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.0-brightgreen?logo=springboot)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18.0-4169E1?logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![License](https://img.shields.io/github/license/dalejandrov/sipsa)
@@ -31,7 +31,7 @@ API available at `http://localhost:8080`
 
 ### Local Development
 
-Requirements: Java 21, PostgreSQL 18, Maven 3.9+
+Requirements: Java 25, PostgreSQL 18, Maven 3.9+
 
 ```bash
 # 1. Clone and navigate
