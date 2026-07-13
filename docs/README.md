@@ -13,6 +13,7 @@ Technical documentation for the SIPSA Integration Service.
 | [Refactoring Roadmap](architecture/refactoring-roadmap.md) | Active and deferred refactorings, with justifications for deferral |
 | [Implementation Roadmap](architecture/implementation-roadmap.md) | Phased plan for all backlog items |
 | [Testing Strategy](architecture/testing-strategy.md) | Test pyramid, mandatory/recommended/optional tests, tooling |
+| [Timezone/Locale Strategy Review](architecture/timezone-locale-date-strategy-review.md) | Temporal inventory, DANE contrast matrix, `TimezoneFilter`/`WindowPolicy` evaluation, alternatives comparison — evidence for ADR-008 (Proposed) |
 
 ## Architecture Decision Records
 
@@ -25,6 +26,7 @@ Technical documentation for the SIPSA Integration Service.
 | [ADR-004](adr/ADR-004-transaction-boundaries.md) | Transaction Boundaries in Ingestion | **Accepted** |
 | [ADR-005](adr/ADR-005-scheduler-execution-model.md) | Scheduler Execution Model | Proposed |
 | [ADR-006](adr/ADR-006-ingestion-handler-contract.md) | Ingestion Handler Contract | Proposed |
+| [ADR-008](adr/ADR-008-timezone-locale-and-date-semantics.md) | Timezone, Locale, and Date Semantics Strategy | Proposed |
 
 See [ADR Index](adr/README.md) for the full list and status guide.
 
