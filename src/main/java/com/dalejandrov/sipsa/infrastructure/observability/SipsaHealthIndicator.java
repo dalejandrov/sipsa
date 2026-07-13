@@ -3,8 +3,8 @@ package com.dalejandrov.sipsa.infrastructure.observability;
 import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.IngestionRunRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
