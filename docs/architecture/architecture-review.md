@@ -150,7 +150,7 @@ The SIPSA Integration Service is a well-structured Spring Boot application that 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Dependency violations confirmed** (compile-time, not just style):
+**Dependency violations confirmed at review time** (compile-time, not just style):
 
 | Source (application layer) | Imports from (api layer) | Impact |
 |---|---|---|
@@ -161,7 +161,16 @@ The SIPSA Integration Service is a well-structured Spring Boot application that 
 | `IngestionTriggerService.java` | `api.dto.request.AuditEventRequest` | App service depends on HTTP layer |
 | `SipsaReadService.java` | `api.dto.request.*`, `api.dto.response.*`, `api.mapper.*` | App service depends on HTTP layer |
 
-These violations are functional today but increase coupling. See [Refactoring Roadmap](refactoring-roadmap.md) for the reason they are not corrected now.
+**Resolution update (2026-07-13):** [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md)
+(TECH-090, merged to `main`) moved `IngestionRequest`, `CreateRunRequest`, and
+`AuditEventRequest` to `application/command`, eliminating every import above that involved
+those three classes. Verified on `main`: exactly 5 `application` files still import from
+`api` (`IngestionTriggerService`, `SipsaReadService`, `IngestionRunQueryService`,
+`IngestionAuditService`, `AuditTrailService`) — all investigated and explicitly accepted by
+ADR-007 (genuine HTTP DTOs and the deliberate read-service → response-mapper pattern). See
+the package-rules table in [Project Architecture](project-architecture.md#package-organization)
+for the current, authoritative state. The table above is retained as the historical
+finding that motivated ADR-007.
 
 ---
 
@@ -277,7 +286,7 @@ IngestionTriggerService.triggerIngestion()
 
 | ID | Finding | Severity | Evidence |
 |---|---|---|---|
-| F-TEST-01 | Single context load test; no business logic coverage | **High** | `find src/test -name "*.java"` → 1 file: `SipsaApplicationTests.java` |
+| F-TEST-01 | Single context load test; no business logic coverage | **High** — **Resolved as stated** (2026-07-13): TECH-110/TECH-040 added 64 tests (65 total across 7 classes) covering `WindowPolicy`, the scheduler, and the cron expressions. Remaining gaps (`SpecificationBuilder`, `IngestionJob`, `GlobalExceptionHandler`, integration) stay tracked as T-02..T-05 / TECH-041/042/043/044. | `find src/test -name "*.java"` → 1 file at review time: `SipsaApplicationTests.java` |
 
 ### Resilience (accepted, no action planned)
 
@@ -293,7 +302,7 @@ The following were analyzed and explicitly rejected. They must not be implemente
 
 | Recommendation | Reason for rejection |
 |---|---|
-| Move `IngestionRequest`, `CreateRunRequest`, `AuditEventRequest` from `api/dto/request/` to `application/dto/` | Functional today. Moving would require updating 15+ files. No bug is introduced by the current placement. The violation is real but the cost/benefit does not justify the change at this scale. |
+| Move `IngestionRequest`, `CreateRunRequest`, `AuditEventRequest` from `api/dto/request/` to `application/dto/` | Functional today. Moving would require updating 15+ files. No bug is introduced by the current placement. The violation is real but the cost/benefit does not justify the change at this scale. **Superseded (2026-07-13):** [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) re-verified this and accepted a narrower version — exactly the 3 named classes (~9 files touched, not 15+) moved to `application/command` (TECH-090, merged). The general "move all internal DTOs" idea remains rejected; see [Refactoring Roadmap RF-01](refactoring-roadmap.md#rf-01--move-internal-dtos-from-apidtorequest-to-applicationdto). |
 | Split `IngestionControlService` | 340 lines with cohesive responsibilities (run lifecycle). No evidence of friction caused by its size. Splitting would increase indirection without removing complexity. |
 | Replace `WindowViolationException` with a value return | The exception is caught immediately in `IngestionJob.execute()` and never propagates to an HTTP layer. The change would be invasive in the central pipeline with no functional improvement. |
 | Move `SipsaExternalException`, `SipsaParseException` to `infrastructure` | These exceptions are referenced by domain-layer gateway contracts and application services. Moving them would create a dependency from domain toward infrastructure, which is worse. |
