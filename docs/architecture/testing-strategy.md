@@ -9,13 +9,17 @@
 
 | Metric | Value |
 |---|---|
-| Test files | 1 (`SipsaApplicationTests.java`) |
-| Test methods | 1 (`contextLoads()`) |
-| Business logic coverage | 0% (no JaCoCo configured) |
-| Database dependency for tests | H2 in-memory (added during migration) |
+| Test files | 6 (`SipsaApplicationTests`, `WindowPolicyTest`, `SipsaSchedulingCronTest`, `SipsaIngestionSchedulerTest`, `SipsaSchedulingContextTest`, `SipsaSchedulingDisabledByDefaultTest`) |
+| Test methods | 59 (1 pre-existing + 58 added by TECH-110) |
+| Business logic coverage | `WindowPolicy` and `SipsaIngestionScheduler` now covered (no JaCoCo configured yet — line-coverage % not measured) |
+| Database dependency for tests | H2 in-memory (added during migration); the new scheduling/window tests need no database at all |
+| Intentional skips | 2 (`@Disabled`, documenting TECH-111's desired post-fix behavior — see [scheduled-ingestion-validation.md](scheduled-ingestion-validation.md)) |
 
-The existing test confirms that the Spring context loads with H2 in-memory. It provides
-no behavioral coverage.
+Updated by TECH-110 (`test/scheduled-ingestion-jobs`) — see
+[Scheduled Ingestion Validation](scheduled-ingestion-validation.md) for the full report.
+Everything else in this document (`SpecificationBuilderTest`, `IngestionJobTest`,
+`GlobalExceptionHandlerTest`, and the recommended/optional/integration sections below)
+remains as originally planned and **not yet implemented**.
 
 ---
 
@@ -40,25 +44,77 @@ no behavioral coverage.
 
 These must exist before any further refactoring of production code.
 
-### `WindowPolicyTest`
+### `WindowPolicyTest` — **Done** (TECH-040/TECH-110, `test/scheduled-ingestion-jobs`)
 
-**Target:** `application/ingestion/core/WindowPolicy.java`  
-**Branch:** `test/window-policy`
+**Target:** `application/ingestion/core/WindowPolicy.java`
 
-| Test case | Description |
+**Implemented:** `WindowPolicy` now accepts an injectable `Clock` (package-private
+`setClock`, defaults to `Clock.system(zone)` — no production behavior change). 25 test
+cases across 5 nested classes: DANE-documented 14:00 boundary, production 14:20 buffer,
+current (method-agnostic) monthly window behavior, `windowKey` semantics, and a dedicated
+`MonthlyWindowConfirmedBugDemonstration` class. 23 pass; 2 are `@Disabled`, documenting the
+desired post-fix behavior of a confirmed defect (`WindowPolicy` does not bind the allowed
+monthly day to the specific method — see
+[scheduled-ingestion-validation.md](scheduled-ingestion-validation.md), F-WP-01/F-WP-02,
+tracked as proposed story TECH-111). Superset of the original planned case list below,
+kept for historical reference:
+
+| Original planned test case | Covered by |
 |---|---|
-| `dailyMethodInsideWindow_returnsKey` | Current time inside window → returns `YYYY-MM-DD` key |
-| `dailyMethodBeforeWindow_throwsViolation` | Time before start → `WindowViolationException` |
-| `dailyMethodAfterWindow_throwsViolation` | Time after end → `WindowViolationException` |
-| `dailyMethodForceTrue_returnsKeyIgnoringWindow` | `force=true` outside window → key returned without exception |
-| `monthlyMethodOnValidDay_returnsKey` | Day 8 after configured time → key returned |
-| `monthlyMethodOnInvalidDay_throwsViolation` | Day 7 → `WindowViolationException` |
-| `monthlyMethodForceTrue_returnsKey` | `force=true` on day 7 → key returned |
-| `timezoneUsed_isBogotaNotUtc` | Verify calculations use `America/Bogota`, not UTC |
+| `dailyMethodInsideWindow_returnsKey` | `DailyWindowProductionConfig.atBufferedStart_allowed` and others |
+| `dailyMethodBeforeWindow_throwsViolation` | `DailyWindowProductionConfig.beforeBufferedStart_rejected` |
+| `dailyMethodAfterWindow_throwsViolation` | covered via end-of-window and next-day tests |
+| `dailyMethodForceTrue_returnsKeyIgnoringWindow` | `MonthlyWindowCurrentImplementation.forceTrue_bypassesWindow_forBothMethods` (daily case implicit in production-config tests using `force=true`) |
+| `monthlyMethodOnValidDay_returnsKey` | `MonthlyWindowCurrentImplementation.day8AtOrAfterStart_acceptedForBothMethods` |
+| `monthlyMethodOnInvalidDay_throwsViolation` | `MonthlyWindowCurrentImplementation.day7_rejectedForBothMethods` |
+| `monthlyMethodForceTrue_returnsKey` | `MonthlyWindowCurrentImplementation.forceTrue_bypassesWindow_forBothMethods` |
+| `timezoneUsed_isBogotaNotUtc` | `DailyWindowProductionConfig.usesBogotaCalendarDate_notUtcOrServerDefault` |
 
-**Implementation note:** Inject a fixed `Clock` or `ZonedDateTime` to avoid flaky tests that
-depend on the system clock. Consider exposing `validateAndGetKey(String, boolean, ZonedDateTime)` as
-a package-private overload for testability, or use `@TestConfiguration` to override the timezone.
+---
+
+### `SipsaSchedulingCronTest` — **Done** (TECH-110)
+
+**Target:** the 3 cron expressions declared on `SipsaIngestionScheduler`, via
+`org.springframework.scheduling.support.CronExpression` — no system clock dependency.
+
+18 test cases: daily cron (before/at/after 14:20, every day 7–11, December→January
+rollover, Feb 29 2028 leap day), both monthly crons (day before/at/after trigger, all 3
+non-trigger days roll to the following month, December→January rollover), a no-overlap
+check between the two monthly crons, and a reflection-based check that all 3 `@Scheduled`
+methods declare `zone = "${sipsa.timezone:America/Bogota}"` rather than relying on the
+JVM/container default.
+
+---
+
+### `SipsaIngestionSchedulerTest` — **Done** (TECH-110)
+
+**Target:** `application/ingestion/scheduler/SipsaIngestionScheduler.java`, with
+`GenericIngestionJob` mocked (Mockito) — no Spring context, no real SOAP/DB call.
+
+8 test cases: `runDailyWindow()` dispatches exactly Ciudad → Parcial → Semana in order,
+each with `force=false`/`requestSource=SCHEDULED`/a unique UUID `requestId`, and never a
+monthly method; `runMonthlyMes()`/`runMonthlyAbas()` each dispatch exactly their own
+method and nothing else; a failure in one daily method does not stop the others and does
+not propagate out of `runDailyWindow()`; same for a monthly job's failure.
+
+---
+
+### `SipsaSchedulingContextTest` / `SipsaSchedulingDisabledByDefaultTest` — **Done** (TECH-110)
+
+**Target:** `infrastructure/config/SchedulingConfig.java`, via limited `@SpringBootTest`.
+
+The test suite runs with `sipsa.scheduling.enabled=false` by default (new property, see
+below), so no `@Scheduled` method is ever registered in ordinary tests.
+`SipsaSchedulingContextTest` explicitly re-enables it
+(`@SpringBootTest(properties = "sipsa.scheduling.enabled=true")`) to prove the scheduler
+bean, `taskScheduler` bean, and cron/timezone properties resolve correctly when active,
+while asserting no cron trigger is imminent during the test.
+`SipsaSchedulingDisabledByDefaultTest` proves the negative: the `taskScheduler` bean does
+not exist under the default (disabled) configuration.
+
+**New property:** `sipsa.scheduling.enabled` (default `true`, backward-compatible) —
+`SchedulingConfig` is now `@ConditionalOnProperty(prefix = "sipsa.scheduling", name =
+"enabled", havingValue = "true", matchIfMissing = true)`.
 
 ---
 

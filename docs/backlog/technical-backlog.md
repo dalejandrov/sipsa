@@ -29,7 +29,7 @@ When a story is implemented:
 | TECH-030 | Named executor in `@Async` for audit logging | Low | 1 | Pending |
 | TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Low | 1 | Pending |
 | TECH-032 | Add Micrometer metrics for ingestion | Medium | 4 | Pending |
-| TECH-040 | Unit tests for `WindowPolicy` | High | 3 | Pending |
+| TECH-040 | Unit tests for `WindowPolicy` | High | 3 | **Done** (implemented by TECH-110) |
 | TECH-041 | Unit tests for `SpecificationBuilder` | High | 3 | Pending |
 | TECH-042 | Unit tests for `IngestionJob` | High | 3 | Pending |
 | TECH-043 | Tests for `GlobalExceptionHandler` | Medium | 3 | Pending |
@@ -45,6 +45,7 @@ When a story is implemented:
 | TECH-071 | Align `batch-size` defaults | Low | 1 | Pending |
 | TECH-080 | Write ADR-002 (security) | Low | 6 | Pending |
 | TECH-081 | Write ADR-001 (deduplication) | Low | 6 | Pending |
+| TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
 
 ---
 
@@ -413,21 +414,23 @@ No custom metrics exist. It is not possible to alert on ingestion duration, reco
 **Type:** Testing  
 **Priority:** High  
 **Phase:** 3  
-**Status:** Pending  
+**Status:** **Done** — implemented as part of [TECH-110](#tech-110)
 **Complexity:** S  
-**Branch:** `test/window-policy`
+**Branch:** `test/scheduled-ingestion-jobs` (not `test/window-policy` — bundled into
+TECH-110's broader scheduling validation; see TECH-110 for why)
 **Dependencies:** None.
 
 **Problem:** `WindowPolicy` contains time-critical business logic with no test coverage.
 
-**Evidence:** `WindowPolicy.java` — 199 lines, 0 tests.
+**Evidence:** `WindowPolicy.java` — 199 lines, 0 tests (before this story).
 
 **Acceptance Criteria:**
-- [ ] ≥ 8 test cases as defined in [Testing Strategy](testing-strategy.md).
-- [ ] Tests are deterministic (no dependency on system clock).
-- [ ] `./mvnw clean verify` passes.
+- [x] ≥ 8 test cases as defined in [Testing Strategy](testing-strategy.md) — 25 delivered.
+- [x] Tests are deterministic (no dependency on system clock) — injected `Clock`.
+- [x] `./mvnw clean verify` passes.
 
-**Completed:** —
+**Completed:** `test/scheduled-ingestion-jobs` (2026-07-13), see
+[Scheduled Ingestion Validation](../architecture/scheduled-ingestion-validation.md).
 
 ---
 
@@ -773,3 +776,116 @@ each record in the batch, producing N database queries for N records.
 - [ ] Natural keys for all five data types are documented.
 
 **Completed:** —
+
+---
+
+### TECH-110
+
+**Title:** Validate scheduled ingestion jobs and add scheduling tests
+**Type:** Testing
+**Priority:** High
+**Phase:** 3
+**Status:** **Done**
+**Complexity:** M
+**Branch:** `test/scheduled-ingestion-jobs`
+
+**Relationship to TECH-040:** This story implements TECH-040's acceptance criteria
+(`WindowPolicy` unit tests) in full, and extends the scope to cover the parts of the
+scheduled-ingestion pipeline TECH-040 did not: cron expression validity/timing,
+`SipsaIngestionScheduler` dispatch correctness, and a scheduling-aware context test. Both
+stories are Done together on this branch; TECH-040 does not need a separate branch.
+
+**Problem:**
+Two independent findings motivated this validation:
+1. `WindowPolicy` has zero test coverage (`docs/architecture/technical-debt.md`, item T-01;
+   `testing-strategy.md` §`WindowPolicyTest`).
+2. A prior investigation (see the code-review conversation preceding this story, not yet a
+   filed backlog item) found that `WindowPolicy.validateMonthly()` does not bind the
+   allowed day-of-month to the specific ingestion method, so `promedioAbasSipsaMesMadr`
+   (documented by DANE and by `application.yaml:121`'s own comment as a day-10 method) can
+   pass validation on day 8, and `promediosSipsaMesMadr` (day 8) can pass on day 10. No
+   test in the codebase would have caught this.
+
+Neither `SipsaIngestionScheduler` (cron dispatch) nor the cron expressions themselves
+(`application.yaml:126-135`) have any test coverage either — a wrong cron field, a wrong
+zone, or a wrong method name passed to `runSafely()` would not be caught by
+`./mvnw clean verify` today.
+
+**Evidence:**
+- `WindowPolicy.java` — 199 lines, 0 tests (`find src/test -iname "*WindowPolicy*"` → none
+  before this story).
+- `SipsaIngestionScheduler.java` — 0 tests.
+- `src/test/resources/application.yaml` configures scheduling (`sipsa.scheduling.pool-size:
+  1`, permissive test cron values) but has no explicit mechanism to prevent `@Scheduled`
+  methods from actually firing during `@SpringBootTest` — confirmed by reading
+  `SchedulingConfig.java`, which has no `@ConditionalOnProperty` guard.
+- `SchedulingConfig.java:24-26` Javadoc claims monthly jobs run "day 8, 06:00 COT" /
+  "day 10, 06:00 COT", but the actual `@Scheduled` cron expressions in
+  `SipsaIngestionScheduler.java:92,107` are `0 30 14 8 * *` / `0 30 14 10 * *` — 14:30, not
+  06:00. Internal documentation drift, found during this story's inventory step.
+
+**Scope:**
+- Add `Clock` to `WindowPolicy` for deterministic testing (testability-only change, no
+  behavior change — see the dedicated `refactor(time)` commit).
+- Add `sipsa.scheduling.enabled` property (default `true`, backward-compatible) so tests
+  can guarantee no real cron fires during `@SpringBootTest`.
+- `WindowPolicyTest` — daily boundary (13:59:59 / 14:00:00 / 14:00:01), monthly per-method
+  day validation (7/8/9/10/11 for both `promediosSipsaMesMadr` and
+  `promedioAbasSipsaMesMadr`), `force=true`, `windowKey` stability/change across grace days
+  and month/year rollover.
+- `SipsaSchedulingCronTest` — validates the 3 production cron expressions with
+  `CronExpression.next()` against fixed `America/Bogota` reference times.
+- `SipsaIngestionSchedulerTest` — verifies `runDailyWindow()`/`runMonthlyMes()`/
+  `runMonthlyAbas()` dispatch the correct method names, `force=false`, and that one
+  method's exception does not stop the sequence.
+- A limited `@SpringBootTest` verifying the scheduling context wires correctly without
+  ever making a real SOAP call.
+- Documentation: `docs/architecture/scheduled-ingestion-validation.md` (new),
+  `testing-strategy.md`, this backlog entry, `CHANGELOG.md`.
+
+**Explicitly out of scope (no production behavior change without a separate story):**
+- Fixing the day-8/day-10 cross-acceptance in `WindowPolicy.validateMonthly()` — this story
+  only **proves and documents** the gap with a failing-if-fixed-blind test strategy (see
+  the validation report for how the finding is preserved without breaking the build).
+- Fixing the `SchedulingConfig` Javadoc drift (06:00 vs. 14:30) — flagged, not changed,
+  since the instructions for this story restrict changes to tests/fixtures/test config/docs
+  plus the two explicitly allowed testability changes.
+- Making the scheduler dispatch asynchronous (`ADR-005`/`TECH-053`) — unrelated, separate
+  ADR still `Proposed`.
+- `isMonthly()` on `IngestionHandler` (`ADR-006`/`TECH-055`) — unrelated SPIKE.
+
+**Risks:**
+- Low — all production changes are additive/backward-compatible (Clock defaults to
+  `Clock.system(zone)`, scheduling-enabled property defaults to `true`). No REST contract,
+  DB schema, or SOAP integration change.
+- The `Clock` injection touches `WindowPolicy`'s constructor signature — any other caller
+  must be checked (there is exactly one: `IngestionJob` subclasses receive `WindowPolicy`
+  via Spring DI, not direct instantiation, so this is a non-issue).
+
+**Acceptance Criteria:**
+- [x] `WindowPolicy` accepts an injectable `Clock` (default `Clock.system(zone)` when not
+      overridden), with identical runtime behavior in production.
+- [x] `sipsa.scheduling.enabled` property added, default `true`, no behavior change when
+      absent.
+- [x] ≥ 8 `WindowPolicyTest` cases (TECH-040 minimum), all deterministic (no
+      `LocalDateTime.now()`/`Instant.now()`/`ZonedDateTime.now()` without `Clock`) — 25
+      delivered.
+- [x] `SipsaSchedulingCronTest` validates all 3 production cron expressions against fixed
+      `America/Bogota` reference times, including a december→january rollover and a leap
+      year case.
+- [x] `SipsaIngestionSchedulerTest` verifies dispatch, `force=false`, `requestSource`, and
+      exception isolation, with mocked dependencies only (no real SOAP/DB call).
+- [x] A `@SpringBootTest` proves the scheduling context loads without firing a real job
+      (`SipsaSchedulingContextTest`), with a negative counterpart proving it is disabled by
+      default (`SipsaSchedulingDisabledByDefaultTest`).
+- [x] `./mvnw clean verify` passes with zero failures — 59 tests, 0 failures, 2 intentional
+      skips.
+- [x] `docs/architecture/scheduled-ingestion-validation.md` documents the full inventory,
+      DANE contrast matrix, and classified findings.
+- [x] Any confirmed-but-unfixed bug is documented as a backlog story of its own, not fixed
+      silently inside this one — F-WP-01/02/03 documented, proposed as TECH-111 (not yet
+      created as a standalone backlog entry — proposed in the validation report, per this
+      story's testing-only scope).
+
+**Completed:** `test/scheduled-ingestion-jobs` (2026-07-13), see
+[Scheduled Ingestion Validation](../architecture/scheduled-ingestion-validation.md).
