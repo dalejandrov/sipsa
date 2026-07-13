@@ -24,12 +24,12 @@ Each item references a backlog story for implementation planning.
 
 | ID | Item | Priority | Impact | Complexity | Risk | Backlog |
 |---|---|---|---|---|---|---|
-| T-01 | No unit tests for `WindowPolicy` | **High** | Undetected bugs in time-window logic, timezone errors | S | Low (additive) | [TECH-040](../backlog/technical-backlog.md#tech-040) |
+| T-01 | ~~No unit tests for `WindowPolicy`~~ **Resolved** (2026-07-13, TECH-040/TECH-110 — 25 deterministic tests via injected `Clock`) | **High** | Undetected bugs in time-window logic, timezone errors | S | Low (additive) | [TECH-040](../backlog/technical-backlog.md#tech-040) |
 | T-02 | No unit tests for `SpecificationBuilder` | **High** | Filter regressions go undetected | S | Low | [TECH-041](../backlog/technical-backlog.md#tech-041) |
 | T-03 | No unit tests for `IngestionJob` | **High** | Central pipeline has no safety net | M | Low | [TECH-042](../backlog/technical-backlog.md#tech-042) |
 | T-04 | No tests for `GlobalExceptionHandler` | **Medium** | Error contract regressions go undetected | S | Low | [TECH-043](../backlog/technical-backlog.md#tech-043) |
 | T-05 | No integration tests for any ingestion handler | **Medium** | End-to-end SOAP → parse → persist path untested | L | Low | [TECH-044](../backlog/technical-backlog.md#tech-044) (SPIKE) |
-| T-06 | Single context-load test as only test suite | **High** | Zero behavioral coverage | — | — | Foundation for T-01 through T-05 |
+| T-06 | ~~Single context-load test as only test suite~~ **Resolved** (2026-07-13, TECH-110 — 65 tests across 7 classes on `main`; remaining gaps are T-02..T-05) | **High** | Zero behavioral coverage | — | — | Foundation for T-01 through T-05 |
 
 ---
 
@@ -57,7 +57,7 @@ Each item references a backlog story for implementation planning.
 
 | ID | Item | Priority | Impact | Complexity | Risk | Backlog / Note |
 |---|---|---|---|---|---|---|
-| A-01 | Application layer imports from `api.dto.request` | **Low** | Coupling increase; changes to HTTP DTOs ripple into core | L | Medium | Not in active backlog. See [Refactoring Roadmap](refactoring-roadmap.md). |
+| A-01 | Application layer imports from `api.dto.request` — **Partially resolved / re-scoped** (2026-07-13): TECH-090 (ADR-007, merged) removed the 3 internal-command imports; the 5 files still importing from `api` were investigated and **accepted** by ADR-007, so no further action is planned | **Low** | Coupling increase; changes to HTTP DTOs ripple into core | L | Medium | [TECH-090](../backlog/technical-backlog.md#tech-090) (Done). Residual guarded by TECH-093 (ArchUnit) when implemented. |
 | A-02 | `WindowPolicy.isMonthlyMethod()` uses string matching | **Low** | New monthly handlers with different naming break scheduling | S | Low | [TECH-055](../backlog/technical-backlog.md#tech-055) (SPIKE) |
 | A-03 | `SipsaParseException` mapped to HTTP 400 (should be 502) | **Medium** | Wrong HTTP semantics for upstream XML errors | XS | Low | [TECH-021](../backlog/technical-backlog.md#tech-021) |
 | A-04 | "Not found" cases return HTTP 422 (should be 404) | **Medium** | Wrong HTTP semantics | S | Low | [TECH-022](../backlog/technical-backlog.md#tech-022) |
@@ -91,7 +91,7 @@ Each item references a backlog story for implementation planning.
 | Q-03 | `IngestionControlService.getRun()` returns nullable `IngestionRun` | **Low** | Breaks Optional contract; callers do null checks | XS | Low | [TECH-052](../backlog/technical-backlog.md#tech-052) |
 | Q-04 | `@RequestMapping` without leading `/` on 2 controllers | **Bug** | Inconsistent; potentially broken with strict proxies | XS | Low | [TECH-020](../backlog/technical-backlog.md#tech-020) |
 | Q-05 | `@Async` in `IngestionAuditService.logEvent()` uses default executor | **Low** | Unmanaged threads (SimpleAsyncTaskExecutor) instead of pool | XS | Low | [TECH-030](../backlog/technical-backlog.md#tech-030) |
-| Q-06 | `AuditTrailService.queryAuditEvents()` builds its own `Pageable` | **Low** | Ignores `PaginationConfig`; inconsistent with all other services | XS | Low | Not in active backlog; merged into Q-03 context |
+| Q-06 | `AuditTrailService.queryAuditEvents()` builds its own `Pageable` | **Low** | Ignores `PaginationConfig`; inconsistent with all other services | XS | Low | Not in active backlog; natural companion of [TECH-054](../backlog/technical-backlog.md#tech-054) (pagination) when that story runs |
 
 ---
 
@@ -108,6 +108,12 @@ Each item references a backlog story for implementation planning.
 | Persistence | 1 | — | — | 1 | 2 |
 | Code Quality | — | — | — | 6 | 6 |
 | **Total** | **2** | **4** | **7** | **15** | **28** |
+
+**Status note (2026-07-13):** of the 28 registered items, **2 are resolved** (T-01, T-06 —
+closed by TECH-110/TECH-040) and **1 is partially resolved / re-scoped** (A-01 — closed for
+the 3 internal commands by TECH-090; the residual imports are accepted by ADR-007). Items
+are annotated in place rather than deleted, so the registry remains the full historical
+record. All other items remain pending.
 
 ---
 
