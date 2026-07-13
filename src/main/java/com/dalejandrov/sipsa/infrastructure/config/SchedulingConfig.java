@@ -2,6 +2,7 @@ package com.dalejandrov.sipsa.infrastructure.config;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -22,14 +23,21 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
  * <b>Scheduled Jobs:</b>
  * <ul>
  *   <li>Daily ingestion window (14:20 COT) - Ciudad, Parcial, Semana</li>
- *   <li>Monthly MesMadr (day 8, 06:00 COT)</li>
- *   <li>Monthly AbasMes (day 10, 06:00 COT)</li>
+ *   <li>Monthly MesMadr (day 8, 14:30 COT)</li>
+ *   <li>Monthly AbasMes (day 10, 14:30 COT)</li>
  * </ul>
+ * <p>
+ * <b>Disabling in tests:</b> set {@code sipsa.scheduling.enabled=false} to skip this
+ * entire configuration class, which prevents {@code @EnableScheduling} from registering
+ * its bean post-processor at all — no {@code @Scheduled} method in the application
+ * (including {@link com.dalejandrov.sipsa.application.ingestion.scheduler.SipsaIngestionScheduler})
+ * will fire. Defaults to {@code true} (enabled), so production behavior is unchanged.
  *
  * @see com.dalejandrov.sipsa.application.ingestion.scheduler.SipsaIngestionScheduler
  */
 @Configuration
 @EnableScheduling
+@ConditionalOnProperty(prefix = "sipsa.scheduling", name = "enabled", havingValue = "true", matchIfMissing = true)
 @Slf4j
 public class SchedulingConfig {
 
