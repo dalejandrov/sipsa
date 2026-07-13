@@ -25,6 +25,10 @@ package "API Layer" #E3F2FD {
     + handleBusinessException(SipsaBusinessException): ResponseEntity<ErrorResponse>
     + handleExternalException(SipsaExternalException): ResponseEntity<ErrorResponse>
   }
+
+  class TimezoneFilter {
+    + doFilterInternal(HttpServletRequest, HttpServletResponse, FilterChain): void
+  }
 }
 
 package "Application Layer" #F3E5F5 {
@@ -143,7 +147,9 @@ package "Domain Layer" #E8F5E8 {
   }
 }
 
-package "Infrastructure Layer" #FFF3E0 {
+' Ingestion pipeline — lives in application/ingestion (core, handler, scheduler);
+' this block merges with the "Application Layer" package above when rendered
+package "Application Layer" #F3E5F5 {
   class GenericIngestionJob {
     - IngestionService ingestionService
     + execute(IngestionRequest): void
@@ -217,14 +223,22 @@ package "Infrastructure Layer" #FFF3E0 {
     + runMonthlyMes(): void
     + runMonthlyAbas(): void
   }
+}
 
-  class TimezoneFilter {
-    + doFilterInternal(HttpServletRequest, HttpServletResponse, FilterChain): void
+package "Infrastructure Layer" #FFF3E0 {
+  class SoapGatewayImpl {
+    + getCiudadData(...): InputStream
   }
 
-  class RequestContextFilter {
-    + doFilterInternal(HttpServletRequest, HttpServletResponse, FilterChain): void
+  class SoapStreamingClient {
+    + stream(String soapMethod, ...): InputStream
   }
+
+  class SpecificationBuilder {
+    + build(): Specification<T>
+  }
+
+  note "Repositories (8), StAX parsers (5), SOAP mapper, and\nconfiguration classes omitted for brevity — see\ncomponent-diagram.puml and project-architecture.md" as N_INFRA
 }
 
 ' Relationships
