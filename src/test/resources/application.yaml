@@ -1,0 +1,68 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:sipsa_test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+  flyway:
+    enabled: false
+  task:
+    scheduling:
+      pool:
+        size: 1
+
+sipsa:
+  timezone: America/Bogota
+  soap:
+    endpoint: http://localhost:9999/mock
+    namespace: http://servicios.sipsa.co.gov.dane/
+    connect-timeout-ms: 1000
+    read-timeout-ms: 5000
+    max-retries: 1
+    retry-backoff-ms: 100
+    logging-enabled: false
+    logging-limit-bytes: 1000
+    max-child-elements: 0
+  pagination:
+    max-page-size: 1000
+    default-page-size: 20
+    max-user-page-size: 100
+  ingestion:
+    batch-size: 100
+    max-reject-count: 5000
+    max-reject-rate: 0.01
+    daily-window-start: "00:00"
+    daily-window-end: "23:59"
+    monthly-run-days: "1,2"
+    monthly-window-start: "00:00"
+    cron:
+      daily: "0 0 0 * * *"
+      monthly-mes: "0 0 0 1 * *"
+      monthly-abas: "0 0 0 2 * *"
+    async:
+      core-pool-size: 1
+      max-pool-size: 2
+      queue-capacity: 5
+      keep-alive-seconds: 60
+  scheduling:
+    pool-size: 1
+    await-termination-seconds: 5
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: WARN
+    com.dalejandrov.sipsa: WARN
