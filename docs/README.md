@@ -57,12 +57,25 @@ See [ADR Index](adr/README.md) for the full list and status guide.
 
 ---
 
-## Quick Start for New Developers
+## Development Process
 
-1. Read [Architecture Review](architecture/architecture-review.md) — understand the system and known risks.
-2. Read [ADR-004](adr/ADR-004-transaction-boundaries.md) — understand the transaction model (critical for ingestion changes).
-3. Read [Technical Backlog](backlog/technical-backlog.md) — understand what is planned and why.
-4. Read [Refactoring Roadmap](architecture/refactoring-roadmap.md) — understand what was *not* done and why.
+| Document | Description |
+|---|---|
+| [Development Workflow](development/development-workflow.md) | Full cycle: story → branch → implement → test → PR |
+| [Branching Strategy](development/branching-strategy.md) | Branch naming, lifecycle, merge strategy |
+| [Implementation Guidelines](development/implementation-guidelines.md) | Scope rules, testing rules, documentation checklist |
+| [Pull Request Checklist](development/pull-request-checklist.md) | Mandatory checklist for every PR |
+| [Code Review Guidelines](development/code-review-guidelines.md) | What to check and how to comment |
+
+## Quick Start for New Developers and AI Agents
+
+**Start here:** [`/AGENTS.md`](../AGENTS.md) — authoritative guide for contributors (human and AI).
+
+Then:
+1. Read [ADR-000](adr/ADR-000-current-architecture.md) — understand the system in 5 minutes.
+2. Read [Technical Backlog](backlog/technical-backlog.md) — find the next story to implement.
+3. Read [ADR-004](adr/ADR-004-transaction-boundaries.md) — critical before any ingestion changes.
+4. Read [Refactoring Roadmap](architecture/refactoring-roadmap.md) — what NOT to refactor and why.
 
 ## Viewing PlantUML Diagrams
 
