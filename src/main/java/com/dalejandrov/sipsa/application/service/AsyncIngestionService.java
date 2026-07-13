@@ -1,6 +1,6 @@
 package com.dalejandrov.sipsa.application.service;
 
-import com.dalejandrov.sipsa.api.dto.request.IngestionRequest;
+import com.dalejandrov.sipsa.application.command.IngestionRequest;
 import com.dalejandrov.sipsa.application.ingestion.core.GenericIngestionJob;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

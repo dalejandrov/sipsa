@@ -1,6 +1,6 @@
 package com.dalejandrov.sipsa.application.service;
 
-import com.dalejandrov.sipsa.api.dto.request.CreateRunRequest;
+import com.dalejandrov.sipsa.application.command.CreateRunRequest;
 import com.dalejandrov.sipsa.domain.entity.IngestionReject;
 import com.dalejandrov.sipsa.domain.entity.IngestionRun;
 import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
