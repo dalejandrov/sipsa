@@ -36,18 +36,13 @@ because one is newer, this document follows the most recently accepted decision 
 
 ### A Note on Merge Status
 
-Two accepted, evidence-backed bodies of work are represented
-here even though their code has not yet been merged to `main` — they were reviewed,
-approved, and pushed to `origin`, but merging is a separate, deliberate step not yet taken:
-
-- **ADR-007** (package boundaries) — commits live on `refactor/internal-models-and-api-filter`
-  and `refactor/package-structure-and-boundaries` (both pushed).
-- **TECH-110** (scheduled ingestion validation) — commits live on
-  `test/scheduled-ingestion-jobs` (pushed).
-
-This document describes the **approved** architecture, which includes both. Wherever a
-detail depends on one of these not-yet-merged branches, it is marked
-**(pending merge)**. Everything not marked this way is already on `main`.
+Everything this document describes is **fully merged to `main`** as of 2026-07-13. The two
+bodies of work that were briefly represented here ahead of their merge — **ADR-007**
+(package boundaries, implemented on `refactor/internal-models-and-api-filter` and decided
+on `refactor/package-structure-and-boundaries`) and **TECH-110** (scheduled ingestion
+validation, implemented on `test/scheduled-ingestion-jobs`) — were merged through their
+respective pull requests, in a deliberate order (implementation reviewed and merged
+separately from the decision record). No statement below depends on an unmerged branch.
 
 ---
 
@@ -140,8 +135,8 @@ com.dalejandrov.sipsa/
 - MapStruct mappers (`api/mapper`) — entity → response DTO conversion.
 - `GlobalExceptionHandler` — maps the exception hierarchy to structured HTTP error
   responses.
-- `TimezoneFilter` (`api/filter` **— pending merge**, see note below) — reads `X-Timezone`,
-  sets a thread-local zone for response conversion.
+- `TimezoneFilter` (`api/filter`) — reads `X-Timezone`, sets a thread-local zone for
+  response conversion.
 
 ### `application/` — orchestration and business rules
 
@@ -154,7 +149,7 @@ com.dalejandrov.sipsa/
   `IngestionContext` (per-run mutable state), five `IngestionHandler` implementations
   (Strategy), `SipsaIngestionScheduler` (cron triggers).
 - `IngestionControlService`, `IngestionAuditService` — run lifecycle and audit persistence.
-- **`application/command`** (**pending merge**, see note below) — internal application
+- **`application/command`** — internal application
   commands (`IngestionRequest`, `CreateRunRequest`, `AuditEventRequest`). Per
   [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) F1: none of these
   three is ever bound from an HTTP request; all are built via internal static factories and
@@ -183,9 +178,9 @@ com.dalejandrov.sipsa/
 
 | Rule | Status | Evidence |
 |---|---|---|
-| `domain` must not depend on `infrastructure` | **Holds today** | Zero `domain → infrastructure` imports (verified by `grep`; the one exception — a Javadoc-only reference — was removed, ADR-007 F4, **pending merge**). |
-| `infrastructure` must not depend on `api` | **Holds today** (pending merge) | The one prior exception (`TimezoneFilter` importing `api.util.TimezoneUtil`) is resolved by relocating the filter itself into `api/filter`, not by breaking the dependency (ADR-007 F2, **pending merge**). |
-| `application` should minimize dependence on `api` | **Partially holds, by design** | 9 files with `application → api` imports before ADR-007; 5 remain after (**pending merge**) — see the next row for why those 5 are legitimate. |
+| `domain` must not depend on `infrastructure` | **Holds today** | Zero `domain → infrastructure` imports, verified directly on `main` (the one prior exception — a Javadoc-only reference — was removed by ADR-007 F4). |
+| `infrastructure` must not depend on `api` | **Holds today** | The one prior exception (`TimezoneFilter` importing `api.util.TimezoneUtil`) was resolved by relocating the filter itself into `api/filter`, not by breaking the dependency (ADR-007 F2). |
+| `application` should minimize dependence on `api` | **Partially holds, by design** | 9 files had `application → api` imports before ADR-007; 5 remain today, verified directly on `main` — see the next row for why those 5 are legitimate. |
 | The 5 remaining `application → api` imports are accepted, not overlooked | **Confirmed** | `IngestionTriggerService` (genuine HTTP DTOs `IngestionTriggerRequest`/`Response`), `SipsaReadService` + `IngestionRunQueryService` + `AuditTrailService` (a consistent, deliberate pattern: read services assemble response-shaped output via `api.mapper`/`api.dto.response` — investigated and explicitly kept, not a violation), `IngestionAuditService`/`AuditTrailService` (genuine HTTP request DTO `AuditQueryRequest`; `AuditTrailService` also uses `TimezoneUtil`, a single deferred call site, not blocking). |
 | Controllers must not access repositories directly | **Holds today** | No `api.controller` file imports `infrastructure.persistence.repository`. |
 | No compiler-enforced check exists yet for any of the above | **True** | ArchUnit is not adopted. TECH-093 (Pending) will add rules for exactly these three boundaries once ADR-007's implementation merges. Until then, these rules are enforced by review discipline only. |
@@ -247,7 +242,7 @@ repeat it.
 [Architectural Style](#architectural-style)). Entities are independent, flat data
 containers; there is no aggregate root enforcing cross-entity invariants.
 
-**Internal commands** (`application/command`, **pending merge**): `IngestionRequest`,
+**Internal commands** (`application/command`): `IngestionRequest`,
 `CreateRunRequest`, `AuditEventRequest` — carry state between services inside the
 ingestion/audit pipeline. Never bound from HTTP.
 
@@ -296,9 +291,9 @@ publication time (~14:00 local).
 
 This document does not enumerate `WindowPolicy`'s current behavior in more detail, because
 a validated, evidence-backed review of that behavior exists separately and is being acted
-on: see [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) (**pending
-merge**, branch `test/scheduled-ingestion-jobs`) for the full validation, and
-[Future Evolution](#future-evolution) for the corrective story it produced.
+on: see [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) for the full
+validation, and [Future Evolution](#future-evolution) for the corrective story it produced
+(TECH-111).
 
 ---
 
@@ -368,25 +363,26 @@ integration tests (Spring context / WireMock / Testcontainers) deferred pending 
 decision (TECH-044, SPIKE); no E2E/contract tier is planned (system boundary is DANE's live
 SOAP service, not something to test against directly).
 
-**On `main` today:** a single context-load test (`SipsaApplicationTests`) — confirms the
-Spring context wires correctly; provides no behavioral coverage.
-
-**Approved, pending merge** (branch `test/scheduled-ingestion-jobs`; see
-[Scheduled Ingestion Validation](scheduled-ingestion-validation.md)): 58 additional tests,
-bringing the total to 59 — `WindowPolicyTest` (daily/monthly window boundaries, timezone
-correctness, `windowKey` semantics, all via an injected `Clock` — no test depends on the
-system clock), `SipsaSchedulingCronTest` (validates the three production cron expressions
-with `CronExpression`, including month/year rollover and a leap-year case), a scheduler
-dispatch test (`GenericIngestionJob` mocked — verifies which methods are triggered, with
-what flags, and that one method's failure does not stop the others), and two Spring context
-tests proving the scheduling wiring is correct both enabled and disabled.
+**On `main` today:** 65 tests across 7 classes (0 failures, 2 intentional `@Disabled`
+documenting TECH-111's desired post-fix behavior; see
+[Scheduled Ingestion Validation](scheduled-ingestion-validation.md)) —
+`SipsaApplicationTests` (context load), `WindowPolicyTest` (daily/monthly window
+boundaries, timezone correctness, `windowKey` semantics, all via an injected `Clock` — no
+test depends on the system clock), `SipsaSchedulingCronTest` (validates the three
+production cron expressions with `CronExpression`, including month/year rollover and a
+leap-year case), `SipsaIngestionSchedulerTest` (`GenericIngestionJob` mocked — verifies
+which methods are triggered, with what flags, and that one method's failure does not stop
+the others), two Spring context tests proving the scheduling wiring is correct both
+enabled and disabled, and `InternalIngestionCommandsTest` (static factory behavior of the
+`application/command` classes, unchanged after their move — TECH-090).
 
 **Not yet covered:** `SpecificationBuilder`, `IngestionJob`'s full lifecycle,
 `GlobalExceptionHandler` — all planned (TECH-041/042/043), none implemented.
 
-**Architecture tests:** none exist yet. ArchUnit adoption (TECH-093) is gated on the
-package-boundary work above merging first, so the rules assert the post-move state rather
-than failing on day one.
+**Architecture tests:** none exist yet. ArchUnit adoption (TECH-093) was gated on the
+package-boundary work (TECH-090/091/095) merging first, so the rules assert the post-move
+state rather than failing on day one; that work is now merged, and the story is unblocked
+but not started.
 
 ---
 
@@ -424,7 +420,7 @@ they are acknowledged without being treated as decided.
 |---|---|---|
 | [ADR-000](../adr/ADR-000-current-architecture.md) | Accepted (informational) | Point-in-time architecture snapshot after the Spring Boot 4 / Java 25 migration. Not a decision record — this document (`project-architecture.md`) is its living successor. |
 | [ADR-004](../adr/ADR-004-transaction-boundaries.md) | Accepted | No enclosing transaction around ingestion; lifecycle operations use `REQUIRES_NEW`; SOAP calls are explicitly prohibited inside a database transaction. |
-| [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) | Accepted (partial / scoped) | Moves internal commands out of `api/dto/request` into `application/command`; relocates `TimezoneFilter` into `api/filter`; removes the one `domain → infrastructure` Javadoc reference. Explicitly does **not** authorize general package reorganization, DTO/mapper relocation beyond the 3 named classes, or separating the JPA model from the domain model. **Implementation pending merge to `main`.** |
+| [ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) | Accepted (partial / scoped) | Moves internal commands out of `api/dto/request` into `application/command`; relocates `TimezoneFilter` into `api/filter`; removes the one `domain → infrastructure` Javadoc reference. Explicitly does **not** authorize general package reorganization, DTO/mapper relocation beyond the 3 named classes, or separating the JPA model from the domain model. Fully merged to `main`. |
 
 ---
 
@@ -439,8 +435,9 @@ links.
   TECH-001, pending an authentication-mechanism decision (ADR-002, `Proposed`).
 - `SipsaParcial` deduplication is non-functional (random key) — **Critical**, blocking
   TECH-011, pending a business-key decision (ADR-001, `Proposed`, TECH-010 SPIKE).
-- Near-zero test coverage on `main` today, though this is actively being closed (see
-  [Testing Strategy](#testing-strategy) above).
+- Test coverage is concentrated on the scheduling/window subsystem (65 tests); the rest of
+  the pipeline (`SpecificationBuilder`, `IngestionJob`, `GlobalExceptionHandler`) still has
+  none (see [Testing Strategy](#testing-strategy) above).
 - Several HTTP-semantics mismatches (wrong status codes for two exception types), N+1 query
   in one repository's fallback path, unnamed `@Async` executor, and various small
   code-quality items — all **Low/Medium**, all tracked with backlog IDs.
@@ -465,7 +462,7 @@ Items marked **Pending Decision** require an ADR or SPIKE to resolve before impl
 |---|---|---|
 | Fix `WindowPolicy` monthly day-to-method binding, grace days, and stable window keys | Plan approved (documental), **not implemented** | TECH-111, [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) |
 | Timezone, locale, and date-semantics strategy | **Pending Decision** — ADR-008 is `Proposed`, not accepted | [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md) |
-| ArchUnit package-boundary rules | Pending — gated on ADR-007's implementation merging first | TECH-093 |
+| ArchUnit package-boundary rules | Pending — dependencies (TECH-090/091/095) are merged; story not started | TECH-093 |
 | Separate CXF-generated SOAP sources from hand-written code | **Pending Decision** — blocked on a SPIKE | TECH-092 (blocked by TECH-094) |
 | `isMonthly()` as an explicit `IngestionHandler` contract method | **Pending Decision** — ADR-006 is `Proposed` | ADR-006, TECH-055 (SPIKE) |
 | Internal endpoint authentication mechanism | **Pending Decision** — ADR-002 is `Proposed` | ADR-002, TECH-001 |
