@@ -432,7 +432,7 @@ TECH-110's broader scheduling validation; see TECH-110 for why)
 **Evidence:** `WindowPolicy.java` — 199 lines, 0 tests (before this story).
 
 **Acceptance Criteria:**
-- [x] ≥ 8 test cases as defined in [Testing Strategy](testing-strategy.md) — 25 delivered.
+- [x] ≥ 8 test cases as defined in [Testing Strategy](../architecture/testing-strategy.md) — 25 delivered.
 - [x] Tests are deterministic (no dependency on system clock) — injected `Clock`.
 - [x] `./mvnw clean verify` passes.
 
@@ -454,7 +454,7 @@ TECH-110's broader scheduling validation; see TECH-110 for why)
 **Dependencies:** None.
 
 **Acceptance Criteria:**
-- [ ] ≥ 7 test cases as defined in [Testing Strategy](testing-strategy.md).
+- [ ] ≥ 7 test cases as defined in [Testing Strategy](../architecture/testing-strategy.md).
 - [ ] `./mvnw clean verify` passes.
 
 **Completed:** —
@@ -474,7 +474,7 @@ TECH-110's broader scheduling validation; see TECH-110 for why)
 **Dependencies:** Recommended to implement TECH-040 first to establish test patterns.
 
 **Acceptance Criteria:**
-- [ ] ≥ 7 test cases as defined in [Testing Strategy](testing-strategy.md).
+- [ ] ≥ 7 test cases as defined in [Testing Strategy](../architecture/testing-strategy.md).
 - [ ] All dependencies are mocked (no database, no SOAP).
 - [ ] `./mvnw clean verify` passes.
 
@@ -517,7 +517,7 @@ TECH-110's broader scheduling validation; see TECH-110 for why)
 **Objective:** Determine the integration test tooling: WireMock 3.x vs `wiremock-spring-boot:4.x`, H2 vs Testcontainers. Produce a proof-of-concept test for `CiudadIngestionHandler`.
 
 **Acceptance Criteria:**
-- [ ] Decision documented in [Testing Strategy](testing-strategy.md).
+- [ ] Decision documented in [Testing Strategy](../architecture/testing-strategy.md).
 - [ ] One working proof-of-concept integration test for `promediosSipsaCiudad`.
 
 **Completed:** —

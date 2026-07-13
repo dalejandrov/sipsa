@@ -45,7 +45,7 @@ assignees: ''
 
 <!-- Does this decision need an Architecture Decision Record? -->
 - [ ] No — small, localized change
-- [ ] Yes — see [docs/adr/](../docs/adr/) and create a new ADR
+- [ ] Yes — see [docs/adr/](../../docs/adr/) and create a new ADR
 
 ## Acceptance Criteria
 
