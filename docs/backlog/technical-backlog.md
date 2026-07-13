@@ -189,6 +189,7 @@ Produce ADR-001 answering:
 **Status:** Pending  
 **Complexity:** XS  
 **Branch:** None (SQL queries only)
+**Dependencies:** None (SQL query only — no code changes).
 
 **Problem:** If the system has run in production with random UUID key hashes, the table may already contain large volumes of duplicate data.
 
@@ -218,6 +219,7 @@ GROUP BY method_name;
 **Status:** Pending  
 **Complexity:** XS  
 **Branch:** `fix/request-mapping-leading-slash`
+**Dependencies:** None.
 
 **Problem:**
 Two controllers declare their routes without a leading slash, inconsistent with the rest of the project.
@@ -243,6 +245,7 @@ Two controllers declare their routes without a leading slash, inconsistent with 
 **Status:** Pending  
 **Complexity:** XS  
 **Branch:** `fix/error-http-semantics`
+**Dependencies:** None.
 
 **Problem:**
 `SipsaParseException` is mapped to HTTP 400 (Bad Request). This exception is thrown when
@@ -273,6 +276,7 @@ client's request.
 **Status:** Pending  
 **Complexity:** S  
 **Branch:** `fix/error-http-semantics` (same as TECH-021)
+**Dependencies:** None. Can be implemented in the same branch as TECH-021.
 
 **Problem:**
 `SipsaBusinessException` is used for both business rule violations (correct → 422) and
@@ -303,6 +307,7 @@ resource not-found cases (incorrect → should be 404).
 **Status:** Pending  
 **Complexity:** S  
 **Branch:** `feat/error-correlation-id`
+**Dependencies:** None.
 
 **Problem:**
 Error responses lack correlation fields. Clients cannot identify which server-side log
@@ -329,6 +334,7 @@ entry corresponds to their received error.
 **Status:** Pending  
 **Complexity:** XS  
 **Branch:** `fix/async-executor-audit`
+**Dependencies:** None.
 
 **Problem:**
 `@Async` without an executor name uses `SimpleAsyncTaskExecutor` (creates a new thread per
@@ -353,6 +359,7 @@ invocation) instead of the configured `ingestionTaskExecutor` pool.
 **Status:** Pending  
 **Complexity:** XS  
 **Branch:** `refactor/health-indicator-config`
+**Dependencies:** None.
 
 **Problem:**
 Staleness thresholds (36h daily, 35 days monthly) are hardcoded in `SipsaHealthIndicator`.
@@ -377,6 +384,7 @@ Staleness thresholds (36h daily, 35 days monthly) are hardcoded in `SipsaHealthI
 **Status:** Pending  
 **Complexity:** M  
 **Branch:** `feat/ingestion-metrics`
+**Dependencies:** None.
 
 **Problem:**
 No custom metrics exist. It is not possible to alert on ingestion duration, record reject rate, or SOAP failures using Prometheus.
@@ -408,6 +416,7 @@ No custom metrics exist. It is not possible to alert on ingestion duration, reco
 **Status:** Pending  
 **Complexity:** S  
 **Branch:** `test/window-policy`
+**Dependencies:** None.
 
 **Problem:** `WindowPolicy` contains time-critical business logic with no test coverage.
 
@@ -432,6 +441,8 @@ No custom metrics exist. It is not possible to alert on ingestion duration, reco
 **Complexity:** S  
 **Branch:** `test/specification-builder`
 
+**Dependencies:** None.
+
 **Acceptance Criteria:**
 - [ ] ≥ 7 test cases as defined in [Testing Strategy](testing-strategy.md).
 - [ ] `./mvnw clean verify` passes.
@@ -449,6 +460,8 @@ No custom metrics exist. It is not possible to alert on ingestion duration, reco
 **Status:** Pending  
 **Complexity:** M  
 **Branch:** `test/ingestion-job`
+
+**Dependencies:** Recommended to implement TECH-040 first to establish test patterns.
 
 **Acceptance Criteria:**
 - [ ] ≥ 7 test cases as defined in [Testing Strategy](testing-strategy.md).
@@ -489,6 +502,7 @@ No custom metrics exist. It is not possible to alert on ingestion duration, reco
 **Status:** Pending  
 **Complexity:** M  
 **Branch:** `spike/integration-test-strategy`
+**Dependencies:** None.
 
 **Objective:** Determine the integration test tooling: WireMock 3.x vs `wiremock-spring-boot:4.x`, H2 vs Testcontainers. Produce a proof-of-concept test for `CiudadIngestionHandler`.
 
@@ -516,6 +530,8 @@ No custom metrics exist. It is not possible to alert on ingestion duration, reco
 - `AbasIngestionHandler.java:123`
 - `MesIngestionHandler.java:109`
 
+**Dependencies:** None.
+
 **Acceptance Criteria:**
 - [ ] Zero occurrences of `// ...existing code...` in `src/main/`.
 - [ ] The surrounding catch blocks are reviewed for completeness.
@@ -537,6 +553,8 @@ No custom metrics exist. It is not possible to alert on ingestion duration, reco
 
 **Evidence:** `IngestionAuditMapper.java:36`: method named `toAuditEventRequest` returns `AuditEventResponse`.
 
+**Dependencies:** None. Can be in the same branch as TECH-050.
+
 **Acceptance Criteria:**
 - [ ] Method renamed to `toAuditEventResponse`.
 - [ ] All call sites updated.
@@ -557,6 +575,8 @@ No custom metrics exist. It is not possible to alert on ingestion duration, reco
 **Branch:** `refactor/optional-return-types`
 
 **Evidence:** `IngestionControlService.java:261`: `return runRepository.findById(runId).orElse(null)`
+
+**Dependencies:** None.
 
 **Acceptance Criteria:**
 - [ ] `getRun()` returns `Optional<IngestionRun>`.
@@ -609,6 +629,8 @@ one of the 5 scheduler threads for the full duration of the ingestion (potential
 
 **Evidence:** `IngestionRunQueryService.java:68`: `controlService.findAllRuns()` without Pageable.
 
+**Dependencies:** None.
+
 **Acceptance Criteria:**
 - [ ] `GET /api/internal/ingestion/runs` accepts `page` and `size` query parameters.
 - [ ] Default: returns the most recent 50 runs when no parameters are provided.
@@ -627,6 +649,7 @@ one of the 5 scheduler threads for the full duration of the ingestion (potential
 **Status:** Pending  
 **Complexity:** S  
 **Branch:** `spike/ingestion-handler-contract`
+**Dependencies:** None (SPIKE — investigation only).
 
 **Problem:** `WindowPolicy.isMonthlyMethod()` uses string matching (`contains("mesmadr")`, `contains("abas")`).
 New monthly handlers with different naming patterns will silently use daily scheduling.
@@ -646,6 +669,7 @@ New monthly handlers with different naming patterns will silently use daily sche
 **Status:** Pending  
 **Complexity:** M  
 **Branch:** `fix/batch-upsert-n-plus-one`
+**Dependencies:** None.
 
 **Problem:**
 `upsertFallbackBatch()` calls `findByBusinessKeys(artiId, fuenId, fechaIni)` individually for
@@ -676,6 +700,8 @@ each record in the batch, producing N database queries for N records.
 
 **Evidence:** `SoapProperties.java`: no `@Validated`, no field-level constraints.
 
+**Dependencies:** None.
+
 **Acceptance Criteria:**
 - [ ] `SoapProperties` is annotated with `@Validated`.
 - [ ] Critical fields (`endpoint`, `connectTimeoutMs`, `readTimeoutMs`) have `@NotBlank` / `@Min(1)`.
@@ -696,6 +722,7 @@ each record in the batch, producing N database queries for N records.
 **Status:** Pending  
 **Complexity:** XS  
 **Branch:** `refactor/config-validation` (same branch as TECH-070)
+**Dependencies:** None. Can be in the same branch as TECH-070.
 
 **Problem:**
 `@Value("${sipsa.ingestion.batch-size:2000}")` (default 2000) in 5 handlers conflicts with

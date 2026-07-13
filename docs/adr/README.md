@@ -18,10 +18,11 @@ the decision taken, and its consequences.
 
 | ADR | Title | Status | Date |
 |---|---|---|---|
+| [ADR-000](ADR-000-current-architecture.md) | Current Architecture Snapshot | Accepted | 2026-07-13 |
 | [ADR-001](ADR-001-data-deduplication.md) | Data Deduplication Strategy | Proposed | 2026-07-13 |
 | [ADR-002](ADR-002-internal-endpoint-security.md) | Internal Endpoint Security | Proposed | 2026-07-13 |
 | [ADR-003](ADR-003-error-response-model.md) | Error Response Model | Proposed | 2026-07-13 |
-| [ADR-004](ADR-004-transaction-boundaries.md) | Transaction Boundaries in Ingestion | Accepted | 2026-07-13 |
+| [ADR-004](ADR-004-transaction-boundaries.md) | Transaction Boundaries in Ingestion | **Accepted** | 2026-07-13 |
 | [ADR-005](ADR-005-scheduler-execution-model.md) | Scheduler Execution Model | Proposed | 2026-07-13 |
 | [ADR-006](ADR-006-ingestion-handler-contract.md) | Ingestion Handler Contract | Proposed | 2026-07-13 |
 

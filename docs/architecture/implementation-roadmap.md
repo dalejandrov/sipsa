@@ -13,9 +13,19 @@ at the end of every phase.
 
 Before starting any phase:
 
-- Branch: all work starts from `chore/migrate-spring-boot-4-java-25` (or its merge into `main`).
+- Branch: all work starts from `main` (after `chore/migrate-spring-boot-4-java-25` is merged).
 - `./mvnw clean verify` must pass before starting and after completing each story.
 - No story is marked complete unless its acceptance criteria are verified.
+- Read the [Contributing Guide](../../CONTRIBUTING.md) before opening a PR.
+
+---
+
+## ► Next Step: Phase 1
+
+**Phase 1 is the next phase to implement.** All prerequisites are met:
+- `chore/migrate-spring-boot-4-java-25` is ready for review and merge.
+- `./mvnw clean verify` passes (1 test, 0 failures).
+- No Phase 1 stories are blocked by pending ADR decisions.
 
 ---
 
@@ -206,3 +216,30 @@ The following were analyzed and rejected for this roadmap. See [Refactoring Road
 - RF-08: Refactoring `ThreadLocal` in `TimezoneUtil`
 - RF-09: Adopting RFC 9457 `ProblemDetail`
 - RF-10: Adopting DDD tactical patterns
+
+---
+
+## Implementation Process
+
+For every story in this roadmap, follow these steps in order:
+
+```
+1. git switch main && git pull
+2. git switch -c <branch-from-story>
+3. Implement the minimal change (one story per branch)
+4. Write or update tests for changed logic
+5. ./mvnw clean verify  ← must pass before proceeding
+6. Update documentation:
+     docs/backlog/technical-backlog.md  → mark story Done
+     CHANGELOG.md                       → add entry to [Unreleased]
+     Related ADR                        → update status if applicable
+     This roadmap                       → update phase status if complete
+7. git push origin <branch>
+8. Open a Pull Request using the PR template
+9. Reference the story ID in the PR title and description
+```
+
+Do not combine stories from different phases in a single PR unless they share the same branch
+(e.g., TECH-050 and TECH-051 in `fix/cleanup-placeholder-comments`).
+
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for the full development guide.
