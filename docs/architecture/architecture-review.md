@@ -18,7 +18,7 @@
 7. [Pending Decisions](#pending-decisions)
 8. [Known Risks](#known-risks)
 9. [Accepted Risks](#accepted-risks)
-10. [Domain Model Assessment](#domain-model-assessment)
+10. [Domain Model Assessment](#domain-entities)
 11. [Evidence Methodology](#evidence-methodology)
 
 ---
