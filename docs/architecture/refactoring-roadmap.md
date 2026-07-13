@@ -47,7 +47,7 @@ The following refactorings were analyzed in depth and explicitly **not included*
 
 **When to reconsider:**
 - When the application layer needs to be extracted as a separate module or library.
-- When the team adds tests that enforce architectural constraints (ArchUnit rules — see [TECH-044](../backlog/technical-backlog.md#tech-044)).
+- When the team adds tests that enforce architectural constraints (ArchUnit rules — see [TECH-093](../backlog/technical-backlog.md#tech-093)).
 - When the `api` package requires a breaking change that cannot be applied to the internal DTOs simultaneously.
 
 **Risk of implementing:** Medium — many files changed, no functional improvement.
@@ -61,8 +61,9 @@ named above, touching ~9 files. The broader question this RF-01 entry originally
 (whether to also move `IngestionTriggerRequest`, `AuditQueryRequest`, or any
 `*QueryRequest` class) was re-investigated and confirmed **not applicable** — those are
 genuinely HTTP-bound and stay. See ADR-007 §F1 and
-[TECH-090](../backlog/technical-backlog.md#tech-090) (`Ready`). RF-01 as a general "move all
-internal DTOs" idea remains **not recommended** — only the 3 named classes are approved.
+[TECH-090](../backlog/technical-backlog.md#tech-090) (**Done**, merged to `main`
+2026-07-13). RF-01 as a general "move all internal DTOs" idea remains **not recommended**
+— only the 3 named classes were approved, and that slice is now implemented.
 
 ---
 
@@ -246,7 +247,7 @@ authorized by this acceptance.
 
 | ID | Refactoring | Decision | Revisit Condition |
 |---|---|---|---|
-| RF-01 | Move DTOs to `application/` | Deferred (narrow slice reopened — see ADR-007) | ArchUnit rules or module extraction |
+| RF-01 | Move DTOs to `application/` | Deferred (narrow slice implemented via ADR-007 / TECH-090, merged) | ArchUnit rules or module extraction |
 | RF-02 | Split `IngestionControlService` | Deferred | Class exceeds 500 lines or navigation issues |
 | RF-03 | Feature-based package structure | Deferred | 5+ independent bounded contexts |
 | RF-04 | Move exceptions between layers | **Not recommended** | Only if SOAP layer extracted as module |
