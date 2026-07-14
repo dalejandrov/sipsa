@@ -1,5 +1,6 @@
 package com.dalejandrov.sipsa.application.ingestion.core;
 
+import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
 import com.dalejandrov.sipsa.domain.exception.WindowViolationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Disabled;
@@ -29,15 +30,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *       configured.</li>
  * </ul>
  * <p>
- * <b>Confirmed defect coverage:</b> a prior investigation found that
- * {@code WindowPolicy.validateMonthly()} does not bind the allowed day-of-month to the
- * specific ingestion method, so {@code promedioAbasSipsaMesMadr} (documented by DANE, and
- * by {@code application.yaml}'s own comment, as a day-10 method) currently passes
- * validation on day 8, and {@code promediosSipsaMesMadr} (day 8) currently passes on day
- * 10. Per this story's scope, that defect is <b>documented, not fixed</b> — see the
- * {@code MonthlyWindow_ConfirmedBugDemonstration} and {@code MonthlyWindow_DesiredBehaviorAfterFix}
- * nested classes below, and {@code docs/architecture/scheduled-ingestion-validation.md} for
- * the full write-up and the follow-up fix story (TECH-111).
+ * <b>TECH-111:</b> the monthly rules are per-method — {@code promediosSipsaMesMadr} is
+ * bound to days 8/9 and {@code promedioAbasSipsaMesMadr} to days 10/11, with the
+ * {@code monthlyStart} time gate applying to principal and grace days alike. The
+ * cross-method acceptance and grace-day time bypass originally found by TECH-110
+ * (F-WP-01/F-WP-03, {@code docs/architecture/scheduled-ingestion-validation.md}) are fixed
+ * and pinned by the {@code MonthlyWindowMesMadr}/{@code MonthlyWindowAbasMes} matrices below.
  */
 @DisplayName("WindowPolicy")
 class WindowPolicyTest {
@@ -56,6 +54,36 @@ class WindowPolicyTest {
     /** Isolates DANE's raw documented 2:00 p.m. boundary, without the deployed 20-minute buffer. */
     private static WindowPolicy daneDocumentedBoundaryPolicy() {
         return new WindowPolicy("14:00", "23:59", "8,10", "14:00", "America/Bogota");
+    }
+
+    // ---------------------------------------------------------------------
+    // monthly-run-days startup sanity check (TECH-111): the property no longer
+    // participates in per-run validation; it must simply be compatible with the
+    // contractual per-method rules fixed in code.
+    // ---------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("monthly-run-days startup sanity check")
+    class MonthlyRunDaysSanityCheck {
+
+        @Test
+        @DisplayName("configured set missing a contractual principal day (8 or 10) -> fails at construction")
+        void missingPrincipalDay_failsFast() {
+            assertThatThrownBy(() -> new WindowPolicy("14:20", "23:59", "8", "14:00", "America/Bogota"))
+                    .isInstanceOf(SipsaConfigurationException.class)
+                    .hasMessageContaining("monthly-run-days");
+
+            assertThatThrownBy(() -> new WindowPolicy("14:20", "23:59", "10,11", "14:00", "America/Bogota"))
+                    .isInstanceOf(SipsaConfigurationException.class)
+                    .hasMessageContaining("monthly-run-days");
+        }
+
+        @Test
+        @DisplayName("exact contractual set (8,10) and supersets are accepted")
+        void contractualSetAndSupersets_accepted() {
+            new WindowPolicy("14:20", "23:59", "8,10", "14:00", "America/Bogota");
+            new WindowPolicy("14:20", "23:59", "8,9,10,11", "14:00", "America/Bogota");
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -169,108 +197,168 @@ class WindowPolicyTest {
     }
 
     // ---------------------------------------------------------------------
-    // Monthly window — current shared-day-set implementation (both
-    // promediosSipsaMesMadr and promedioAbasSipsaMesMadr go through the same
-    // validateMonthly() logic, which does not receive the method name)
+    // Monthly window — per-method rules (TECH-111): each method is bound to
+    // its own DANE publication day (MesMadr: 8/9, AbasMes: 10/11), and the
+    // monthlyStart time gate applies to the principal day AND the grace day.
     // ---------------------------------------------------------------------
 
     @Nested
-    @DisplayName("Monthly window — current implementation (both methods share the same day set)")
-    class MonthlyWindowCurrentImplementation {
+    @DisplayName("Monthly window — promediosSipsaMesMadr (principal day 8, grace day 9)")
+    class MonthlyWindowMesMadr {
 
         @Test
-        @DisplayName("day 7 -> rejected for both methods")
-        void day7_rejectedForBothMethods() {
+        @DisplayName("day 7 -> rejected")
+        void day7_rejected() {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-07T19:00:00Z")); // day 7, 14:00 Bogota
 
             assertThatThrownBy(() -> policy.validateAndGetKey("promediosSipsaMesMadr", false))
                     .isInstanceOf(WindowViolationException.class);
-            assertThatThrownBy(() -> policy.validateAndGetKey("promedioAbasSipsaMesMadr", false))
-                    .isInstanceOf(WindowViolationException.class);
         }
 
         @Test
-        @DisplayName("day 8, before 14:00 -> rejected for both methods")
-        void day8BeforeStart_rejectedForBothMethods() {
+        @DisplayName("day 8, before 14:00 -> rejected")
+        void day8BeforeStart_rejected() {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-08T18:59:59Z")); // day 8, 13:59:59 Bogota
 
             assertThatThrownBy(() -> policy.validateAndGetKey("promediosSipsaMesMadr", false))
                     .isInstanceOf(WindowViolationException.class);
-            assertThatThrownBy(() -> policy.validateAndGetKey("promedioAbasSipsaMesMadr", false))
-                    .isInstanceOf(WindowViolationException.class);
         }
 
         @Test
-        @DisplayName("day 8, at/after 14:00 -> accepted for both methods (see ConfirmedBugDemonstration for why this is wrong for AbasMes)")
-        void day8AtOrAfterStart_acceptedForBothMethods() {
+        @DisplayName("day 8, at/after 14:00 -> accepted")
+        void day8AtOrAfterStart_accepted() {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-08T19:00:00Z")); // day 8, 14:00 Bogota
 
             assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-08");
-            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-08");
         }
 
         @Test
-        @DisplayName("day 9, ANY time (including before monthlyStart) -> accepted for both methods — grace day bypasses the time check entirely")
-        void day9_anyTime_acceptedForBothMethods_evenAtMidnight() {
+        @DisplayName("day 9 (grace), before 14:00 -> rejected — the time gate applies to the grace day too")
+        void day9BeforeStart_rejected() {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-09T05:00:00Z")); // day 9, 00:00:00 Bogota (midnight)
 
-            // (day == 8 && time >= monthlyStart) || day == 9 -- the "day == 9" branch has
-            // no time condition at all, unlike day 8's. This asymmetry is a secondary
-            // finding from the same investigation; documented here, not fixed.
-            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-09");
-            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-09");
-        }
-
-        @Test
-        @DisplayName("day 10, before 14:00 -> rejected for both methods")
-        void day10BeforeStart_rejectedForBothMethods() {
-            WindowPolicy policy = productionPolicy();
-            policy.setClock(fixedBogota("2026-06-10T18:59:59Z")); // day 10, 13:59:59 Bogota
-
             assertThatThrownBy(() -> policy.validateAndGetKey("promediosSipsaMesMadr", false))
                     .isInstanceOf(WindowViolationException.class);
-            assertThatThrownBy(() -> policy.validateAndGetKey("promedioAbasSipsaMesMadr", false))
-                    .isInstanceOf(WindowViolationException.class);
         }
 
         @Test
-        @DisplayName("day 10, at/after 14:00 -> accepted for both methods (see ConfirmedBugDemonstration for why this is wrong for MesMadr)")
-        void day10AtOrAfterStart_acceptedForBothMethods() {
+        @DisplayName("day 9 (grace), at/after 14:00 -> accepted")
+        void day9AtOrAfterStart_accepted() {
+            WindowPolicy policy = productionPolicy();
+            policy.setClock(fixedBogota("2026-06-09T19:00:00Z")); // day 9, 14:00 Bogota
+
+            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-09");
+        }
+
+        @Test
+        @DisplayName("day 10, any time -> rejected — day 10 belongs to AbasMes, not MesMadr")
+        void day10_rejected() {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-10T19:00:00Z")); // day 10, 14:00 Bogota
 
-            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-10");
-            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-10");
+            assertThatThrownBy(() -> policy.validateAndGetKey("promediosSipsaMesMadr", false))
+                    .isInstanceOf(WindowViolationException.class);
         }
 
         @Test
-        @DisplayName("day 11, any time -> accepted for both methods")
-        void day11_anyTime_acceptedForBothMethods() {
+        @DisplayName("day 11, any time -> rejected")
+        void day11_rejected() {
             WindowPolicy policy = productionPolicy();
-            policy.setClock(fixedBogota("2026-06-11T05:00:00Z")); // day 11, midnight Bogota
+            policy.setClock(fixedBogota("2026-06-11T19:00:00Z")); // day 11, 14:00 Bogota
 
-            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-11");
-            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-11");
+            assertThatThrownBy(() -> policy.validateAndGetKey("promediosSipsaMesMadr", false))
+                    .isInstanceOf(WindowViolationException.class);
         }
 
         @Test
-        @DisplayName("day 12 -> rejected for both methods")
-        void day12_rejectedForBothMethods() {
+        @DisplayName("day 12 -> rejected")
+        void day12_rejected() {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-12T19:00:00Z"));
 
             assertThatThrownBy(() -> policy.validateAndGetKey("promediosSipsaMesMadr", false))
                     .isInstanceOf(WindowViolationException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("Monthly window — promedioAbasSipsaMesMadr (principal day 10, grace day 11)")
+    class MonthlyWindowAbasMes {
+
+        @Test
+        @DisplayName("day 8, any time -> rejected — day 8 belongs to MesMadr, not AbasMes")
+        void day8_rejected() {
+            WindowPolicy policy = productionPolicy();
+            policy.setClock(fixedBogota("2026-06-08T19:00:00Z")); // day 8, 14:00 Bogota
+
             assertThatThrownBy(() -> policy.validateAndGetKey("promedioAbasSipsaMesMadr", false))
                     .isInstanceOf(WindowViolationException.class);
         }
 
         @Test
-        @DisplayName("force=true bypasses the window on any day, for both methods, and still returns a real-date key")
+        @DisplayName("day 9, any time -> rejected")
+        void day9_rejected() {
+            WindowPolicy policy = productionPolicy();
+            policy.setClock(fixedBogota("2026-06-09T19:00:00Z")); // day 9, 14:00 Bogota
+
+            assertThatThrownBy(() -> policy.validateAndGetKey("promedioAbasSipsaMesMadr", false))
+                    .isInstanceOf(WindowViolationException.class);
+        }
+
+        @Test
+        @DisplayName("day 10, before 14:00 -> rejected")
+        void day10BeforeStart_rejected() {
+            WindowPolicy policy = productionPolicy();
+            policy.setClock(fixedBogota("2026-06-10T18:59:59Z")); // day 10, 13:59:59 Bogota
+
+            assertThatThrownBy(() -> policy.validateAndGetKey("promedioAbasSipsaMesMadr", false))
+                    .isInstanceOf(WindowViolationException.class);
+        }
+
+        @Test
+        @DisplayName("day 10, at/after 14:00 -> accepted")
+        void day10AtOrAfterStart_accepted() {
+            WindowPolicy policy = productionPolicy();
+            policy.setClock(fixedBogota("2026-06-10T19:00:00Z")); // day 10, 14:00 Bogota
+
+            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-10");
+        }
+
+        @Test
+        @DisplayName("day 11 (grace), before 14:00 -> rejected — the time gate applies to the grace day too")
+        void day11BeforeStart_rejected() {
+            WindowPolicy policy = productionPolicy();
+            policy.setClock(fixedBogota("2026-06-11T05:00:00Z")); // day 11, 00:00:00 Bogota (midnight)
+
+            assertThatThrownBy(() -> policy.validateAndGetKey("promedioAbasSipsaMesMadr", false))
+                    .isInstanceOf(WindowViolationException.class);
+        }
+
+        @Test
+        @DisplayName("day 11 (grace), at/after 14:00 -> accepted")
+        void day11AtOrAfterStart_accepted() {
+            WindowPolicy policy = productionPolicy();
+            policy.setClock(fixedBogota("2026-06-11T19:00:00Z")); // day 11, 14:00 Bogota
+
+            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-11");
+        }
+
+        @Test
+        @DisplayName("day 12 -> rejected")
+        void day12_rejected() {
+            WindowPolicy policy = productionPolicy();
+            policy.setClock(fixedBogota("2026-06-12T19:00:00Z"));
+
+            assertThatThrownBy(() -> policy.validateAndGetKey("promedioAbasSipsaMesMadr", false))
+                    .isInstanceOf(WindowViolationException.class);
+        }
+
+        @Test
+        @DisplayName("force=true bypasses the window on any day, for both methods")
         void forceTrue_bypassesWindow_forBothMethods() {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-01T05:00:00Z")); // day 1 -- normally always rejected
@@ -281,38 +369,13 @@ class WindowPolicyTest {
     }
 
     // ---------------------------------------------------------------------
-    // Confirmed bug: cross-method day acceptance (see
-    // docs/architecture/scheduled-ingestion-validation.md, finding F-WP-01, TECH-111)
+    // Desired post-fix behavior originally specified by TECH-110's @Disabled
+    // tests (re-enabled by TECH-111's commit 3)
     // ---------------------------------------------------------------------
 
     @Nested
-    @DisplayName("Monthly window — confirmed bug: cross-method day acceptance (TECH-111)")
+    @DisplayName("Monthly window — cross-method day acceptance is fixed (TECH-111)")
     class MonthlyWindowConfirmedBugDemonstration {
-
-        @Test
-        @DisplayName("CONFIRMED BUG: promedioAbasSipsaMesMadr (documented day 10) is currently accepted on day 8")
-        void abastecimientosMensual_diaOcho_esAceptadoActualmente_aunqueDaneDocumentaDiaDiez() {
-            WindowPolicy policy = productionPolicy();
-            policy.setClock(fixedBogota("2026-06-08T19:00:00Z")); // day 8, 14:00 Bogota -- Abastecimientos' own documented day is 10, not 8
-
-            // This assertion documents CURRENT behavior. It is not a statement that this
-            // behavior is correct -- see docs/architecture/scheduled-ingestion-validation.md
-            // and the @Disabled test below for the desired behavior once TECH-111 is fixed.
-            String key = policy.validateAndGetKey("promedioAbasSipsaMesMadr", false);
-
-            assertThat(key).isEqualTo("2026-06-08");
-        }
-
-        @Test
-        @DisplayName("CONFIRMED BUG: promediosSipsaMesMadr (documented day 8) is currently accepted on day 10")
-        void mayoristasMensual_diaDiez_esAceptadoActualmente_aunqueDaneDocumentaDiaOcho() {
-            WindowPolicy policy = productionPolicy();
-            policy.setClock(fixedBogota("2026-06-10T19:00:00Z")); // day 10, 14:00 Bogota -- MesMadr's own documented day is 8, not 10
-
-            String key = policy.validateAndGetKey("promediosSipsaMesMadr", false);
-
-            assertThat(key).isEqualTo("2026-06-10");
-        }
 
         @Test
         @Disabled("Documents the DESIRED behavior once TECH-111 binds the allowed day to the "
@@ -371,32 +434,35 @@ class WindowPolicyTest {
             policy.setClock(fixedBogota("2026-06-08T19:00:00Z")); // day 8 run
             String day8Key = policy.validateAndGetKey("promediosSipsaMesMadr", false);
 
-            policy.setClock(fixedBogota("2026-06-09T12:00:00Z")); // day 9 retry, same logical month
+            policy.setClock(fixedBogota("2026-06-09T19:00:00Z")); // day 9 retry (14:00 Bogota), same logical month
             String day9Key = policy.validateAndGetKey("promediosSipsaMesMadr", false);
 
             // WindowPolicy's own Javadoc documents monthly keys as "YYYY-MM-M8"/"YYYY-MM-M10"
             // (stable per logical period). The actual implementation uses the raw run date,
             // so these two keys differ even though both belong to June's MesMadr period.
             // This breaks the (method_name, window_key) uniqueness guarantee across retries
-            // on the grace day. Documented here, not fixed -- see TECH-111.
+            // on the grace day. Documented here, not fixed -- see TECH-111 (commit 2).
             assertThat(day8Key).isEqualTo("2026-06-08");
             assertThat(day9Key).isEqualTo("2026-06-09");
             assertThat(day8Key).isNotEqualTo(day9Key);
         }
 
         @Test
-        @DisplayName("MesMadr and AbasMes on the same calendar day produce the same key STRING, but uniqueness is scoped by method name in the DB, not by the key alone")
-        void differentMethodsSameDay_produceSameKeyString() {
+        @DisplayName("MesMadr and AbasMes, each validated on its own day, produce keys derived from their own run dates")
+        void differentMethodsOwnDays_produceKeysFromOwnRunDates() {
             WindowPolicy policy = productionPolicy();
-            policy.setClock(fixedBogota("2026-06-08T19:00:00Z"));
 
+            policy.setClock(fixedBogota("2026-06-08T19:00:00Z")); // MesMadr's principal day
             String mesKey = policy.validateAndGetKey("promediosSipsaMesMadr", false);
+
+            policy.setClock(fixedBogota("2026-06-10T19:00:00Z")); // AbasMes' principal day
             String abasKey = policy.validateAndGetKey("promedioAbasSipsaMesMadr", false);
 
-            // Not a bug by itself: IngestionRun's unique constraint is on
-            // (method_name, window_key) together, so identical key strings across
-            // different method names do not collide in the database.
-            assertThat(mesKey).isEqualTo(abasKey).isEqualTo("2026-06-08");
+            // Raw-run-date keys (replaced by the stable YYYY-MM-M8/M10 markers in
+            // TECH-111's commit 2). Uniqueness in the DB is scoped by
+            // (method_name, window_key), not by the key string alone.
+            assertThat(mesKey).isEqualTo("2026-06-08");
+            assertThat(abasKey).isEqualTo("2026-06-10");
         }
 
         @Test
@@ -404,7 +470,7 @@ class WindowPolicyTest {
         void yearRollover_decemberToJanuary_newCorrectWindowKey() {
             WindowPolicy policy = productionPolicy();
 
-            policy.setClock(fixedBogota("2026-12-09T12:00:00Z"));
+            policy.setClock(fixedBogota("2026-12-09T19:00:00Z")); // grace day, 14:00 Bogota
             String decemberKey = policy.validateAndGetKey("promediosSipsaMesMadr", false);
 
             policy.setClock(fixedBogota("2027-01-08T19:00:00Z"));
