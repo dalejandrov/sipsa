@@ -52,7 +52,7 @@ When a story is implemented:
 | TECH-094 | SPIKE: Evaluate relocating CXF-generated SOAP sources | Low | — | Pending |
 | TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A) | Low | — | **Done** |
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
-| TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | Pending — plan approved, not yet implemented |
+| TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
 
 ---
 
@@ -1206,10 +1206,10 @@ this changes observable validation and key-generation behavior, on purpose)
 **Type:** Correctiva
 **Priority:** High
 **Phase:** 3
-**Status:** Pending — implementation plan approved 2026-07-13, code not yet written
+**Status:** **Done** — implemented 2026-07-14 on branch `fix/window-policy-monthly-rules`
+(plan approved 2026-07-13)
 **Complexity:** M
-**Branch (when approved for implementation):** `fix/window-policy-monthly-rules`, from
-`main` updated. **Not created yet.**
+**Branch:** `fix/window-policy-monthly-rules`
 
 **Depends on:** None (see §3 of the plan below — explicitly does not block on TECH-055 or
 ADR-006).
@@ -1466,6 +1466,13 @@ scope beyond `WindowPolicy`, and does not require ADR-006 to be decided first.
 This should be confirmed (or delegated to the implementer's judgment, explicitly) before
 `fix/window-policy-monthly-rules` starts.
 
+> **Decision (2026-07-14, confirmed by the team before implementation):** the
+> **recommended** option was adopted. `monthly-run-days` keeps its name and is now a
+> startup sanity check only: `WindowPolicy`'s constructor fails fast with
+> `SipsaConfigurationException` if the configured set does not contain the contractual
+> principal days `{8, 10}` required by the code-level per-method rules. It no longer
+> participates in per-run validation.
+
 ---
 
 #### Contracts that MUST NOT change
@@ -1550,18 +1557,28 @@ same-file, same-root-cause changes. Kept separate above because F-WP-01/03 and F
 independently testable and independently revertable.)
 
 **Acceptance Criteria:**
-- [ ] All test matrix cases above implemented and passing.
-- [ ] The 2 currently-`@Disabled` tests are re-enabled and pass; zero `@Disabled` tests
+- [x] All test matrix cases above implemented and passing.
+- [x] The 2 currently-`@Disabled` tests are re-enabled and pass; zero `@Disabled` tests
       remain in `WindowPolicyTest`.
-- [ ] `windowKey` for monthly methods follows `YYYY-MM-M{principalDay}`, stable across a
+- [x] `windowKey` for monthly methods follows `YYYY-MM-M{principalDay}`, stable across a
       principal-day/grace-day retry of the same period, and correct across month/year
       rollover.
-- [ ] No change to cron expressions, zone, REST contracts, JSON shapes, DB schema, or
+- [x] No change to cron expressions, zone, REST contracts, JSON shapes, DB schema, or
       property names.
-- [ ] `./mvnw clean verify` passes with zero failures and zero skips introduced by this
+- [x] `./mvnw clean verify` passes with zero failures and zero skips introduced by this
       story.
-- [ ] `docs/architecture/scheduled-ingestion-validation.md` updated to reflect F-WP-01/02/03
+- [x] `docs/architecture/scheduled-ingestion-validation.md` updated to reflect F-WP-01/02/03
       as fixed.
-- [ ] ADR-008 left untouched, still `Proposed`.
+- [x] ADR-008 left untouched, still `Proposed`.
 
-**Completed:** —
+**Completed:** 2026-07-14, branch `fix/window-policy-monthly-rules`. Four commits:
+per-method day/grace-day binding with the time gate on both days (F-WP-01 + F-WP-03,
+including the `monthly-run-days` startup sanity check per the confirmed decision above),
+stable `YYYY-MM-M8`/`YYYY-MM-M10` window keys (F-WP-02), re-enabled and extended tests
+(including an explicit `abas`-before-`mesmadr` rule-resolution-order test, since
+`promedioAbasSipsaMesMadr` contains both name fragments), and documentation updates.
+`WindowPolicyTest`: 34 tests, 0 failures, 0 skips. **Operational note for deployment:** if
+a monthly method already ran `SUCCEEDED` in the current month under the old raw-date key,
+the new period key will not match it and one redundant (upsert-safe) re-ingestion of that
+period can occur — deploy outside days 8–11 to avoid the transition landing inside an
+active monthly window.

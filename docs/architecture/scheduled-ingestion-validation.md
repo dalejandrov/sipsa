@@ -191,6 +191,9 @@ pre-existing `main` branch state (nothing here was fixed in this story).
 ### F-WP-01 — `WindowPolicy` does not bind the monthly day to the specific method
 
 **Classification: Bug confirmed.**
+**Status: Fixed** (2026-07-14, [TECH-111](../backlog/technical-backlog.md#tech-111),
+branch `fix/window-policy-monthly-rules`): `validateMonthly` now receives the method's own
+rule — MesMadr is bound to days 8/9 and AbasMes to days 10/11.
 
 **Evidence:**
 - `WindowPolicy.java:169-180` (`validateMonthly`) — the day-of-month check never receives
@@ -229,6 +232,9 @@ problems.
 ### F-WP-02 — Monthly `windowKey` does not match its own documented format, breaking idempotency across grace-day retries
 
 **Classification: Bug confirmed.**
+**Status: Fixed** (2026-07-14, [TECH-111](../backlog/technical-backlog.md#tech-111)): the
+monthly key is now the stable `YYYY-MM-M8`/`YYYY-MM-M10` period marker; a grace-day retry
+reuses the principal day's key. No data migration — historical raw-date keys coexist.
 
 **Evidence:** `WindowPolicy.java:36` (class Javadoc: `Monthly: YYYY-MM-M8 or YYYY-MM-M10`)
 vs. `WindowPolicy.java:164` (`String key = now.format(DATE_FMT)` — always `yyyy-MM-dd`, the
@@ -252,6 +258,8 @@ TECH-111, not to this story.
 ### F-WP-03 — Grace days (9, 11) skip the `monthlyStart` time check entirely
 
 **Classification: Bug confirmed (minor).**
+**Status: Fixed** (2026-07-14, [TECH-111](../backlog/technical-backlog.md#tech-111)): the
+time gate now applies identically to the principal day and the grace day.
 
 **Evidence:** `WindowPolicy.java:174,178` — `(day == 8 && !time.isBefore(monthlyStart)) ||
 day == 9` — by operator precedence, `day == 9` alone (any time, including midnight) returns
@@ -433,9 +441,9 @@ filter pattern.)
 
 | ID | Finding | Classification | Story |
 |---|---|---|---|
-| F-WP-01 | `WindowPolicy` accepts day 8 or day 10 for either monthly method | Bug confirmed | **TECH-111** (proposed below) |
-| F-WP-02 | Monthly `windowKey` is the raw run date, not the documented `YYYY-MM-M8`/`M10`, breaking idempotency across grace-day retries | Bug confirmed | **TECH-111** |
-| F-WP-03 | Grace days 9/11 skip the `monthlyStart` time check | Bug confirmed (minor) | **TECH-111** |
+| F-WP-01 | `WindowPolicy` accepts day 8 or day 10 for either monthly method | Bug confirmed → **Fixed** (2026-07-14, TECH-111, branch `fix/window-policy-monthly-rules`) | **TECH-111** (Done) |
+| F-WP-02 | Monthly `windowKey` is the raw run date, not the documented `YYYY-MM-M8`/`M10`, breaking idempotency across grace-day retries | Bug confirmed → **Fixed** (2026-07-14, TECH-111) | **TECH-111** (Done) |
+| F-WP-03 | Grace days 9/11 skip the `monthlyStart` time check | Bug confirmed (minor) → **Fixed** (2026-07-14, TECH-111) | **TECH-111** (Done) |
 | F-SC-01 | `SchedulingConfig` Javadoc said 06:00 instead of 14:30 | Documentation outdated | Fixed in this story (comment-only) |
 | F-SC-02 | No way to disable `@Scheduled` in tests | Configuration gap | Fixed in this story |
 | F-DANE-01 | 14:20/14:30 buffers vs. DANE's raw 14:00 | Decision deliberate | No action — re-verify against a current DANE source before any future schedule change |
@@ -444,8 +452,19 @@ filter pattern.)
 ### Proposed follow-up story
 
 **TECH-111 — Fix `WindowPolicy` monthly day-to-method binding and windowKey format**
-(not created in the backlog yet — proposed here per this story's scope, which is
-validation, not correction)
+
+> **Status update (2026-07-14):** TECH-111 was formalized in the
+> [technical backlog](../backlog/technical-backlog.md#tech-111) and **implemented** on
+> branch `fix/window-policy-monthly-rules`. All three findings are fixed: monthly
+> validation is bound per method (MesMadr days 8/9, AbasMes days 10/11), the
+> `monthlyStart` time gate applies to grace days too, and the monthly `windowKey` is the
+> stable `YYYY-MM-M8`/`YYYY-MM-M10` period marker. The two `@Disabled` tests were
+> re-enabled; `monthly-run-days` was repurposed as a startup sanity check (it no longer
+> drives per-run validation). Note: the backlog's approved plan explicitly decided TECH-111
+> does **not** depend on TECH-055/ADR-006 (contrary to the "ideally sequenced with
+> TECH-055" suggestion below, which is retained for the record).
+>
+> The original proposal below is kept as written for historical traceability.
 
 - **Type:** Correctiva. **Priority:** Medium. **Depends on:** ideally sequenced with
   TECH-055 (`isMonthly()` SPIKE, ADR-006), since both touch the daily/monthly

@@ -38,7 +38,10 @@ sipsa:
     max-reject-rate: 0.01
     daily-window-start: "00:00"
     daily-window-end: "23:59"
-    monthly-run-days: "1,2"
+    # Must contain the contractual principal days 8 and 10 — WindowPolicy's startup
+    # sanity check (TECH-111) rejects any set missing them. The property no longer
+    # drives per-run validation, so a "permissive" value here has no effect anyway.
+    monthly-run-days: "8,10"
     monthly-window-start: "00:00"
     cron:
       daily: "0 0 0 * * *"

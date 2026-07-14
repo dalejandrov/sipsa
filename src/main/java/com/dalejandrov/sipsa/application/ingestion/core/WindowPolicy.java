@@ -1,5 +1,6 @@
 package com.dalejandrov.sipsa.application.ingestion.core;
 
+import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
 import com.dalejandrov.sipsa.domain.exception.WindowViolationException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -7,6 +8,7 @@ import org.springframework.stereotype.Component;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -17,15 +19,25 @@ import java.util.stream.Collectors;
  * at inappropriate times, ensuring data freshness and system stability. It handles:
  * <ul>
  *   <li>Daily methods: Run within a specific time window (e.g., 14:20-23:59)</li>
- *   <li>Monthly methods: Run only on specific days of the month (e.g., 8th and 10th)</li>
+ *   <li>Monthly methods: Run only on the method's own publication day or its grace day,
+ *       at or after the monthly start time (MesMadr: days 8/9; AbasMes: days 10/11)</li>
  *   <li>Window key generation for idempotent run tracking</li>
  * </ul>
+ * <p>
+ * <b>Monthly rules are contractual.</b> DANE publishes Mayoristas monthly data on day 8
+ * and Abastecimientos monthly data on day 10; each method's principal day, grace day, and
+ * key marker are therefore fixed in code ({@link MonthlyRule}), not configurable per
+ * environment.
  * <p>
  * <b>Configuration Properties:</b>
  * <ul>
  *   <li>{@code sipsa.ingestion.daily-window-start} - Daily window start time (HH:mm)</li>
  *   <li>{@code sipsa.ingestion.daily-window-end} - Daily window end time (HH:mm)</li>
- *   <li>{@code sipsa.ingestion.monthly-run-days} - Comma-separated days (e.g., "8,10")</li>
+ *   <li>{@code sipsa.ingestion.monthly-run-days} - Comma-separated days (e.g., "8,10").
+ *       Startup sanity check only: it must contain every principal day required by the
+ *       code-level {@link MonthlyRule}s (8 and 10) or the application fails to start with
+ *       {@link SipsaConfigurationException}. It does not participate in per-run
+ *       validation.</li>
  *   <li>{@code sipsa.ingestion.monthly-window-start} - Monthly window start time</li>
  *   <li>{@code sipsa.timezone} - Timezone for all time calculations</li>
  * </ul>
@@ -46,9 +58,32 @@ public class WindowPolicy {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
+    /**
+     * Publication rule for one monthly ingestion method, per DANE's documented schedule:
+     * the principal publication day, a single grace day for retries of the same logical
+     * period, and the stable window-key marker for that period.
+     */
+    private record MonthlyRule(int principalDay, int graceDay, String keySuffix) {
+
+        boolean allowsDay(int day) {
+            return day == principalDay || day == graceDay;
+        }
+    }
+
+    /** Abastecimientos monthly (promedioAbasSipsaMesMadr): DANE publishes on day 10. */
+    private static final MonthlyRule ABAS_RULE = new MonthlyRule(10, 11, "M10");
+
+    /** Mayoristas monthly (promediosSipsaMesMadr): DANE publishes on day 8. */
+    private static final MonthlyRule MES_MADR_RULE = new MonthlyRule(8, 9, "M8");
+
     private final LocalTime dailyStart;
     private final LocalTime dailyEnd;
 
+    /**
+     * Days parsed from {@code sipsa.ingestion.monthly-run-days}. Retained only for the
+     * constructor's startup sanity check against the code-level {@link MonthlyRule}s;
+     * per-run validation never consults it.
+     */
     private final Set<Integer> monthlyRunDays;
     private final LocalTime monthlyStart;
 
@@ -91,6 +126,15 @@ public class WindowPolicy {
                 .map(Integer::parseInt)
                 .collect(Collectors.toSet());
 
+        Set<Integer> requiredPrincipalDays = Set.of(MES_MADR_RULE.principalDay(), ABAS_RULE.principalDay());
+        if (!this.monthlyRunDays.containsAll(requiredPrincipalDays)) {
+            throw new SipsaConfigurationException(
+                    "sipsa.ingestion.monthly-run-days=" + monthlyRunDaysStr
+                            + " is incompatible with the DANE contractual monthly publication days "
+                            + requiredPrincipalDays + " enforced by WindowPolicy's per-method rules. "
+                            + "The configured set must contain at least days 8 (MesMadr) and 10 (AbasMes).");
+        }
+
         this.zone = ZoneId.of(zoneStr);
         this.clock = Clock.system(this.zone);
     }
@@ -129,11 +173,9 @@ public class WindowPolicy {
     public String validateAndGetKey(String methodName, boolean force) {
         ZonedDateTime now = ZonedDateTime.now(clock);
 
-        if (isMonthlyMethod(methodName)) {
-            return validateMonthly(now, force);
-        } else {
-            return validateDaily(now, force);
-        }
+        return resolveMonthlyRule(methodName)
+                .map(rule -> validateMonthly(methodName, rule, now, force))
+                .orElseGet(() -> validateDaily(now, force));
     }
 
     /**
@@ -165,60 +207,72 @@ public class WindowPolicy {
     }
 
     /**
-     * Validates monthly method execution window.
+     * Validates monthly method execution window against the method's own rule.
      * <p>
-     * Monthly methods can only run on specific days of the month
-     * (configured via monthly-run-days property), and only after
-     * the configured start time.
+     * A monthly method may run only on its principal publication day or its grace day
+     * (e.g., MesMadr: days 8/9; AbasMes: days 10/11), and in both cases only at or after
+     * the configured monthly start time — the time gate applies identically to the
+     * principal day and the grace day.
      * <p>
-     * The window key includes the day number (e.g., "2026-01-M8" for day 8)
-     * to distinguish between different monthly run days in the same month.
+     * The window key is a stable per-period marker, {@code YYYY-MM-M{principalDay}}
+     * (e.g., {@code 2026-06-M8}), derived from the run's year/month and the method's rule
+     * — never from the day the run actually happened on. A principal-day run and a
+     * grace-day retry of the same logical period therefore share one key, preserving the
+     * {@code (method_name, window_key)} idempotency guarantee. {@code force=true} skips
+     * the window check but still returns the correct period key for the current month.
      *
+     * @param methodName the ingestion method name (for the violation message)
+     * @param rule the method's resolved publication rule
      * @param now current time in configured timezone
-     * @param force if true, bypasses window check
-     * @return window key (YYYY-MM-M{day})
-     * @throws WindowViolationException if not on allowed day/time and force=false
+     * @param force if true, bypasses the window check but still returns the key
+     * @return stable window key ({@code YYYY-MM-M{principalDay}})
+     * @throws WindowViolationException if not on the method's day/time and force=false
      */
-    private String validateMonthly(ZonedDateTime now, boolean force) {
-        // Monthly Window: Day 8 06:00 -> Day 9 23:59 (for M8)
-        // Day 10 06:00 -> Day 11 23:59 (for M10/Abas)
-
-        int day = now.getDayOfMonth();
-        LocalTime time = now.toLocalTime();
-
-        // For monthly, window_key is the exact date of the run
-        String key = now.format(DATE_FMT);
+    private String validateMonthly(String methodName, MonthlyRule rule, ZonedDateTime now, boolean force) {
+        // Stable per-period marker: year/month of the run + the method's own key suffix.
+        // Never derived from now.getDayOfMonth() — see F-WP-02 (TECH-111).
+        String key = YearMonth.from(now) + "-" + rule.keySuffix();
 
         if (force)
             return key;
 
-        if (monthlyRunDays.contains(day) && !time.isBefore(monthlyStart)) {
-            // Driven strictly by the scheduled days (8 and 10) starts
-            return key;
-        }
+        int day = now.getDayOfMonth();
+        LocalTime time = now.toLocalTime();
 
-        if ((day == 8 && !time.isBefore(monthlyStart)) || day == 9) {
-            return key;
-        }
-
-        if ((day == 10 && !time.isBefore(monthlyStart)) || day == 11) {
+        if (rule.allowsDay(day) && !time.isBefore(monthlyStart)) {
             return key;
         }
 
         throw new WindowViolationException(
-                "Monthly run outside window. Current Day: " + day + " Time: " + time);
+                "Monthly run outside window for " + methodName
+                        + ". Current Day: " + day + " Time: " + time
+                        + ". Allowed: day " + rule.principalDay() + " (principal) or day "
+                        + rule.graceDay() + " (grace), at or after " + monthlyStart);
     }
 
     /**
-     * Determines if a method should be treated as monthly based on its name.
+     * Resolves the monthly publication rule for a method, or empty if the method is daily.
      * <p>
-     * Methods containing "Mes" or "Abas" are considered monthly.
-     * All others are daily.
+     * Matching is by lowercase name fragment, the same convention the scheduler and
+     * configuration comments use. Order matters: {@code "promedioAbasSipsaMesMadr"}
+     * contains <b>both</b> {@code "abas"} and {@code "mesmadr"}, so {@code "abas"} must be
+     * checked first — otherwise the Abastecimientos method would receive the Mayoristas
+     * day-8 rule.
+     * <p>
+     * A method is classified as monthly if and only if a rule resolves for it, so the
+     * daily/monthly classification and the per-method rule can never drift apart.
      *
      * @param methodName the ingestion method name
-     * @return true if method is monthly, false if daily
+     * @return the method's monthly rule, or empty for daily methods
      */
-    private boolean isMonthlyMethod(String methodName) {
-        return methodName.toLowerCase().contains("mesmadr") || methodName.toLowerCase().contains("abas");
+    private Optional<MonthlyRule> resolveMonthlyRule(String methodName) {
+        String name = methodName.toLowerCase();
+        if (name.contains("abas")) {
+            return Optional.of(ABAS_RULE);
+        }
+        if (name.contains("mesmadr")) {
+            return Optional.of(MES_MADR_RULE);
+        }
+        return Optional.empty();
     }
 }
