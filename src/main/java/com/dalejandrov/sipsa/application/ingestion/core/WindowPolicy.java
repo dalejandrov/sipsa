@@ -213,17 +213,25 @@ public class WindowPolicy {
      * (e.g., MesMadr: days 8/9; AbasMes: days 10/11), and in both cases only at or after
      * the configured monthly start time — the time gate applies identically to the
      * principal day and the grace day.
+     * <p>
+     * The window key is a stable per-period marker, {@code YYYY-MM-M{principalDay}}
+     * (e.g., {@code 2026-06-M8}), derived from the run's year/month and the method's rule
+     * — never from the day the run actually happened on. A principal-day run and a
+     * grace-day retry of the same logical period therefore share one key, preserving the
+     * {@code (method_name, window_key)} idempotency guarantee. {@code force=true} skips
+     * the window check but still returns the correct period key for the current month.
      *
      * @param methodName the ingestion method name (for the violation message)
      * @param rule the method's resolved publication rule
      * @param now current time in configured timezone
      * @param force if true, bypasses the window check but still returns the key
-     * @return window key
+     * @return stable window key ({@code YYYY-MM-M{principalDay}})
      * @throws WindowViolationException if not on the method's day/time and force=false
      */
     private String validateMonthly(String methodName, MonthlyRule rule, ZonedDateTime now, boolean force) {
-        // For monthly, window_key is the exact date of the run
-        String key = now.format(DATE_FMT);
+        // Stable per-period marker: year/month of the run + the method's own key suffix.
+        // Never derived from now.getDayOfMonth() — see F-WP-02 (TECH-111).
+        String key = YearMonth.from(now) + "-" + rule.keySuffix();
 
         if (force)
             return key;

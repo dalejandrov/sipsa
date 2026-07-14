@@ -232,7 +232,7 @@ class WindowPolicyTest {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-08T19:00:00Z")); // day 8, 14:00 Bogota
 
-            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-08");
+            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-M8");
         }
 
         @Test
@@ -251,7 +251,7 @@ class WindowPolicyTest {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-09T19:00:00Z")); // day 9, 14:00 Bogota
 
-            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-09");
+            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-M8");
         }
 
         @Test
@@ -325,7 +325,7 @@ class WindowPolicyTest {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-10T19:00:00Z")); // day 10, 14:00 Bogota
 
-            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-10");
+            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-M10");
         }
 
         @Test
@@ -344,7 +344,7 @@ class WindowPolicyTest {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-11T19:00:00Z")); // day 11, 14:00 Bogota
 
-            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-11");
+            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", false)).isEqualTo("2026-06-M10");
         }
 
         @Test
@@ -358,13 +358,13 @@ class WindowPolicyTest {
         }
 
         @Test
-        @DisplayName("force=true bypasses the window on any day, for both methods")
+        @DisplayName("force=true bypasses the window on any day, for both methods, and returns the correct period key, not the forced-on date")
         void forceTrue_bypassesWindow_forBothMethods() {
             WindowPolicy policy = productionPolicy();
             policy.setClock(fixedBogota("2026-06-01T05:00:00Z")); // day 1 -- normally always rejected
 
-            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", true)).isEqualTo("2026-06-01");
-            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", true)).isEqualTo("2026-06-01");
+            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", true)).isEqualTo("2026-06-M8");
+            assertThat(policy.validateAndGetKey("promedioAbasSipsaMesMadr", true)).isEqualTo("2026-06-M10");
         }
     }
 
@@ -423,12 +423,12 @@ class WindowPolicyTest {
             String first = policy.validateAndGetKey("promediosSipsaMesMadr", false);
             String second = policy.validateAndGetKey("promediosSipsaMesMadr", false);
 
-            assertThat(first).isEqualTo(second).isEqualTo("2026-06-08");
+            assertThat(first).isEqualTo(second).isEqualTo("2026-06-M8");
         }
 
         @Test
-        @DisplayName("CONFIRMED BUG (idempotency): a retry on the grace day (day 9) produces a DIFFERENT windowKey than day 8, for the same logical monthly period")
-        void retryOnGraceDay_producesDifferentWindowKey_forSameLogicalPeriod() {
+        @DisplayName("idempotency (F-WP-02 fixed): a retry on the grace day (day 9) reuses the SAME windowKey as day 8, for the same logical monthly period")
+        void retryOnGraceDay_reusesSameWindowKey_forSameLogicalPeriod() {
             WindowPolicy policy = productionPolicy();
 
             policy.setClock(fixedBogota("2026-06-08T19:00:00Z")); // day 8 run
@@ -437,19 +437,29 @@ class WindowPolicyTest {
             policy.setClock(fixedBogota("2026-06-09T19:00:00Z")); // day 9 retry (14:00 Bogota), same logical month
             String day9Key = policy.validateAndGetKey("promediosSipsaMesMadr", false);
 
-            // WindowPolicy's own Javadoc documents monthly keys as "YYYY-MM-M8"/"YYYY-MM-M10"
-            // (stable per logical period). The actual implementation uses the raw run date,
-            // so these two keys differ even though both belong to June's MesMadr period.
-            // This breaks the (method_name, window_key) uniqueness guarantee across retries
-            // on the grace day. Documented here, not fixed -- see TECH-111 (commit 2).
-            assertThat(day8Key).isEqualTo("2026-06-08");
-            assertThat(day9Key).isEqualTo("2026-06-09");
-            assertThat(day8Key).isNotEqualTo(day9Key);
+            // The key is the stable per-period marker, not the raw run date, so a
+            // principal-day run and its grace-day retry resolve to the same
+            // (method_name, window_key) row — the idempotency guarantee holds.
+            assertThat(day8Key).isEqualTo(day9Key).isEqualTo("2026-06-M8");
         }
 
         @Test
-        @DisplayName("MesMadr and AbasMes, each validated on its own day, produce keys derived from their own run dates")
-        void differentMethodsOwnDays_produceKeysFromOwnRunDates() {
+        @DisplayName("idempotency (F-WP-02 fixed): an AbasMes retry on the grace day (day 11) reuses the SAME windowKey as day 10")
+        void abasRetryOnGraceDay_reusesSameWindowKey_forSameLogicalPeriod() {
+            WindowPolicy policy = productionPolicy();
+
+            policy.setClock(fixedBogota("2026-06-10T19:00:00Z")); // day 10 run
+            String day10Key = policy.validateAndGetKey("promedioAbasSipsaMesMadr", false);
+
+            policy.setClock(fixedBogota("2026-06-11T19:00:00Z")); // day 11 retry, same logical month
+            String day11Key = policy.validateAndGetKey("promedioAbasSipsaMesMadr", false);
+
+            assertThat(day10Key).isEqualTo(day11Key).isEqualTo("2026-06-M10");
+        }
+
+        @Test
+        @DisplayName("MesMadr and AbasMes in the same month produce DIFFERENT keys (M8 vs M10)")
+        void differentMethodsSameMonth_produceDifferentKeys() {
             WindowPolicy policy = productionPolicy();
 
             policy.setClock(fixedBogota("2026-06-08T19:00:00Z")); // MesMadr's principal day
@@ -458,11 +468,24 @@ class WindowPolicyTest {
             policy.setClock(fixedBogota("2026-06-10T19:00:00Z")); // AbasMes' principal day
             String abasKey = policy.validateAndGetKey("promedioAbasSipsaMesMadr", false);
 
-            // Raw-run-date keys (replaced by the stable YYYY-MM-M8/M10 markers in
-            // TECH-111's commit 2). Uniqueness in the DB is scoped by
-            // (method_name, window_key), not by the key string alone.
-            assertThat(mesKey).isEqualTo("2026-06-08");
-            assertThat(abasKey).isEqualTo("2026-06-10");
+            assertThat(mesKey).isEqualTo("2026-06-M8");
+            assertThat(abasKey).isEqualTo("2026-06-M10");
+            assertThat(mesKey).isNotEqualTo(abasKey);
+        }
+
+        @Test
+        @DisplayName("same method, month changes -> different keys")
+        void sameMethodDifferentMonth_differentKeys() {
+            WindowPolicy policy = productionPolicy();
+
+            policy.setClock(fixedBogota("2026-06-08T19:00:00Z"));
+            String juneKey = policy.validateAndGetKey("promediosSipsaMesMadr", false);
+
+            policy.setClock(fixedBogota("2026-07-08T19:00:00Z"));
+            String julyKey = policy.validateAndGetKey("promediosSipsaMesMadr", false);
+
+            assertThat(juneKey).isEqualTo("2026-06-M8");
+            assertThat(julyKey).isEqualTo("2026-07-M8");
         }
 
         @Test
@@ -476,8 +499,8 @@ class WindowPolicyTest {
             policy.setClock(fixedBogota("2027-01-08T19:00:00Z"));
             String januaryKey = policy.validateAndGetKey("promediosSipsaMesMadr", false);
 
-            assertThat(decemberKey).isEqualTo("2026-12-09");
-            assertThat(januaryKey).isEqualTo("2027-01-08");
+            assertThat(decemberKey).isEqualTo("2026-12-M8");
+            assertThat(januaryKey).isEqualTo("2027-01-M8");
         }
     }
 }
