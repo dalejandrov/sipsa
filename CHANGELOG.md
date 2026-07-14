@@ -14,6 +14,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   convenient locally but must not reach production: default database credentials
   (`sipsa_user`/`sipsa_pass`), verbose per-package log levels, `format_sql`, full health
   details (`show-details: always`), and the Actuator `loggers` endpoint.
+- **[ADR-009](docs/adr/ADR-009-database-migration-strategy.md)** — database migration
+  strategy: Flyway confirmed as the only migration tool (Liquibase evaluated and
+  rejected), with binding conventions (immutable applied migrations, strict ordering,
+  fix-forward, expand–migrate–contract for destructive changes). Day-to-day workflow in
+  [docs/development/database-migrations.md](docs/development/database-migrations.md).
+- `FlywayMigrationsTest` — migration gate on Testcontainers: applies the full migration
+  chain against a real PostgreSQL 18 container (same image as `docker-compose.yml`) and
+  boots the full context with `ddl-auto: validate`, failing on broken SQL, on a missing
+  Flyway auto-configuration (the 2026-07-14 regression), and on entity/schema drift.
+  Skipped automatically when Docker is unavailable. New test dependencies (managed by
+  the Spring Boot BOM): `spring-boot-testcontainers`, `testcontainers-postgresql`,
+  `testcontainers-junit-jupiter`. Suite: 69 tests (was 65).
+- Flyway hardening in `application.yaml`: `validate-on-migrate: true`,
+  `clean-disabled: true`, `out-of-order: false`, and an explicit, documented baseline
+  policy (`baseline-version: 1`).
 - `src/main/resources/application-docker.yaml` — explicit `docker` profile so
   `docker-compose.yml`'s `SPRING_PROFILES_ACTIVE=docker` points at a real profile instead
   of silently falling back to the base configuration. Sets only container-topology facts
