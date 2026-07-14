@@ -13,7 +13,7 @@ at the end of every phase.
 
 Before starting any phase:
 
-- Branch: all work starts from `main` (after `chore/migrate-spring-boot-4-java-25` is merged).
+- Branch: all work starts from `main` (the Spring Boot 4 / Java 25 migration is merged).
 - `./mvnw clean verify` must pass before starting and after completing each story.
 - No story is marked complete unless its acceptance criteria are verified.
 - Read the [Contributing Guide](../../CONTRIBUTING.md) before opening a PR.
@@ -23,9 +23,13 @@ Before starting any phase:
 ## ► Next Step: Phase 1
 
 **Phase 1 is the next phase to implement.** All prerequisites are met:
-- `chore/migrate-spring-boot-4-java-25` is ready for review and merge.
-- `./mvnw clean verify` passes (1 test, 0 failures).
+- The Spring Boot 4 / Java 25 migration is merged to `main`.
+- `./mvnw clean verify` passes (65 tests, 0 failures, 2 intentional skips).
 - No Phase 1 stories are blocked by pending ADR decisions.
+
+Note: part of Phase 3 (TECH-040, via TECH-110) was completed ahead of sequence as an
+independently approved validation track. This does not change the phase order for the
+remaining stories — Phase 1 is still next.
 
 ---
 
@@ -119,16 +123,23 @@ No behavioral changes to the public API. No new dependencies (except Spring Secu
 These tests must exist before Phase 4 (observability) and Phase 5 (data integrity) because
 those phases modify production code that needs a safety net.
 
-| Story | Title | Type | Branch |
-|---|---|---|---|
-| TECH-040 | Unit tests for `WindowPolicy` | Testing | `test/window-policy` |
-| TECH-041 | Unit tests for `SpecificationBuilder` | Testing | `test/specification-builder` |
-| TECH-042 | Unit tests for `IngestionJob` | Testing | `test/ingestion-job` |
-| TECH-043 | Tests for `GlobalExceptionHandler` | Testing | `test/exception-handler` |
+| Story | Title | Type | Branch | Status |
+|---|---|---|---|---|
+| TECH-040 | Unit tests for `WindowPolicy` | Testing | `test/scheduled-ingestion-jobs` (bundled into TECH-110) | **Done** (2026-07-13) |
+| TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | Testing | `test/scheduled-ingestion-jobs` | **Done** (2026-07-13) |
+| TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | Correctiva | `fix/window-policy-monthly-rules` (not created yet) | Pending — plan approved, not implemented |
+| TECH-041 | Unit tests for `SpecificationBuilder` | Testing | `test/specification-builder` | Pending |
+| TECH-042 | Unit tests for `IngestionJob` | Testing | `test/ingestion-job` | Pending |
+| TECH-043 | Tests for `GlobalExceptionHandler` | Testing | `test/exception-handler` | Pending |
+
+**Progress (2026-07-13):** TECH-040 was completed via TECH-110 (`main` now has 65 tests);
+TECH-111 was produced by that validation and is pending. TECH-041/042/043 have not started
+— the phase remains open.
 
 **Acceptance criteria for phase exit:**
-- `./mvnw clean verify` passes with ≥ 30 unit tests.
-- `WindowPolicy`: ≥ 8 test cases covering daily/monthly, force=true, timezone.
+- `./mvnw clean verify` passes with ≥ 30 unit tests. *(Already met — 65 tests — but the
+  phase does not exit until the per-component criteria below are also met.)*
+- `WindowPolicy`: ≥ 8 test cases covering daily/monthly, force=true, timezone. ✅ (25 delivered)
 - `SpecificationBuilder`: ≥ 7 test cases covering all filter combinations.
 - `IngestionJob`: ≥ 7 test cases covering all execution paths.
 - `GlobalExceptionHandler`: one test per exception handler.
@@ -207,8 +218,9 @@ main (post-migration)
 │   Error semantics + Scheduler + Pagination
 │   Duration estimate: 3–4 days
 │
-├── Phase 3 — Testing                     [After Phase 2]
+├── Phase 3 — Testing                     [After Phase 2; partially done ahead of sequence]
 │   Unit tests for critical logic
+│   TECH-040/TECH-110 done (2026-07-13); TECH-041/042/043 + TECH-111 remain
 │   Duration estimate: 3–5 days
 │
 ├── Phase 4 — Observability + Performance [After Phase 3]
@@ -230,7 +242,7 @@ Duration estimate: ongoing
 
 The following were analyzed and rejected for this roadmap. See [Refactoring Roadmap](refactoring-roadmap.md).
 
-- RF-01: Moving DTOs between packages
+- RF-01: Moving DTOs between packages (a narrow, 3-class slice was later accepted and implemented via ADR-007/TECH-090 — see the Parallel Track above; the general idea remains rejected)
 - RF-02: Splitting `IngestionControlService`
 - RF-03: Feature-based package reorganization
 - RF-04: Moving exceptions to different layers

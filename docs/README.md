@@ -15,6 +15,7 @@ Technical documentation for the SIPSA Integration Service.
 | [Refactoring Roadmap](architecture/refactoring-roadmap.md) | Active and deferred refactorings, with justifications for deferral |
 | [Implementation Roadmap](architecture/implementation-roadmap.md) | Phased plan for all backlog items |
 | [Testing Strategy](architecture/testing-strategy.md) | Test pyramid, mandatory/recommended/optional tests, tooling |
+| [Scheduled Ingestion Validation](architecture/scheduled-ingestion-validation.md) | Evidence-backed validation of the scheduled ingestion pipeline (TECH-110): job inventory, cron table, DANE contrast matrix, confirmed findings F-WP-01/02/03 |
 | [Timezone/Locale Strategy Review](architecture/timezone-locale-date-strategy-review.md) | Temporal inventory, DANE contrast matrix, `TimezoneFilter`/`WindowPolicy` evaluation, alternatives comparison — evidence for ADR-008 (Proposed) |
 
 ## Architecture Decision Records
@@ -28,6 +29,7 @@ Technical documentation for the SIPSA Integration Service.
 | [ADR-004](adr/ADR-004-transaction-boundaries.md) | Transaction Boundaries in Ingestion | **Accepted** |
 | [ADR-005](adr/ADR-005-scheduler-execution-model.md) | Scheduler Execution Model | Proposed |
 | [ADR-006](adr/ADR-006-ingestion-handler-contract.md) | Ingestion Handler Contract | Proposed |
+| [ADR-007](adr/ADR-007-package-boundaries-and-internal-models.md) | Package Boundaries and Internal Models | **Accepted** (scoped to F1, F2, F4, F5) |
 | [ADR-008](adr/ADR-008-timezone-locale-and-date-semantics.md) | Timezone, Locale, and Date Semantics Strategy | Proposed |
 
 See [ADR Index](adr/README.md) for the full list and status guide.
@@ -36,7 +38,7 @@ See [ADR Index](adr/README.md) for the full list and status guide.
 
 | Document | Description |
 |---|---|
-| [Technical Backlog](backlog/technical-backlog.md) | All 28 stories, prioritized with acceptance criteria and Git branches |
+| [Technical Backlog](backlog/technical-backlog.md) | All 36 stories, prioritized with acceptance criteria and Git branches |
 
 ## Migrations
 

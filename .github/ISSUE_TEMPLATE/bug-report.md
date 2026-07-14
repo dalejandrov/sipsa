@@ -46,5 +46,5 @@ paste here
 ## Pre-check
 
 - [ ] `./mvnw clean verify` status checked on `main`
-- [ ] Issue is not already tracked in [technical-backlog.md](../docs/backlog/technical-backlog.md)
+- [ ] Issue is not already tracked in [technical-backlog.md](../../docs/backlog/technical-backlog.md)
 - [ ] This is reproducible (not a one-off event)

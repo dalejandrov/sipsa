@@ -49,6 +49,6 @@ paste relevant snippet
 
 ## Pre-check
 
-- [ ] Not already tracked in [technical-backlog.md](../docs/backlog/technical-backlog.md)
+- [ ] Not already tracked in [technical-backlog.md](../../docs/backlog/technical-backlog.md)
 - [ ] Evidence is from the codebase (file + line), not from assumption
 - [ ] A recommended solution or direction is included

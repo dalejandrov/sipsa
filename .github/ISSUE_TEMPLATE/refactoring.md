@@ -44,7 +44,7 @@ assignees: ''
 <!-- Before creating this issue, confirm this refactoring is not listed as deferred in -->
 <!-- docs/architecture/refactoring-roadmap.md -->
 
-- [ ] Reviewed [refactoring-roadmap.md](../docs/architecture/refactoring-roadmap.md)
+- [ ] Reviewed [refactoring-roadmap.md](../../docs/architecture/refactoring-roadmap.md)
 - [ ] Not listed as explicitly deferred, or conditions for revisiting are now met
 
 ## Backlog Reference

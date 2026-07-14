@@ -9,13 +9,14 @@
 
 | Metric | Value |
 |---|---|
-| Test files | 6 (`SipsaApplicationTests`, `WindowPolicyTest`, `SipsaSchedulingCronTest`, `SipsaIngestionSchedulerTest`, `SipsaSchedulingContextTest`, `SipsaSchedulingDisabledByDefaultTest`) |
-| Test methods | 59 (1 pre-existing + 58 added by TECH-110) |
-| Business logic coverage | `WindowPolicy` and `SipsaIngestionScheduler` now covered (no JaCoCo configured yet — line-coverage % not measured) |
-| Database dependency for tests | H2 in-memory (added during migration); the new scheduling/window tests need no database at all |
+| Test files | 7 (`SipsaApplicationTests`, `WindowPolicyTest`, `SipsaSchedulingCronTest`, `SipsaIngestionSchedulerTest`, `SipsaSchedulingContextTest`, `SipsaSchedulingDisabledByDefaultTest`, `InternalIngestionCommandsTest`) |
+| Test methods | 65 (1 pre-existing + 58 added by TECH-110 + 6 added by TECH-090) |
+| Business logic coverage | `WindowPolicy`, `SipsaIngestionScheduler`, and the `application/command` static factories now covered (no JaCoCo configured yet — line-coverage % not measured) |
+| Database dependency for tests | H2 in-memory (added during migration); the scheduling/window/command tests need no database at all |
 | Intentional skips | 2 (`@Disabled`, documenting TECH-111's desired post-fix behavior — see [scheduled-ingestion-validation.md](scheduled-ingestion-validation.md)) |
 
-Updated by TECH-110 (`test/scheduled-ingestion-jobs`) — see
+Updated by TECH-110 (`test/scheduled-ingestion-jobs`) and TECH-090
+(`InternalIngestionCommandsTest`, verifying the moved command classes' factory behavior) — see
 [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) for the full report.
 Everything else in this document (`SpecificationBuilderTest`, `IngestionJobTest`,
 `GlobalExceptionHandlerTest`, and the recommended/optional/integration sections below)

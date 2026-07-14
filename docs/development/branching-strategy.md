@@ -49,7 +49,7 @@ refactor/health-indicator-config
 refactor/optional-return-types
 docs/architecture-decisions
 spike/parcial-deduplication
-chore/migrate-spring-boot-4-java-25    ← current migration branch
+chore/migrate-spring-boot-4-java-25    ← historical example (merged to main 2026-07-13)
 ```
 
 ---

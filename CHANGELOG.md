@@ -34,6 +34,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `src/test/resources/application.yaml` to disable real scheduling for the test suite by
   default.
 
+- `com.h2database:h2` test dependency. Enables `SipsaApplicationTests.contextLoads()` to
+  run without a PostgreSQL instance, making `./mvnw clean verify` self-contained.
+- `src/test/resources/application.yaml` — Test configuration with H2 in-memory database,
+  disabled Flyway, and minimal SOAP configuration for context load tests.
+- `InternalIngestionCommandsTest` — unit tests for `IngestionRequest`, `CreateRunRequest`,
+  and `AuditEventRequest` static factory methods, verifying construction behavior is
+  unchanged after their move to `application.command` (TECH-090).
+
 ### Findings (not fixed in this change — see `docs/architecture/scheduled-ingestion-validation.md`)
 
 - **Confirmed bug (F-WP-01):** `WindowPolicy.validateMonthly()` does not bind the allowed
@@ -46,8 +54,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   own Javadoc, so a retry on the grace day (e.g., day 9 after a day 8 attempt) mints a new
   key instead of reusing the one for the same logical period — breaking the
   `(method_name, window_key)` idempotency guarantee across grace-day retries.
-- Both are tracked for a follow-up story (TECH-111, proposed, not yet added to the
-  backlog with a final ID).
+- Both are tracked for a follow-up story: TECH-111, since formalized in
+  `docs/backlog/technical-backlog.md` with an approved implementation plan (not yet
+  implemented).
 
 ### Changed
 
@@ -160,18 +169,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `docs/adr/ADR-000-current-architecture.md` — Architecture snapshot after migration.
 - `docs/adr/ADR-001` through `ADR-006` — Architecture decision records (ADR-004 accepted;
   ADR-001, ADR-002, ADR-003, ADR-005, ADR-006 proposed).
-- `docs/backlog/technical-backlog.md` — 28 prioritized technical stories.
+- `docs/backlog/technical-backlog.md` — Prioritized technical stories with acceptance
+  criteria (36 as of 2026-07-13; the count grows as validations produce new stories).
 - `docs/migrations/spring-boot-4-java-25.md` — Migration notes, breaking changes, validation.
 - `CHANGELOG.md` — This file.
 - `CONTRIBUTING.md` — Developer guide for contributions.
-- `.github/` — CI workflow, issue templates, and PR template.
-
-### Added
-
-- `com.h2database:h2` test dependency. Enables `SipsaApplicationTests.contextLoads()` to
-  run without a PostgreSQL instance, making `./mvnw clean verify` self-contained.
-- `src/test/resources/application.yaml` — Test configuration with H2 in-memory database,
-  disabled Flyway, and minimal SOAP configuration for context load tests.
-- `InternalIngestionCommandsTest` — unit tests for `IngestionRequest`, `CreateRunRequest`,
-  and `AuditEventRequest` static factory methods, verifying construction behavior is
-  unchanged after their move to `application.command` (TECH-090).
+- `.github/` — Issue templates and PR template (no CI workflow exists yet — see the
+  post-migration recommendations in `docs/migrations/spring-boot-4-java-25.md`).

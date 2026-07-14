@@ -3,7 +3,7 @@
 **Status:** Accepted (**partial / scoped** — see "Scope of This Acceptance" below)
 **Date:** 2026-07-13 (Proposed) — 2026-07-13 (Accepted, scoped)
 **Author:** Structural diagnosis (branch `refactor/package-structure-and-boundaries`)
-**Backlog:** [TECH-090](../backlog/technical-backlog.md#tech-090) (Ready), [TECH-091](../backlog/technical-backlog.md#tech-091) (Ready), [TECH-095](../backlog/technical-backlog.md#tech-095) (Ready), [TECH-093](../backlog/technical-backlog.md#tech-093) (Pending, blocked until TECH-090/TECH-091 merge), [TECH-092](../backlog/technical-backlog.md#tech-092) (Blocked, pending [TECH-094](../backlog/technical-backlog.md#tech-094) SPIKE)
+**Backlog:** [TECH-090](../backlog/technical-backlog.md#tech-090) (**Done**, merged), [TECH-091](../backlog/technical-backlog.md#tech-091) (**Done**, merged), [TECH-095](../backlog/technical-backlog.md#tech-095) (**Done**, merged), [TECH-093](../backlog/technical-backlog.md#tech-093) (Pending — unblocked since TECH-090/TECH-091 merged), [TECH-092](../backlog/technical-backlog.md#tech-092) (Blocked, pending [TECH-094](../backlog/technical-backlog.md#tech-094) SPIKE)
 **Related:** [ADR-000](ADR-000-current-architecture.md), [Refactoring Roadmap — RF-01](../architecture/refactoring-roadmap.md#rf-01--move-internal-dtos-from-apidtorequest-to-applicationdto), [Architecture Review — Dependency Violations](../architecture/architecture-review.md#architecture-map)
 
 ---
@@ -266,7 +266,9 @@ the team prefers to prioritize Phase 1/2/3 stories first.
 
 ## Decision
 
-**Accepted, scoped to F1, F2, F4, F5.** Approved sequence:
+**Accepted, scoped to F1, F2, F4, F5.** Approved sequence (labels reflect each story's
+state at acceptance time; **implementation status 2026-07-13: steps 1–3 Done and merged to
+`main`, step 4 unblocked but not started**):
 
 1. **TECH-090** (Ready) — Move `IngestionRequest`, `CreateRunRequest`, `AuditEventRequest`
    to `application/command/` (F1).
