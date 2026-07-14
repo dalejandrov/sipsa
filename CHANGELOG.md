@@ -8,6 +8,87 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `src/main/resources/application-dev.yaml` — new `dev` profile holding everything that is
+  convenient locally but must not reach production: default database credentials
+  (`sipsa_user`/`sipsa_pass`), verbose per-package log levels, `format_sql`, full health
+  details (`show-details: always`), and the Actuator `loggers` endpoint.
+- **[ADR-009](docs/adr/ADR-009-database-migration-strategy.md)** — database migration
+  strategy: Flyway confirmed as the only migration tool (Liquibase evaluated and
+  rejected), with binding conventions (immutable applied migrations, strict ordering,
+  fix-forward, expand–migrate–contract for destructive changes). Day-to-day workflow in
+  [docs/development/database-migrations.md](docs/development/database-migrations.md).
+- `FlywayMigrationsTest` — migration gate on Testcontainers: applies the full migration
+  chain against a real PostgreSQL 18 container (same image as `docker-compose.yml`) and
+  boots the full context with `ddl-auto: validate`, failing on broken SQL, on a missing
+  Flyway auto-configuration (the 2026-07-14 regression), and on entity/schema drift.
+  Skipped automatically when Docker is unavailable. New test dependencies (managed by
+  the Spring Boot BOM): `spring-boot-testcontainers`, `testcontainers-postgresql`,
+  `testcontainers-junit-jupiter`. Suite: 69 tests (was 65).
+- Flyway hardening in `application.yaml`: `validate-on-migrate: true`,
+  `clean-disabled: true`, `out-of-order: false`, and an explicit, documented baseline
+  policy (`baseline-version: 1`).
+- `src/main/resources/application-docker.yaml` — explicit `docker` profile so
+  `docker-compose.yml`'s `SPRING_PROFILES_ACTIVE=docker` points at a real profile instead
+  of silently falling back to the base configuration. Sets only container-topology facts
+  (database host defaults to the `db` service); credentials still have no defaults.
+
+### Changed
+
+- `src/main/resources/application.yaml` is now a production-safe baseline:
+  - `DB_USERNAME`/`DB_PASSWORD` no longer have hardcoded defaults — the application fails
+    fast at startup if they are missing outside the `dev` profile.
+  - DANE-contractual values are fixed in the file instead of being environment variables
+    (property names unchanged): `sipsa.timezone`, `sipsa.soap.namespace`, ingestion
+    windows (`daily-window-start/end`, `monthly-run-days`, `monthly-window-start`), cron
+    expressions, and the pagination policy.
+  - Actuator no longer exposes `loggers` by default (dev-only now; partially addresses
+    TECH-002) and `show-details` changed from `always` to `when-authorized`.
+  - Baseline logging reduced to production-safe levels; verbose levels moved to the dev
+    profile.
+- `.env.example` trimmed to the variables that remain configurable (credentials,
+  endpoint, timeouts, tuning knobs) and repositioned as a versioned reference template
+  only — no `.env` file is read at runtime; variables are provided via the shell,
+  `docker-compose`, or the deployment platform. Documents that contractual values now
+  live in `application.yaml`.
+- `docker-compose.yml` — database name/credentials now use `${VAR:-default}`
+  interpolation (overridable from the shell without any `.env` file) and are passed
+  consistently to both the `db` and `app` services; the `pg_isready` healthcheck uses the
+  same interpolated values.
+- `README.md` — configuration section rewritten: documents the `dev`/`docker`/base
+  profile split and removes the instruction to copy `.env.example` to `.env`.
+
+### Removed
+
+- `req.xml` (root) — manual SOAP smoke-test artifact with embedded `curl` commands, not
+  referenced by any code, build, or documentation.
+
+### Fixed
+
+- **Flyway migrations silently never ran on Spring Boot 4** — Spring Boot 4 moved the
+  Flyway auto-configuration out of `spring-boot-autoconfigure` into the dedicated
+  `spring-boot-flyway` module. With only `flyway-core`/`flyway-database-postgresql` on the
+  classpath, the application started against an empty database and failed Hibernate schema
+  validation (`missing table [ingestion_audit]`). Undetected until now because the test
+  suite disables Flyway (H2 `create-drop`). Added `org.springframework.boot:spring-boot-flyway`;
+  verified against a clean PostgreSQL container: all `V1` tables created, app `UP`.
+- **Docker build was broken** — the build stage referenced `maven:3.9.9-eclipse-temurin-25`,
+  a tag that does not exist on Docker Hub (pending risk #1 of the Spring Boot 4 migration).
+  Replaced with `eclipse-temurin:25-jdk-noble`: the Maven Wrapper already pins Maven 3.9.9,
+  keeping a single source of truth for the Maven version. Full
+  `docker compose build && up` verified: healthcheck `UP`, `GET /api/sipsa/ciudad` → 200.
+- `.dockerignore` excluded `docker-compose.yaml` but the real file is `docker-compose.yml`;
+  now covers both, plus `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `.github/`, `.claude/`.
+
+### Docker
+
+- The runtime image now sets `SPRING_PROFILES_ACTIVE=docker` as a default (overridable), so
+  a standalone `docker run` fails fast on missing credentials instead of silently starting
+  with the `dev` profile defaults.
+- Removed the obsolete `-Djava.security.egd=file:/dev/./urandom` JVM flag (legacy workaround,
+  unnecessary on Java 25) and added `--no-install-recommends` to the `curl` install.
+
 ### Testing
 
 - **TECH-110/TECH-040** — Added a full automated validation suite for scheduled ingestion:

@@ -246,10 +246,15 @@ data changes were made, so no database rollback is needed.
 
 ## Pending Risks
 
-1. **Docker build not verified** — Docker daemon was not available in the build
-   environment. The Dockerfile uses `eclipse-temurin:25-jre-noble` which should be
-   a valid Eclipse Temurin image, but requires manual verification.
-   Checklist: `docker compose build --no-cache && docker compose up -d && curl http://localhost:8080/actuator/health`
+1. **Docker build not verified** — ✅ **Resolved 2026-07-14** (branch
+   `chore/config-cleanup-dev-profile`). The verification found two real defects:
+   the build-stage image `maven:3.9.9-eclipse-temurin-25` does not exist on Docker
+   Hub (replaced with `eclipse-temurin:25-jdk-noble` + Maven Wrapper), and Flyway
+   migrations silently never ran on Spring Boot 4 (auto-configuration moved to the
+   `spring-boot-flyway` module, which was missing from `pom.xml`). After both
+   fixes, the full checklist passes: `docker compose build --no-cache && docker
+   compose up -d` → healthcheck `UP`, Flyway creates the full `V1` schema,
+   `GET /api/sipsa/ciudad` → 200.
 
 2. **WireMock 3.x on Java 25** — WireMock 3.13.2 (standalone) is present in the
    classpath but not used in any test currently. If future tests use WireMock,

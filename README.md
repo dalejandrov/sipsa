@@ -38,9 +38,9 @@ Requirements: Java 25, PostgreSQL 18, Maven 3.9+
 git clone https://github.com/dalejandrov/sipsa.git
 cd sipsa
 
-# 2. Set up environment variables
-cp .env.example .env
-# Edit .env with your database credentials
+# 2. (Optional) Override environment variables in your shell
+#    The default "dev" profile already provides local defaults;
+#    see .env.example for the full variable reference
 
 # 3. Create database (adjust credentials if needed)
 createdb sipsa_db
@@ -95,17 +95,24 @@ createdb sipsa_db
 
 ## Configuration
 
-All configuration is done via environment variables. Copy `.env.example` to `.env` and adjust values:
+All configuration is done via environment variables, documented in
+[.env.example](.env.example). That file is a versioned reference template only —
+no `.env` file is read at runtime. Set the variables through your shell,
+`docker-compose`, or your deployment platform.
 
-```bash
-cp .env.example .env
-```
+Spring profiles:
+- **`dev`** (default when `SPRING_PROFILES_ACTIVE` is unset): local database
+  credentials, verbose logging, Actuator `loggers` endpoint.
+- **`docker`** (set by `docker-compose.yml`): container topology (`db` host).
+- **Base / production**: no credential defaults — `DB_USERNAME` and
+  `DB_PASSWORD` are required and the application fails fast if they are missing.
 
 Key configurations available in [.env.example](.env.example):
 - **Database**: Connection settings (host, port, credentials)
 - **Server**: Port and active profiles
 - **SOAP Service**: DANE endpoint and timeouts
-- **Ingestion**: Batch sizes, schedules, and quality thresholds
+- **Ingestion**: Batch size and quality thresholds (windows and cron schedules
+  are fixed by the DANE contract in `application.yaml`)
 - **Logging**: Log levels per package
 
 For advanced configuration, see [application.yaml](src/main/resources/application.yaml).

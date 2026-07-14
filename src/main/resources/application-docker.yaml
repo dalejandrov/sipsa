@@ -1,0 +1,15 @@
+# ==============================================================================
+# SIPSA Integration Service - Docker Profile
+# ==============================================================================
+# Activated by docker-compose.yml via SPRING_PROFILES_ACTIVE=docker.
+#
+# This profile exists so the containerized deployment points at an explicit,
+# real profile instead of silently falling back to the base configuration.
+# It inherits the production-safe baseline (application.yaml) — credentials
+# still have no defaults and MUST arrive as environment variables (injected
+# by docker-compose from .env). Only container-topology facts are set here.
+# ==============================================================================
+spring:
+  # Inside the compose network the database host is the `db` service, not localhost.
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:db}:${DB_PORT:5432}/${DB_NAME:sipsa_db}

@@ -31,8 +31,16 @@ Thumbs.db
 docs/
 README.md
 LICENSE
+CHANGELOG.md
+CONTRIBUTING.md
+AGENTS.md
+
+# CI / tooling
+.github/
+.claude/
 
 # Docker
+docker-compose.yml
 docker-compose.yaml
 Dockerfile
 .dockerignore

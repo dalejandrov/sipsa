@@ -33,7 +33,7 @@ When a story is implemented:
 | TECH-041 | Unit tests for `SpecificationBuilder` | High | 3 | Pending |
 | TECH-042 | Unit tests for `IngestionJob` | High | 3 | Pending |
 | TECH-043 | Tests for `GlobalExceptionHandler` | Medium | 3 | Pending |
-| TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | Pending |
+| TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | Partially resolved — Testcontainers half settled by ADR-009 (`FlywayMigrationsTest`); WireMock half pending |
 | TECH-050 | Remove placeholder comments from handlers | Low | 1 | Pending |
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Low | 1 | Pending |
 | TECH-052 | `getRun()` returns `Optional<IngestionRun>` | Low | 1 | Pending |
@@ -515,6 +515,12 @@ TECH-110's broader scheduling validation; see TECH-110 for why)
 **Dependencies:** None.
 
 **Objective:** Determine the integration test tooling: WireMock 3.x vs `wiremock-spring-boot:4.x`, H2 vs Testcontainers. Produce a proof-of-concept test for `CiudadIngestionHandler`.
+
+**Partial resolution (2026-07-14):** The H2-vs-Testcontainers half is settled by
+[ADR-009](../adr/ADR-009-database-migration-strategy.md): Testcontainers with real
+PostgreSQL is adopted and proven by `FlywayMigrationsTest` (dependencies already in
+`pom.xml`, managed by the Spring Boot BOM). The remaining scope of this SPIKE is the
+WireMock half (SOAP mocking strategy and the `CiudadIngestionHandler` proof of concept).
 
 **Acceptance Criteria:**
 - [ ] Decision documented in [Testing Strategy](../architecture/testing-strategy.md).
