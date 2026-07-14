@@ -1,5 +1,14 @@
 # ==============================================================================
-# SIPSA Integration Service - Application Configuration
+# SIPSA Integration Service - Base Configuration (production-safe)
+# ==============================================================================
+# This file contains the production-safe baseline. Values that are part of the
+# DANE contract (timezone, SOAP namespace, ingestion windows, cron schedule) are
+# fixed here on purpose — they must not vary per environment.
+#
+# Environment-specific values (credentials, endpoints, tuning knobs) come from
+# environment variables. Credentials have NO defaults here: the application
+# fails fast at startup if they are missing. Local development defaults live in
+# application-dev.yaml (profile "dev").
 # ==============================================================================
 server:
   port: ${PORT:8080}
@@ -16,11 +25,13 @@ spring:
 
   # ----------------------------------------------------------------------------
   # Database Configuration (PostgreSQL)
+  # Credentials are intentionally without defaults — see application-dev.yaml
+  # for the local development values.
   # ----------------------------------------------------------------------------
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:sipsa_db}
-    username: ${DB_USERNAME:sipsa_user}
-    password: ${DB_PASSWORD:sipsa_pass}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: ${DB_MAX_POOL_SIZE:10}
@@ -36,9 +47,6 @@ spring:
     hibernate:
       ddl-auto: validate  # Don't auto-create schema, use Flyway
     open-in-view: false   # Disable to avoid lazy loading issues
-    properties:
-      hibernate:
-        format_sql: true
 
   # ----------------------------------------------------------------------------
   # Flyway Database Migration
@@ -64,24 +72,26 @@ spring:
 # ==============================================================================
 sipsa:
   # ----------------------------------------------------------------------------
-  # Global Timezone
+  # Global Timezone — fixed by the DANE publication schedule, not per-environment
   # ----------------------------------------------------------------------------
-  timezone: ${SIPSA_TIMEZONE:America/Bogota}
+  timezone: America/Bogota
 
   # ----------------------------------------------------------------------------
-  # API Pagination Configuration
+  # API Pagination Policy
   # ----------------------------------------------------------------------------
   pagination:
-    max-page-size: ${SIPSA_MAX_PAGE_SIZE:1000}           # Maximum for internal queries
-    default-page-size: ${SIPSA_DEFAULT_PAGE_SIZE:20}     # Default page size
-    max-user-page-size: ${SIPSA_MAX_USER_PAGE_SIZE:100}  # Maximum user can request via API
+    max-page-size: 1000        # Maximum for internal queries
+    default-page-size: 20      # Default page size
+    max-user-page-size: 100    # Maximum user can request via API
 
   # ----------------------------------------------------------------------------
   # SOAP Client Configuration (DANE Web Service)
+  # The namespace is part of the WSDL contract and never varies per environment.
+  # The endpoint stays overridable to allow pointing at a mock in testing.
   # ----------------------------------------------------------------------------
   soap:
     endpoint: ${SOAP_ENDPOINT:https://appweb.dane.gov.co/sipsaWS/SrvSipsaUpraBeanService}
-    namespace: ${SOAP_NAMESPACE:http://servicios.sipsa.co.gov.dane/}
+    namespace: http://servicios.sipsa.co.gov.dane/
 
     # Timeouts (increased for large datasets like Parcial: 619K+ records)
     connect-timeout-ms: ${SOAP_CONNECT_TIMEOUT_MS:30000}   # 30 seconds
@@ -93,7 +103,7 @@ sipsa:
 
     # Limits and Features
     max-child-elements: ${SOAP_MAX_CHILD_ELEMENTS:0}      # 0 = unlimited
-    logging-enabled: ${SOAP_LOGGING_ENABLED:false}        # Disable in production
+    logging-enabled: ${SOAP_LOGGING_ENABLED:false}        # Keep disabled in production
 
   # ----------------------------------------------------------------------------
   # Scheduling Configuration (SIPSA Custom Scheduler)
@@ -104,6 +114,9 @@ sipsa:
 
   # ----------------------------------------------------------------------------
   # Data Ingestion Configuration
+  # Window and cron values are aligned with DANE's data publication schedule
+  # (2:00 PM daily; monthly on days 8 and 10). They are contractual, not
+  # environment-specific, so they are fixed here.
   # ----------------------------------------------------------------------------
   ingestion:
     # Batch processing
@@ -115,24 +128,22 @@ sipsa:
 
     # Window validation (America/Bogota timezone)
     # Controls when ingestion jobs are ALLOWED to run
-    # Aligned with DANE's data publication schedule (2:00 PM daily)
-    daily-window-start: ${DAILY_WINDOW_START:14:20}       # 2:20 PM
-    daily-window-end: ${DAILY_WINDOW_END:23:59}           # 11:59 PM
-    monthly-run-days: ${MONTHLY_RUN_DAYS:8,10}            # Day 8 (MesMadr), Day 10 (AbasMes)
-    monthly-window-start: ${MONTHLY_WINDOW_START:14:00}   # 2:00 PM
+    daily-window-start: "14:20"      # 2:20 PM
+    daily-window-end: "23:59"        # 11:59 PM
+    monthly-run-days: "8,10"         # Day 8 (MesMadr), Day 10 (AbasMes)
+    monthly-window-start: "14:00"    # 2:00 PM
 
     # Cron expressions for scheduled jobs (America/Bogota timezone)
     # DANE publishes data at 2:00 PM, we add 20-30 minutes margin
     cron:
-      # Daily ingestion: Ciudad, Parcial, Semana
-      # Every day at 14:20 (2:20 PM)
-      daily: ${SIPSA_CRON_DAILY:0 20 14 * * *}
+      # Daily ingestion: Ciudad, Parcial, Semana — every day at 14:20 (2:20 PM)
+      daily: "0 20 14 * * *"
 
       # Monthly MesMadr: Day 8 at 14:30 (2:30 PM)
-      monthly-mes: ${SIPSA_CRON_MONTHLY_MES:0 30 14 8 * *}
+      monthly-mes: "0 30 14 8 * *"
 
       # Monthly AbasMes: Day 10 at 14:30 (2:30 PM)
-      monthly-abas: ${SIPSA_CRON_MONTHLY_ABAS:0 30 14 10 * *}
+      monthly-abas: "0 30 14 10 * *"
 
     # Async executor configuration
     async:
@@ -143,38 +154,28 @@ sipsa:
 
 # ==============================================================================
 # ACTUATOR & MONITORING CONFIGURATION
+# `loggers` is exposed only in the dev profile (see application-dev.yaml).
 # ==============================================================================
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,loggers
+        include: health,info,metrics,prometheus
   endpoint:
     health:
-      show-details: always
+      show-details: when-authorized
       probes:
         enabled: true
 
 # ==============================================================================
-# LOGGING CONFIGURATION
+# LOGGING CONFIGURATION (production-safe baseline)
+# Verbose per-package levels live in application-dev.yaml.
 # ==============================================================================
 logging:
-  # Log levels by package (configurable via environment variables)
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
-
-    # Application packages
     com.dalejandrov.sipsa: ${LOG_LEVEL_SIPSA:INFO}
-    com.dalejandrov.sipsa.api.controller: ${LOG_LEVEL_API:WARN}
-    com.dalejandrov.sipsa.infrastructure.config: ${LOG_LEVEL_CONFIG:INFO}
-    com.dalejandrov.sipsa.infrastructure.soap: ${LOG_LEVEL_SOAP:INFO}
-
-    # Spring Framework
-    org.springframework.web: ${LOG_LEVEL_SPRING_WEB:WARN}
-    org.springframework.jdbc: ${LOG_LEVEL_JDBC:WARN}
-
-    # Hibernate
-    org.hibernate.SQL: ${LOG_LEVEL_HIBERNATE:WARN}
-
-    # Apache CXF (SOAP client)
-    org.apache.cxf.services: ${LOG_LEVEL_CXF:WARN}
+    org.springframework.web: WARN
+    org.springframework.jdbc: WARN
+    org.hibernate.SQL: WARN
+    org.apache.cxf.services: WARN

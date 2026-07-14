@@ -8,6 +8,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `src/main/resources/application-dev.yaml` — new `dev` profile holding everything that is
+  convenient locally but must not reach production: default database credentials
+  (`sipsa_user`/`sipsa_pass`), verbose per-package log levels, `format_sql`, full health
+  details (`show-details: always`), and the Actuator `loggers` endpoint.
+
+### Changed
+
+- `src/main/resources/application.yaml` is now a production-safe baseline:
+  - `DB_USERNAME`/`DB_PASSWORD` no longer have hardcoded defaults — the application fails
+    fast at startup if they are missing outside the `dev` profile.
+  - DANE-contractual values are fixed in the file instead of being environment variables
+    (property names unchanged): `sipsa.timezone`, `sipsa.soap.namespace`, ingestion
+    windows (`daily-window-start/end`, `monthly-run-days`, `monthly-window-start`), cron
+    expressions, and the pagination policy.
+  - Actuator no longer exposes `loggers` by default (dev-only now; partially addresses
+    TECH-002) and `show-details` changed from `always` to `when-authorized`.
+  - Baseline logging reduced to production-safe levels; verbose levels moved to the dev
+    profile.
+- `.env.example` trimmed to the variables that remain configurable (credentials,
+  endpoint, timeouts, tuning knobs); documents that contractual values now live in
+  `application.yaml`.
+
+### Removed
+
+- `req.xml` (root) — manual SOAP smoke-test artifact with embedded `curl` commands, not
+  referenced by any code, build, or documentation.
+
 ### Testing
 
 - **TECH-110/TECH-040** — Added a full automated validation suite for scheduled ingestion:

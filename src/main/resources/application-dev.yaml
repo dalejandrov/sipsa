@@ -1,0 +1,50 @@
+# ==============================================================================
+# SIPSA Integration Service - Development Profile
+# ==============================================================================
+# Active by default when SPRING_PROFILES_ACTIVE is not set (see application.yaml).
+# Holds everything that is convenient locally but must never reach production:
+# default database credentials, verbose logging, SQL formatting, and the
+# Actuator `loggers` endpoint.
+# ==============================================================================
+spring:
+  # ----------------------------------------------------------------------------
+  # Local database defaults (match docker-compose.yml's postgres service)
+  # ----------------------------------------------------------------------------
+  datasource:
+    username: ${DB_USERNAME:sipsa_user}
+    password: ${DB_PASSWORD:sipsa_pass}
+
+  # ----------------------------------------------------------------------------
+  # Readable SQL in logs
+  # ----------------------------------------------------------------------------
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+
+# ==============================================================================
+# ACTUATOR — dev adds `loggers` (runtime log-level changes) and full health details
+# ==============================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers
+  endpoint:
+    health:
+      show-details: always
+
+# ==============================================================================
+# LOGGING — verbose levels for local development
+# ==============================================================================
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.dalejandrov.sipsa: ${LOG_LEVEL_SIPSA:DEBUG}
+    com.dalejandrov.sipsa.api.controller: DEBUG
+    com.dalejandrov.sipsa.infrastructure.config: DEBUG
+    com.dalejandrov.sipsa.infrastructure.soap: DEBUG
+    org.springframework.web: INFO
+    org.springframework.jdbc: INFO
+    org.hibernate.SQL: DEBUG
+    org.apache.cxf.services: INFO
