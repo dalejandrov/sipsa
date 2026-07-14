@@ -66,6 +66,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **TECH-111 — monthly `WindowPolicy` rules corrected** (F-WP-01/02/03, confirmed by
+  TECH-110's validation). `validateMonthly()` now binds each monthly method to its own
+  DANE publication rule — `promediosSipsaMesMadr`: principal day 8, grace day 9;
+  `promedioAbasSipsaMesMadr`: principal day 10, grace day 11 — rejecting the cross-method
+  acceptance it previously allowed, and the `monthly-window-start` time gate now applies
+  to grace days too (day 9/11 at midnight is no longer accepted). The monthly `windowKey`
+  is now the stable per-period marker `YYYY-MM-M8`/`YYYY-MM-M10` documented all along in
+  the Javadoc, so a grace-day retry reuses the principal day's key and the
+  `(method_name, window_key)` idempotency guarantee holds across retries; `force=true`
+  still bypasses the window but returns the correct period key instead of the raw forced-on
+  date. Rule resolution checks `abas` before `mesmadr` (the Abas method name contains both
+  fragments), protected by an explicit test. `sipsa.ingestion.monthly-run-days` is
+  repurposed as a startup sanity check (fails fast with `SipsaConfigurationException` if
+  days 8 and 10 are missing) and no longer participates in per-run validation; property
+  name unchanged. No data migration: historical raw-date monthly keys coexist safely with
+  the new format. The two `@Disabled` tests from TECH-110 are re-enabled; daily/weekly
+  validation, cron expressions, timezone, REST contracts, and DB schema are untouched.
+  **Deployment note:** deploy outside days 8–11 — if a monthly method already succeeded in
+  the current month under the old key format, one redundant (upsert-safe) re-ingestion of
+  that period can occur during the transition month.
+
 - **Flyway migrations silently never ran on Spring Boot 4** — Spring Boot 4 moved the
   Flyway auto-configuration out of `spring-boot-autoconfigure` into the dedicated
   `spring-boot-flyway` module. With only `flyway-core`/`flyway-database-postgresql` on the
@@ -100,9 +121,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `SipsaSchedulingDisabledByDefaultTest`) proving the scheduling wiring both when enabled
   and disabled. Total: 59 tests (was 1), 0 failures, 2 tests intentionally `@Disabled`
   pending TECH-111. See `docs/architecture/scheduled-ingestion-validation.md`.
-- Two tests in `WindowPolicyTest` are intentionally `@Disabled`, documenting the desired
-  behavior of a confirmed-but-unfixed defect in `WindowPolicy.validateMonthly()` (see
-  Findings below); they are the acceptance criteria for a future story (TECH-111).
+- Two tests in `WindowPolicyTest` were intentionally `@Disabled` at the time of TECH-110,
+  documenting the desired behavior of a confirmed-but-unfixed defect in
+  `WindowPolicy.validateMonthly()` (see Findings below); they were the acceptance criteria
+  for TECH-111 and have since been re-enabled by it (see Fixed above).
 
 ### Added
 
@@ -123,7 +145,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and `AuditEventRequest` static factory methods, verifying construction behavior is
   unchanged after their move to `application.command` (TECH-090).
 
-### Findings (not fixed in this change — see `docs/architecture/scheduled-ingestion-validation.md`)
+### Findings (not fixed at the time of TECH-110; since fixed by TECH-111 — see Fixed above and `docs/architecture/scheduled-ingestion-validation.md`)
 
 - **Confirmed bug (F-WP-01):** `WindowPolicy.validateMonthly()` does not bind the allowed
   day-of-month to the specific ingestion method — `promedioAbasSipsaMesMadr` (documented
@@ -135,9 +157,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   own Javadoc, so a retry on the grace day (e.g., day 9 after a day 8 attempt) mints a new
   key instead of reusing the one for the same logical period — breaking the
   `(method_name, window_key)` idempotency guarantee across grace-day retries.
-- Both are tracked for a follow-up story: TECH-111, since formalized in
-  `docs/backlog/technical-backlog.md` with an approved implementation plan (not yet
-  implemented).
+- Both were tracked as TECH-111, formalized in `docs/backlog/technical-backlog.md` with an
+  approved implementation plan and since implemented (see the TECH-111 entry under Fixed).
 
 ### Changed
 

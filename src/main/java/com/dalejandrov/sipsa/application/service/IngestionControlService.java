@@ -69,7 +69,7 @@ public class IngestionControlService {
      * The requestId and requestSource are stored for correlation and auditing.
      *
      * @param methodName the ingestion method identifier
-     * @param windowKey the time window key (e.g., "2026-01-02" for daily, "2026-01" for monthly)
+     * @param windowKey the time window key (e.g., "2026-01-02" for daily, "2026-01-M8" or "2026-01-M10" for monthly)
      * @param force whether to bypass checks and force restart of existing runs
      * @param requestId unique correlation ID for tracking (UUID)
      * @param requestSource origin of the request (MANUAL, SCHEDULED, SYSTEM)
