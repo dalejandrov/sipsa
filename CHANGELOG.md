@@ -49,6 +49,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `req.xml` (root) — manual SOAP smoke-test artifact with embedded `curl` commands, not
   referenced by any code, build, or documentation.
 
+### Fixed
+
+- **Flyway migrations silently never ran on Spring Boot 4** — Spring Boot 4 moved the
+  Flyway auto-configuration out of `spring-boot-autoconfigure` into the dedicated
+  `spring-boot-flyway` module. With only `flyway-core`/`flyway-database-postgresql` on the
+  classpath, the application started against an empty database and failed Hibernate schema
+  validation (`missing table [ingestion_audit]`). Undetected until now because the test
+  suite disables Flyway (H2 `create-drop`). Added `org.springframework.boot:spring-boot-flyway`;
+  verified against a clean PostgreSQL container: all `V1` tables created, app `UP`.
+- **Docker build was broken** — the build stage referenced `maven:3.9.9-eclipse-temurin-25`,
+  a tag that does not exist on Docker Hub (pending risk #1 of the Spring Boot 4 migration).
+  Replaced with `eclipse-temurin:25-jdk-noble`: the Maven Wrapper already pins Maven 3.9.9,
+  keeping a single source of truth for the Maven version. Full
+  `docker compose build && up` verified: healthcheck `UP`, `GET /api/sipsa/ciudad` → 200.
+- `.dockerignore` excluded `docker-compose.yaml` but the real file is `docker-compose.yml`;
+  now covers both, plus `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`, `.github/`, `.claude/`.
+
+### Docker
+
+- The runtime image now sets `SPRING_PROFILES_ACTIVE=docker` as a default (overridable), so
+  a standalone `docker run` fails fast on missing credentials instead of silently starting
+  with the `dev` profile defaults.
+- Removed the obsolete `-Djava.security.egd=file:/dev/./urandom` JVM flag (legacy workaround,
+  unnecessary on Java 25) and added `--no-install-recommends` to the `curl` install.
+
 ### Testing
 
 - **TECH-110/TECH-040** — Added a full automated validation suite for scheduled ingestion:
