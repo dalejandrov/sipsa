@@ -5,15 +5,17 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_DB=sipsa_db
-      - POSTGRES_USER=sipsa_user
-      - POSTGRES_PASSWORD=sipsa_pass
+      # Local development defaults; override from the shell environment if needed
+      # (e.g. DB_PASSWORD=... docker compose up). No .env file is used.
+      - POSTGRES_DB=${DB_NAME:-sipsa_db}
+      - POSTGRES_USER=${DB_USERNAME:-sipsa_user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-sipsa_pass}
     volumes:
       - postgres-data:/var/lib/postgresql
     networks:
       - sipsa-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sipsa_user -d sipsa_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-sipsa_user} -d ${DB_NAME:-sipsa_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,12 +27,15 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # SPRING_PROFILES_ACTIVE, DB_HOST and DB_PORT are container-topology
+      # facts: inside the compose network the app always runs the docker
+      # profile (application-docker.yaml) against the `db` service.
       - SPRING_PROFILES_ACTIVE=docker
       - DB_HOST=db
       - DB_PORT=5432
-      - DB_NAME=sipsa_db
-      - DB_USERNAME=sipsa_user
-      - DB_PASSWORD=sipsa_pass
+      - DB_NAME=${DB_NAME:-sipsa_db}
+      - DB_USERNAME=${DB_USERNAME:-sipsa_user}
+      - DB_PASSWORD=${DB_PASSWORD:-sipsa_pass}
     depends_on:
       db:
         condition: service_healthy

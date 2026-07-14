@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   convenient locally but must not reach production: default database credentials
   (`sipsa_user`/`sipsa_pass`), verbose per-package log levels, `format_sql`, full health
   details (`show-details: always`), and the Actuator `loggers` endpoint.
+- `src/main/resources/application-docker.yaml` — explicit `docker` profile so
+  `docker-compose.yml`'s `SPRING_PROFILES_ACTIVE=docker` points at a real profile instead
+  of silently falling back to the base configuration. Sets only container-topology facts
+  (database host defaults to the `db` service); credentials still have no defaults.
 
 ### Changed
 
@@ -29,8 +33,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Baseline logging reduced to production-safe levels; verbose levels moved to the dev
     profile.
 - `.env.example` trimmed to the variables that remain configurable (credentials,
-  endpoint, timeouts, tuning knobs); documents that contractual values now live in
-  `application.yaml`.
+  endpoint, timeouts, tuning knobs) and repositioned as a versioned reference template
+  only — no `.env` file is read at runtime; variables are provided via the shell,
+  `docker-compose`, or the deployment platform. Documents that contractual values now
+  live in `application.yaml`.
+- `docker-compose.yml` — database name/credentials now use `${VAR:-default}`
+  interpolation (overridable from the shell without any `.env` file) and are passed
+  consistently to both the `db` and `app` services; the `pg_isready` healthcheck uses the
+  same interpolated values.
+- `README.md` — configuration section rewritten: documents the `dev`/`docker`/base
+  profile split and removes the instruction to copy `.env.example` to `.env`.
 
 ### Removed
 
