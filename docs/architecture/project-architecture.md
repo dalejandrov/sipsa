@@ -363,18 +363,21 @@ integration tests (Spring context / WireMock / Testcontainers) deferred pending 
 decision (TECH-044, SPIKE); no E2E/contract tier is planned (system boundary is DANE's live
 SOAP service, not something to test against directly).
 
-**On `main` today:** 65 tests across 7 classes (0 failures, 2 intentional `@Disabled`
-documenting TECH-111's desired post-fix behavior; see
-[Scheduled Ingestion Validation](scheduled-ingestion-validation.md)) —
+**On `main` today (2026-07-15):** 104 tests across 10 classes (0 failures, 0 skips) —
 `SipsaApplicationTests` (context load), `WindowPolicyTest` (daily/monthly window
 boundaries, timezone correctness, `windowKey` semantics, all via an injected `Clock` — no
-test depends on the system clock), `SipsaSchedulingCronTest` (validates the three
+test depends on the system clock; the 2 tests once `@Disabled` pending TECH-111 were
+re-enabled when it merged), `SipsaSchedulingCronTest` (validates the three
 production cron expressions with `CronExpression`, including month/year rollover and a
 leap-year case), `SipsaIngestionSchedulerTest` (`GenericIngestionJob` mocked — verifies
 which methods are triggered, with what flags, and that one method's failure does not stop
 the others), two Spring context tests proving the scheduling wiring is correct both
-enabled and disabled, and `InternalIngestionCommandsTest` (static factory behavior of the
-`application/command` classes, unchanged after their move — TECH-090).
+enabled and disabled, `InternalIngestionCommandsTest` (static factory behavior of the
+`application/command` classes, unchanged after their move — TECH-090),
+`InternalEndpointSecurityTest` and `SipsaJwtValidatorsTest` (the ADR-002 security chain:
+authentication, per-operation scopes, `token_use`, client allowlist), and
+`FlywayMigrationsTest` (the ADR-009 migration gate against real PostgreSQL 18 via
+Testcontainers; self-skips without Docker locally, enforced as non-skippable in CI).
 
 **Not yet covered:** `SpecificationBuilder`, `IngestionJob`'s full lifecycle,
 `GlobalExceptionHandler` — all planned (TECH-041/042/043), none implemented.
@@ -431,13 +434,17 @@ Full registry: [Technical Debt Registry](technical-debt.md) (28 items). Summary 
 links.
 
 **Known and accepted (tracked, not yet fixed):**
-- No authentication on internal endpoints (`/api/internal/**`) — **Critical**, blocking
-  TECH-001, pending an authentication-mechanism decision (ADR-002, `Proposed`).
 - `SipsaParcial` deduplication is non-functional (random key) — **Critical**, blocking
   TECH-011, pending a business-key decision (ADR-001, `Proposed`, TECH-010 SPIKE).
-- Test coverage is concentrated on the scheduling/window subsystem (65 tests); the rest of
-  the pipeline (`SpecificationBuilder`, `IngestionJob`, `GlobalExceptionHandler`) still has
-  none (see [Testing Strategy](#testing-strategy) above).
+- Test coverage is concentrated on the scheduling/window and security subsystems
+  (104 tests); the rest of the pipeline (`SpecificationBuilder`, `IngestionJob`,
+  `GlobalExceptionHandler`) still has none (see [Testing Strategy](#testing-strategy)
+  above).
+
+**Resolved since first recorded:** the formerly-Critical "no authentication on
+`/api/internal/**`" item was closed on 2026-07-15 (TECH-001/TECH-002, ADR-002 `Accepted`,
+merged via PR #17, e2e-validated against the mock OIDC issuer); the AWS gateway/network
+layers remain tracked as TECH-130..132.
 - Several HTTP-semantics mismatches (wrong status codes for two exception types), N+1 query
   in one repository's fallback path, unnamed `@Async` executor, and various small
   code-quality items — all **Low/Medium**, all tracked with backlog IDs.
@@ -460,12 +467,12 @@ Items marked **Pending Decision** require an ADR or SPIKE to resolve before impl
 
 | Initiative | State | Reference |
 |---|---|---|
-| Fix `WindowPolicy` monthly day-to-method binding, grace days, and stable window keys | Plan approved (documental), **not implemented** | TECH-111, [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) |
+| Fix `WindowPolicy` monthly day-to-method binding, grace days, and stable window keys | **Implemented** (2026-07-14, merged via PR #15) | TECH-111, [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) |
 | Timezone, locale, and date-semantics strategy | **Pending Decision** — ADR-008 is `Proposed`, not accepted | [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md) |
 | ArchUnit package-boundary rules | Pending — dependencies (TECH-090/091/095) are merged; story not started | TECH-093 |
 | Separate CXF-generated SOAP sources from hand-written code | **Pending Decision** — blocked on a SPIKE | TECH-092 (blocked by TECH-094) |
 | `isMonthly()` as an explicit `IngestionHandler` contract method | **Pending Decision** — ADR-006 is `Proposed` | ADR-006, TECH-055 (SPIKE) |
-| Internal endpoint authentication mechanism | **Pending Decision** — ADR-002 is `Proposed` | ADR-002, TECH-001 |
+| Internal endpoint authentication mechanism | **Decided and implemented** — ADR-002 `Accepted` (2026-07-15); application layer merged via PR #17; AWS layers pending as TECH-130..132 | ADR-002, TECH-001 |
 | `SipsaParcial` natural deduplication key | **Pending Decision** — ADR-001 is `Proposed` | ADR-001, TECH-010 (SPIKE) |
 | Scheduler dispatch: synchronous vs. async | **Pending Decision** — ADR-005 is `Proposed` | ADR-005, TECH-053 |
 | RFC 9457 `ProblemDetail` error responses | **Pending Decision** — ADR-003 is `Proposed`; only revisit if an external client requires it | ADR-003 |

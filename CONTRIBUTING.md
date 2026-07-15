@@ -136,9 +136,22 @@ through, and it must match the issuer the app validates against.
 - App on the host (`./mvnw spring-boot:run`, dev profile): issuer defaults to
   `http://localhost:9000/default` — request tokens via `localhost` as above. ✔️
 - Full stack (`docker compose up`): the containerized app validates against
-  `http://oidc:9000/default`. To use host-obtained tokens against it, add
-  `127.0.0.1 oidc` to your `/etc/hosts` once and request tokens via
-  `http://oidc:9000/default/token`.
+  `http://oidc:9000/default`. **Preferred:** request tokens with `curl --resolve`, which
+  sends the right `Host` header without touching any system file:
+
+  ```bash
+  TOKEN=$(curl -s --resolve oidc:9000:127.0.0.1 \
+    -X POST http://oidc:9000/default/token \
+    -d grant_type=client_credentials \
+    -d client_id=local-dev -d client_secret=anything \
+    -d scope=sipsa/ingestion.read | jq -r .access_token)
+  ```
+
+  Alternative: add `127.0.0.1 oidc` to your `/etc/hosts` once and request tokens via
+  `http://oidc:9000/default/token` directly.
+
+This full-stack flow was validated end-to-end on 2026-07-15 (9/9 checks green — token
+claims, issuer, `401`/`403`/`2xx` matrix, Actuator policy; see ADR-002).
 
 To test against a real dev Cognito user pool instead, export
 `SIPSA_JWT_ISSUER_URI=https://cognito-idp.<region>.amazonaws.com/<userPoolId>` before
@@ -148,17 +161,18 @@ starting the app — no code or config file changes.
 
 ## Branch Strategy
 
-All work is done on feature branches created from `main`. The migration branch
-`chore/migrate-spring-boot-4-java-25` should be merged first.
+All work is done on feature branches created from `main`.
 
 ```
 main
-├── fix/internal-endpoint-security         ← Phase 1
-├── fix/request-mapping-leading-slash      ← Phase 1
-├── test/window-policy                     ← Phase 3
+├── fix/request-mapping-leading-slash      ← Phase 1 (pending)
+├── test/specification-builder             ← Phase 3 (pending)
 ├── fix/parcial-data-integrity             ← Phase 5 (blocked by SPIKE)
 └── docs/architecture-decisions            ← Ongoing
 ```
+
+(Merged examples: `fix/internal-endpoint-security` → PR #17,
+`ci/github-actions` → PR #16, `fix/window-policy-monthly-rules` → PR #15.)
 
 Branch naming follows **Conventional Branches**:
 - `fix/` — bug fixes or error corrections
@@ -291,9 +305,12 @@ See the full [Implementation Roadmap](docs/architecture/implementation-roadmap.m
 Some stories are blocked by an ADR in `Proposed` state. Check:
 
 ```
-TECH-001 → ADR-002 (security mechanism must be decided first)
 TECH-010 → ADR-001 (deduplication key must be decided first)
 TECH-053 → ADR-005 (sync vs async scheduler must be decided first)
+TECH-055 → ADR-006 (handler contract must be decided first)
 ```
+
+(TECH-001 → ADR-002 followed this rule and is now resolved: ADR-002 was accepted on
+2026-07-15 and the story implemented in the same cycle.)
 
 Do not implement a blocked story until the corresponding ADR is `Accepted`.

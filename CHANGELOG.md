@@ -38,6 +38,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     moved `@AutoConfigureMockMvc` into the dedicated `spring-boot-webmvc-test` module).
   - Infrastructure layers formalized as TECH-130 (Cognito), TECH-131 (API Gateway),
     TECH-132 (private networking) — pending, tracked in the backlog.
+  - Merged via PR #17 (2026-07-15). **Post-merge validation (2026-07-15):** manual
+    end-to-end check of the full Docker Compose stack against the mock OIDC issuer,
+    9/9 green — token issuance, `token_use=access`, `scope` claim, issuer coherence,
+    `401` (no/invalid/tampered token), `403` (missing scope, both ingestion↔audit
+    directions), `2xx` (correct scope), `/actuator/health` public with
+    `/actuator/info`/`/actuator/metrics` token-protected, and default deny on
+    undeclared routes. No changes to `docker/mock-oidc-config.json` or the Spring
+    Security implementation were required. Evidence recorded in ADR-002 and TECH-001.
 
 ### Added
 
@@ -51,7 +59,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   failure the surefire/failsafe reports are uploaded as a `test-reports` artifact.
   Documented in `CONTRIBUTING.md` (Continuous Integration section) and
   `docs/development/development-workflow.md` (Step 6). Closes post-migration
-  recommendation #3 of the Spring Boot 4 migration.
+  recommendation #3 of the Spring Boot 4 migration. Merged via PR #16 (2026-07-15);
+  first `main` run green with the migration gate confirmed executed (`tests=4`,
+  `skipped=0`).
 
 - `src/main/resources/application-dev.yaml` — new `dev` profile holding everything that is
   convenient locally but must not reach production: default database credentials
@@ -110,7 +120,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **TECH-111 — monthly `WindowPolicy` rules corrected** (F-WP-01/02/03, confirmed by
-  TECH-110's validation). `validateMonthly()` now binds each monthly method to its own
+  TECH-110's validation; merged via PR #15, 2026-07-14). `validateMonthly()` now binds each monthly method to its own
   DANE publication rule — `promediosSipsaMesMadr`: principal day 8, grace day 9;
   `promedioAbasSipsaMesMadr`: principal day 10, grace day 11 — rejecting the cross-method
   acceptance it previously allowed, and the `monthly-window-start` time gate now applies
@@ -319,5 +329,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `docs/migrations/spring-boot-4-java-25.md` — Migration notes, breaking changes, validation.
 - `CHANGELOG.md` — This file.
 - `CONTRIBUTING.md` — Developer guide for contributions.
-- `.github/` — Issue templates and PR template (no CI workflow exists yet — see the
-  post-migration recommendations in `docs/migrations/spring-boot-4-java-25.md`).
+- `.github/` — Issue templates and PR template. (The "no CI workflow exists yet" caveat
+  originally recorded here was resolved by TECH-120 — see the Added section above.)

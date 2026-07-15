@@ -49,8 +49,9 @@ hexagonal formalism, no microservices — deliberately. See
   test-only) — never call `LocalDateTime.now()` / `Instant.now()` / `ZonedDateTime.now()`
   without a `Clock` in a test. If you find a bug in it, document it (evidence, reproducing
   test) before proposing a fix — do not fix silently. See TECH-111 for the model to follow:
-  it is a fully-specified, evidence-backed, *not-yet-implemented* plan, because the
-  diagnosis and the fix were deliberately kept as separate steps.
+  a fully-specified, evidence-backed plan written *before* touching the code, because the
+  diagnosis and the fix were deliberately kept as separate steps (the fix later shipped as
+  its own story, merged via PR #15).
 - **Never change a cron expression, timezone, or schedule without evidence.** The current
   cron values are a deliberate operational buffer over DANE's documented publication time,
   confirmed correct by an evidence-backed validation (see
@@ -94,9 +95,9 @@ architectural implication.
   category. Then **stop** — implement only the story you were originally asked to do,
   unless told otherwise.
 - A validation or review task surfaces a fix that's out of that task's own scope. Document
-  the story fully (this is exactly what TECH-111 is: a fully-specified, approved-on-paper,
-  not-yet-implemented story produced by a *validation* task that was explicitly told not to
-  fix what it found).
+  the story fully (this is exactly how TECH-111 was born: a fully-specified,
+  approved-on-paper story produced by a *validation* task that was explicitly told not to
+  fix what it found — and implemented later as its own story).
 
 ## When to stop and ask instead of proceeding
 

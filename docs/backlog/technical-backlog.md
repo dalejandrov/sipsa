@@ -1,7 +1,7 @@
 # Technical Backlog — SIPSA Integration Service
 
-**Version:** 1.0  
-**Date:** 2026-07-13  
+**Version:** 1.1  
+**Date:** 2026-07-15 (originally 2026-07-13)  
 **Source:** Architectural review (2026-07-13)
 
 This backlog is the single source of truth for planned technical improvements.
@@ -104,8 +104,15 @@ Add authentication to all endpoints under `/api/internal/**`. Keep `/api/sipsa/*
 - [x] `./mvnw clean verify` passes.
 - [x] ADR-002 is written after this story is complete (TECH-080).
 
-**Completed:** 2026-07-15, branch `fix/internal-endpoint-security`. Verified by
+**Completed:** 2026-07-15, branch `fix/internal-endpoint-security`, merged via
+[PR #17](https://github.com/dalejandrov/sipsa/pull/17). Verified by
 `InternalEndpointSecurityTest` (15 cases) and `SipsaJwtValidatorsTest` (11 cases).
+**Post-merge e2e validation (2026-07-15):** manual 9/9-green check of the full Docker
+Compose stack against the mock OIDC issuer — token issuance, `token_use=access`, `scope`
+claim, issuer coherence, `401`/`403`/`2xx` matrix, Actuator policy
+(`/actuator/health` public; `/actuator/info`/`metrics` token-protected), default deny.
+No changes to `docker/mock-oidc-config.json` or Spring Security were needed
+(evidence: ADR-002 §Local development).
 
 ---
 
@@ -138,8 +145,11 @@ which allows changing log levels at runtime without authentication.
 - [x] `GET /actuator/health` remains accessible without authentication.
 - [x] `./mvnw clean verify` passes.
 
-**Completed:** 2026-07-15, branch `fix/internal-endpoint-security` (with the exposure
-half completed 2026-07-14 on `chore/config-cleanup-dev-profile`).
+**Completed:** 2026-07-15, branch `fix/internal-endpoint-security`, merged via
+[PR #17](https://github.com/dalejandrov/sipsa/pull/17) (with the exposure half completed
+2026-07-14 on `chore/config-cleanup-dev-profile`). The Actuator policy was re-verified in
+the 2026-07-15 post-merge e2e validation: `/actuator/health` 200 without a token;
+`/actuator/info` and `/actuator/metrics` 401 without a token, 200 with a valid one.
 
 ---
 
@@ -789,7 +799,8 @@ not on a separate docs branch)
 - [x] `docs/adr/ADR-002-internal-endpoint-security.md` is updated from `Proposed` to `Accepted`.
 - [x] The chosen mechanism is documented with its rationale.
 
-**Completed:** 2026-07-15, branch `fix/internal-endpoint-security`. ADR-002 accepted with
+**Completed:** 2026-07-15, branch `fix/internal-endpoint-security`, merged via
+[PR #17](https://github.com/dalejandrov/sipsa/pull/17). ADR-002 accepted with
 the layered model (Option E: API Gateway keys + Cognito JWT scopes + Spring Resource
 Server + private networking), superseding the original Option A (HTTP Basic)
 recommendation after the AWS deployment target was confirmed.
@@ -1592,7 +1603,8 @@ independently testable and independently revertable.)
       as fixed.
 - [x] ADR-008 left untouched, still `Proposed`.
 
-**Completed:** 2026-07-14, branch `fix/window-policy-monthly-rules`. Four commits:
+**Completed:** 2026-07-14, branch `fix/window-policy-monthly-rules`, merged via
+[PR #15](https://github.com/dalejandrov/sipsa/pull/15). Four commits:
 per-method day/grace-day binding with the time gate on both days (F-WP-01 + F-WP-03,
 including the `monthly-run-days` startup sanity check per the confirmed decision above),
 stable `YYYY-MM-M8`/`YYYY-MM-M10` window keys (F-WP-02), re-enabled and extended tests
@@ -1665,7 +1677,11 @@ stages (e.g., SOAP contract tests behind WireMock).
       development-workflow.md (Step 6 note), CHANGELOG.md, and the migration notes'
       post-migration recommendation #3 marked resolved.
 
-**Completed:** 2026-07-14, branch `ci/github-actions`.
+**Completed:** 2026-07-14, branch `ci/github-actions`, merged via
+[PR #16](https://github.com/dalejandrov/sipsa/pull/16). First `main` run green on
+2026-07-15: `./mvnw clean verify` passed on GitHub Actions with `FlywayMigrationsTest`
+executing against real PostgreSQL 18 (`tests=4`, `skipped=0` — the migration-gate guard
+step confirmed the suite ran).
 
 ---
 
@@ -1681,8 +1697,8 @@ stages (e.g., SOAP contract tests behind WireMock).
 
 **Origin:** [ADR-002](../adr/ADR-002-internal-endpoint-security.md) (Accepted, Option E),
 layer 2. The application side (Resource Server, TECH-001) is already implemented and
-validated against a local mock OIDC issuer; this story provisions the real identity
-provider.
+validated against a local mock OIDC issuer (e2e re-validated 2026-07-15 post-merge, 9/9
+green); this story provisions the real identity provider.
 
 **Scope:**
 - Cognito user pool for the SIPSA platform (dev and prod).

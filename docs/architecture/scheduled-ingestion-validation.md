@@ -404,7 +404,7 @@ No entity, DTO, controller, repository, migration, or REST contract was modified
 
 | Test class | Targets | Cases | Result |
 |---|---|---|---|
-| `WindowPolicyTest` | `WindowPolicy` | 25 (23 executed + 2 `@Disabled`, documenting TECH-111's desired post-fix behavior) | ✅ 23/23 passing, 2 intentionally skipped |
+| `WindowPolicyTest` | `WindowPolicy` | 25 at the time (23 executed + 2 `@Disabled` documenting TECH-111's desired post-fix behavior); 34 with 0 skips since TECH-111 re-enabled and extended them (2026-07-14) | ✅ all passing |
 | `SipsaSchedulingCronTest` | The 3 production cron expressions + declared `@Scheduled` zone | 18 | ✅ 18/18 passing |
 | `SipsaIngestionSchedulerTest` | `SipsaIngestionScheduler` dispatch | 8 | ✅ 8/8 passing |
 | `SipsaSchedulingContextTest` | Spring context, scheduling **enabled** | 5 | ✅ 5/5 passing |
