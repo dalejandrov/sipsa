@@ -1,100 +1,110 @@
 # ADR-002 — Internal Endpoint Security
 
-**Status:** Proposed  
-**Date:** 2026-07-13  
-**Backlog:** [TECH-001](../backlog/technical-backlog.md#tech-001), [TECH-002](../backlog/technical-backlog.md#tech-002)
+**Status:** Accepted (2026-07-15)  
+**Date:** 2026-07-13 (proposed) · 2026-07-15 (accepted, superseding the original Option A recommendation)  
+**Backlog:** [TECH-001](../backlog/technical-backlog.md#tech-001), [TECH-002](../backlog/technical-backlog.md#tech-002),
+[TECH-130](../backlog/technical-backlog.md#tech-130), [TECH-131](../backlog/technical-backlog.md#tech-131),
+[TECH-132](../backlog/technical-backlog.md#tech-132)
 
 ---
 
 ## Context
 
-Three REST controllers expose operational endpoints under `/api/internal/**`:
+Two REST controllers expose operational endpoints under `/api/internal/**`
+(trigger/cancel/query ingestion runs; read the full audit trail) with no authentication.
+The public functional API (`GET /api/sipsa/**`, read-only DANE data) and Actuator complete
+the HTTP surface.
 
-- `POST /api/internal/ingestion/run` — triggers an ingestion job that calls the DANE SOAP service.
-- `POST /api/internal/ingestion/cancel/{runId}` — cancels an active ingestion run.
-- `GET /api/internal/ingestion/runs` — lists all ingestion runs.
-- `GET /api/internal/audit/**` — reads ingestion audit trail.
-
-These endpoints have no authentication or authorization. The source code contains an explicit
-`TODO` acknowledging this:
-
-```java
-// SipsaOpsController.java:33
-// TODO: This controller MUST be protected in production environments
-// (e.g. Spring Security, IP allowlist, internal network only).
-```
-
-The project currently has no `spring-security-web` dependency.
+The deployment target is **AWS**: API Gateway as the single entry point, Cognito as the
+identity provider, and the service on ECS. This supersedes the assumption under which the
+original proposal recommended in-application HTTP Basic (former Option A).
 
 ---
 
 ## Problem
 
-An unauthenticated actor with HTTP access to the service can:
-- Trigger repeated ingestion jobs, generating load on DANE's SOAP service.
-- Cancel running ingestion processes, disrupting scheduled data collection.
-- Read the complete operational audit trail.
+An unauthenticated actor with HTTP access can trigger ingestion jobs against DANE's SOAP
+service (including `force=true`, bypassing publication windows), cancel scheduled
+ingestion, and read the operational audit trail. Additionally, consumers of the functional
+API cannot be identified, metered, throttled, or revoked individually.
 
 ---
 
 ## Alternatives Considered
 
-### Option A — HTTP Basic Authentication with Spring Security (Recommended)
-
-Add `spring-boot-starter-security`. Configure a `SecurityFilterChain` that:
-- Requires HTTP Basic Auth for `/api/internal/**`.
-- Permits all requests to `/api/sipsa/**` and `/actuator/health`.
-- Configures credentials via environment variables (`INTERNAL_API_USERNAME`, `INTERNAL_API_PASSWORD`).
-
-**Pros:** Implemented entirely in the application; no infrastructure dependency; standard Spring Boot pattern.  
-**Cons:** Credentials must be managed securely in environment variables or a secrets manager.
-
-### Option B — API Key Header
-
-Custom `OncePerRequestFilter` that validates an `X-API-Key` header against a configured value.
-
-**Pros:** Simple implementation without Spring Security; easy for automation scripts.  
-**Cons:** Non-standard; less tooling support; credential rotation requires restart.
-
-### Option C — Network-Level Restriction (IP allowlist or private network)
-
-Configure the ingress controller (Kubernetes, nginx, cloud load balancer) to only allow access
-to `/api/internal/**` from specific IP ranges or within the cluster network.
-
-**Pros:** No application-level code change; defense-in-depth with Option A.  
-**Cons:** Infrastructure-dependent; not enforced if the service is accessed from within the same network by an unauthorized actor; harder to test in development.
-
-### Option D — mTLS (mutual TLS)
-
-Require client certificates for `/api/internal/**`. Managed by the service mesh (e.g., Istio).
-
-**Pros:** Very strong authentication; no application code change.  
-**Cons:** Requires infrastructure setup; complex for local development; overkill for current scale.
-
----
+- **Option A — HTTP Basic with an in-memory user (original recommendation).** Rejected as
+  the definitive solution: single shared credential (no per-consumer identity, quotas, or
+  revocation), password lifecycle owned by the application, and redundant once the AWS
+  target was confirmed.
+- **Option B — Custom API-key filter in Spring.** Rejected: hand-rolled security surface;
+  API Gateway provides key validation, usage plans, and throttling natively. Keys are kept
+  as an identification/metering mechanism at the gateway — never authentication.
+- **Option C — Network-level restriction only.** Insufficient alone (no identity, no
+  authorization granularity); adopted as one layer of the accepted model.
+- **Option D — mTLS/service mesh.** Overkill at current scale.
+- **Option E — Layered model: API Gateway + Cognito JWT + Resource Server (accepted).**
 
 ## Decision
 
-**Not yet decided.** This ADR is `Proposed` pending a decision on the deployment environment.
+**Option E — a layered security model:**
 
-Recommendation: **Option A** as the primary control, combined with **Option C** as defense-in-depth.
-Option A can be implemented immediately in application code. Option C is an infrastructure-level
-enhancement when the deployment environment is defined.
+1. **API Gateway** is the only public entry point. Functional endpoints
+   (`GET /api/sipsa/**`) require a **per-consumer API key** for identification, usage
+   plans, quotas, throttling, revocation, and consumption traceability
+   ([TECH-131](../backlog/technical-backlog.md#tech-131)). An API key is **not**
+   authentication and grants access to nothing sensitive.
+2. **Cognito** authenticates callers of sensitive operations with **JWT access tokens**
+   carrying custom scopes from the `sipsa` resource server
+   ([TECH-130](../backlog/technical-backlog.md#tech-130)). Machine-to-machine integrations
+   use `client_credentials` app clients (one per integration); human operators use the
+   authorization-code flow. AWS-native automation may alternatively use **IAM (SigV4)**
+   authorizers at the gateway.
+3. **Spring Boot is an OAuth 2.0 Resource Server** and re-validates every JWT and its
+   scopes as **defense in depth** (implemented by this ADR's acceptance): issuer +
+   signature + expiry, `token_use == "access"` (Cognito ID tokens are rejected), an
+   optional `client_id` allowlist (`SIPSA_JWT_ALLOWED_CLIENT_IDS`), and per-operation
+   scopes:
 
-The minimum acceptable security posture is: no `/api/internal/**` endpoint is accessible
-over the public internet without authentication.
+   | Operation | Scope |
+   |---|---|
+   | `POST /api/internal/ingestion/run` | `sipsa/ingestion.execute` |
+   | `POST /api/internal/ingestion/cancel/{runId}` | `sipsa/ingestion.cancel` |
+   | `GET /api/internal/ingestion/**` | `sipsa/ingestion.read` |
+   | `GET /api/internal/audit/**` | `sipsa/audit.read` |
 
----
+   Everything not explicitly declared is **denied**. The chain is stateless: no sessions,
+   no CSRF surface, no form login, no HTTP Basic, no cookies. `401`/`403` are JSON in the
+   API's `ErrorResponse` shape, with generic messages that never reveal the failure cause.
+4. **Private integration** keeps the backend unreachable except through the gateway: ECS
+   in private subnets, internal ALB, API Gateway via VPC Link
+   ([TECH-132](../backlog/technical-backlog.md#tech-132)). For the IAM path (no
+   app-level re-validation possible), this layer is the enforcing control.
+5. **Actuator is not part of the public API surface.** It is never routed through API
+   Gateway. `/actuator/health` is unauthenticated for container/platform healthchecks
+   (reachable only inside the private network); every other Actuator endpoint requires a
+   valid access token, on top of the existing per-profile exposure restriction.
+
+**Tier "API key + JWT" is intentionally empty today:** all current functional endpoints
+serve public read-only DANE data. The tier exists in the model for future endpoints
+exposing per-client or writable data — do not add endpoints to it implicitly.
+
+## Local development
+
+A mock OIDC server (`ghcr.io/navikt/mock-oauth2-server`, compose service `oidc`,
+configured by `docker/mock-oidc-config.json`) is the default issuer in the `dev` and
+docker-compose environments, so the project runs without AWS connectivity. A dev Cognito
+user pool is used for real AWS integration testing by overriding `SIPSA_JWT_ISSUER_URI`.
+The base profile has no issuer default and fails fast at startup.
 
 ## Consequences
 
-**If Option A is chosen:**
-- `spring-boot-starter-security` dependency added to `pom.xml`.
-- A `SecurityConfig` class configures the filter chain.
-- Credentials stored in environment variables; never committed to the repository.
-- `/actuator/health` remains unauthenticated for Docker/Kubernetes health probes.
-- All integration tests that call `/api/internal/**` must provide credentials.
-
----
-
-*Update this ADR to `Accepted` after the deployment environment is confirmed and TECH-001 is implemented.*
+- The application layer (item 3) is implemented and tested in this repository; items 1, 2
+  and 4 are infrastructure work tracked as TECH-130/131/132 and do not block it.
+- Any client calling `/api/internal/**` must now present a Cognito access token with the
+  right scope; previously-unauthenticated operational scripts break by design.
+- Prometheus scraping of `/actuator/prometheus` requires a valid token (or scraping via a
+  sidecar/CloudWatch inside the VPC — decided in TECH-132).
+- The backend holds **no secrets** for this model: the issuer URI and JWKS are public,
+  and client ids are identifiers. Client secrets live with each consumer, in AWS.
+- The minimum acceptable posture holds: no `/api/internal/**` endpoint is reachable
+  without authentication, in any environment, regardless of gateway or network state.

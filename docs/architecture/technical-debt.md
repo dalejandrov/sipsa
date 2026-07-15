@@ -13,8 +13,8 @@ Each item references a backlog story for implementation planning.
 
 | ID | Item | Priority | Impact | Complexity | Risk | Backlog |
 |---|---|---|---|---|---|---|
-| S-01 | No authentication on `/api/internal/**` endpoints | **Critical** | Unauthorized ingestion activation, data exposure | S | Low (Spring Security addition) | [TECH-001](../backlog/technical-backlog.md#tech-001) |
-| S-02 | Actuator `loggers` endpoint publicly accessible | **High** | Runtime log level change enables data exposure | XS | Low | [TECH-002](../backlog/technical-backlog.md#tech-002) |
+| S-01 | ~~No authentication on `/api/internal/**` endpoints~~ **Resolved** (2026-07-15, TECH-001/ADR-002 — OAuth 2.0 Resource Server with per-operation Cognito scopes; gateway/network layers tracked as TECH-130..132) | **Critical** | Unauthorized ingestion activation, data exposure | S | Low (Spring Security addition) | [TECH-001](../backlog/technical-backlog.md#tech-001) |
+| S-02 | ~~Actuator `loggers` endpoint publicly accessible~~ **Resolved** (exposure: 2026-07-14 dev-only; authentication on all non-health actuator: 2026-07-15, TECH-002) | **High** | Runtime log level change enables data exposure | XS | Low | [TECH-002](../backlog/technical-backlog.md#tech-002) |
 
 **Rationale:** S-01 was documented with a `TODO` comment in the original code. No Spring Security web dependency exists in the project.
 

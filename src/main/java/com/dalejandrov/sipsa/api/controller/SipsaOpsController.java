@@ -27,9 +27,9 @@ import java.util.List;
  *   <li>Return appropriate HTTP status codes</li>
  * </ul>
  * <p>
- * <p>
- * TODO: This controller MUST be protected in production environments
- * (e.g. Spring Security, IP allowlist, internal network only).
+ * Security: every endpoint here requires a Cognito access token with the matching
+ * {@code sipsa/ingestion.*} scope, enforced by
+ * {@code infrastructure.config.security.SecurityConfig} (ADR-002, TECH-001).
  */
 @RestController
 @RequestMapping("api/internal/ingestion")

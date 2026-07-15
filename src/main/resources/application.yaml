@@ -24,6 +24,19 @@ spring:
     name: sipsa-api
 
   # ----------------------------------------------------------------------------
+  # Security — OAuth 2.0 Resource Server (ADR-002)
+  # The issuer is intentionally without a default: the application fails fast at
+  # startup when SIPSA_JWT_ISSUER_URI is missing. In AWS this is the Cognito user
+  # pool URL; in dev/docker profiles it defaults to the local mock OIDC server.
+  # The issuer URI is not a secret (its JWKS is public by design).
+  # ----------------------------------------------------------------------------
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${SIPSA_JWT_ISSUER_URI:}
+
+  # ----------------------------------------------------------------------------
   # Database Configuration (PostgreSQL)
   # Credentials are intentionally without defaults — see application-dev.yaml
   # for the local development values.
@@ -83,6 +96,18 @@ spring:
 # SIPSA APPLICATION CONFIGURATION
 # ==============================================================================
 sipsa:
+  # ----------------------------------------------------------------------------
+  # Security — optional client_id allowlist (defense in depth, ADR-002).
+  # Empty by default: any client of the trusted issuer is accepted (issuer,
+  # token_use=access, and scopes still apply). Set to a CSV of Cognito app
+  # client ids to additionally pin which clients may call this API. Client ids
+  # are identifiers, not secrets — but real ones still belong in the
+  # environment, not in this file.
+  # ----------------------------------------------------------------------------
+  security:
+    jwt:
+      allowed-client-ids: ${SIPSA_JWT_ALLOWED_CLIENT_IDS:}
+
   # ----------------------------------------------------------------------------
   # Global Timezone — fixed by the DANE publication schedule, not per-environment
   # ----------------------------------------------------------------------------
