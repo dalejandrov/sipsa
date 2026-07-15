@@ -55,6 +55,31 @@ docker compose up -d db
 docker compose down
 ```
 
+Note on `FlywayMigrationsTest`: it provisions its own PostgreSQL via Testcontainers and
+**self-skips when Docker is unavailable** on your machine. That skip is acceptable locally
+but not in CI — see below.
+
+---
+
+## Continuous Integration
+
+Every pull request and every push to `main` runs the CI gate
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml), TECH-120):
+
+- `./mvnw clean verify` on Temurin JDK 25 via the Maven Wrapper — the exact command you
+  run locally, so a green local build is the best predictor of a green pipeline.
+- `FlywayMigrationsTest` (the ADR-009 migration gate) runs against a real PostgreSQL 18
+  container using the runner's Docker. A guard step **fails the pipeline if that suite is
+  skipped**, so the local-only self-skip can never mask a broken migration in CI.
+- Superseded runs of the same branch/PR are cancelled automatically; on failure the
+  surefire/failsafe reports are attached to the run as a `test-reports` artifact.
+- The workflow uses no secrets, no `.env`, and no credentials, and the `GITHUB_TOKEN` is
+  restricted to read-only repository access.
+
+A PR cannot be considered mergeable with a red pipeline. "It passes locally" is not an
+override — if CI and your machine disagree, the difference itself is the bug to chase
+(usually Docker availability or an environment-dependent test).
+
 ---
 
 ## Running Locally

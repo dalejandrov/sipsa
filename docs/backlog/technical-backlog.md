@@ -53,6 +53,7 @@ When a story is implemented:
 | TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A) | Low | — | **Done** |
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
+| TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
 
 ---
 
@@ -1582,3 +1583,66 @@ a monthly method already ran `SUCCEEDED` in the current month under the old raw-
 the new period key will not match it and one redundant (upsert-safe) re-ingestion of that
 period can occur — deploy outside days 8–11 to avoid the transition landing inside an
 active monthly window.
+
+---
+
+### TECH-120
+
+**Title:** Continuous integration pipeline (GitHub Actions)
+**Type:** Infrastructure
+**Priority:** High
+**Phase:** —
+**Status:** **Done** — implemented 2026-07-14 on branch `ci/github-actions`
+**Complexity:** S
+**Branch:** `ci/github-actions`
+
+**Origin:** Formalizes **PEND-CI-001** from the 2026-07-14 documentation/pending-work
+inventory. The gap was first recorded as post-migration recommendation #3 in
+[docs/migrations/spring-boot-4-java-25.md](../migrations/spring-boot-4-java-25.md) and
+noted in the CHANGELOG (".github/ — no CI workflow exists yet").
+
+**Problem:**
+No CI pipeline existed. `./mvnw clean verify` and the Flyway migration gate
+(ADR-009, `FlywayMigrationsTest`) ran only when a developer remembered to run them
+locally; nothing prevented merging a PR with failing tests. Worse, the migration gate
+self-skips without Docker, so its coverage silently depended on each developer's local
+setup.
+
+**Solution:**
+`.github/workflows/ci.yml` — a single `verify` job on `ubuntu-latest`:
+- Triggers on every `pull_request` and on `push` to `main`.
+- Temurin JDK 25 with built-in Maven dependency cache (`actions/setup-java`), Maven
+  Wrapper for the build (single source of truth for the Maven version).
+- Runs `./mvnw --batch-mode --no-transfer-progress clean verify` — the same command the
+  development workflow mandates locally.
+- Testcontainers uses the runner's preinstalled Docker: `FlywayMigrationsTest` runs
+  against a real PostgreSQL 18 container in CI, unlike Docker-less laptops.
+- A dedicated guard step parses the surefire report and **fails the build if the Flyway
+  migration gate was skipped** (tests=0 or skipped>0), so the self-skip behavior can
+  never silently void the gate in CI.
+- Cancels superseded in-flight runs of the same branch/PR (`concurrency` +
+  `cancel-in-progress`).
+- `permissions: contents: read` (least privilege); no secrets, no `.env`, no credentials.
+- On failure, uploads `target/surefire-reports/` and `target/failsafe-reports/` as a
+  `test-reports` artifact (7-day retention) for diagnosis.
+
+**Design decision — single job, not split build/test jobs:** the full verify takes ~1–3
+minutes; splitting build and tests would duplicate the Maven build or require artifact
+hand-off between jobs, adding maintenance surface with no feedback-time benefit at this
+scale. Revisit if the suite grows past ~10 minutes or gains independent long-running
+stages (e.g., SOAP contract tests behind WireMock).
+
+**Acceptance Criteria:**
+- [x] Workflow is valid YAML and uses only stock GitHub-hosted runner features.
+- [x] `./mvnw clean verify` runs on GitHub Actions via the Maven Wrapper on Java 25.
+- [x] Testcontainers tests execute against the runner's Docker; a guard step fails the
+      pipeline if `FlywayMigrationsTest` is skipped.
+- [x] No secrets or environment files are referenced anywhere in the workflow.
+- [x] A failing test fails the pipeline (Maven non-zero exit propagates to the job).
+- [x] Runs on every PR and on pushes to `main`; superseded runs are cancelled.
+- [x] `GITHUB_TOKEN` restricted to `contents: read`.
+- [x] Documentation updated: CONTRIBUTING.md (CI gate section),
+      development-workflow.md (Step 6 note), CHANGELOG.md, and the migration notes'
+      post-migration recommendation #3 marked resolved.
+
+**Completed:** 2026-07-14, branch `ci/github-actions`.

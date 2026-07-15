@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **TECH-120 — CI pipeline** (`.github/workflows/ci.yml`). Every pull request and every
+  push to `main` now runs `./mvnw clean verify` on GitHub Actions (Temurin JDK 25, Maven
+  Wrapper, Maven dependency cache). The Testcontainers-based Flyway migration gate
+  (`FlywayMigrationsTest`, ADR-009) executes against the runner's Docker, and a dedicated
+  guard step fails the pipeline if that suite is skipped — the local-only Docker self-skip
+  can no longer void the gate. Superseded runs of the same branch/PR are cancelled;
+  `GITHUB_TOKEN` is restricted to `contents: read`; no secrets or `.env` are used; on
+  failure the surefire/failsafe reports are uploaded as a `test-reports` artifact.
+  Documented in `CONTRIBUTING.md` (Continuous Integration section) and
+  `docs/development/development-workflow.md` (Step 6). Closes post-migration
+  recommendation #3 of the Spring Boot 4 migration.
+
 - `src/main/resources/application-dev.yaml` — new `dev` profile holding everything that is
   convenient locally but must not reach production: default database credentials
   (`sipsa_user`/`sipsa_pass`), verbose per-package log levels, `format_sql`, full health

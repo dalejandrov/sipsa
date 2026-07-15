@@ -286,4 +286,7 @@ data changes were made, so no database rollback is needed.
 2. Consider migrating WireMock to `wiremock-spring-boot:4.x` for Spring Boot 4
    integration tests.
 3. Review and upgrade GitHub CI workflows (none exist in the repository currently).
+   ✅ **Resolved 2026-07-14** (TECH-120, branch `ci/github-actions`): `.github/workflows/ci.yml`
+   runs `./mvnw clean verify` on Temurin 25 for every PR and push to `main`, including the
+   Testcontainers-based Flyway migration gate with an explicit not-skipped assertion.
 4. Add OWASP Dependency Check or Renovate to detect future vulnerable dependencies.

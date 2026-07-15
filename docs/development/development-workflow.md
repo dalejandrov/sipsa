@@ -96,6 +96,13 @@ If it fails:
 - Determine if the failure was pre-existing (document it) or introduced by this story (fix it).
 - Never mark a story Done if `./mvnw clean verify` fails.
 
+The same command runs automatically in CI (`.github/workflows/ci.yml`, TECH-120) on every
+PR and on `main`, with one difference: CI has Docker, so `FlywayMigrationsTest` executes
+there even if it self-skipped on your machine — and the pipeline fails if that gate is
+skipped. A local pass with the Flyway tests skipped is therefore *not* equivalent to a CI
+pass; run them locally with Docker (`docker info` must succeed) when you touch migrations,
+entities, or persistence configuration.
+
 ---
 
 ## Step 7 — Update Documentation

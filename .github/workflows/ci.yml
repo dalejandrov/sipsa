@@ -1,0 +1,72 @@
+# CI gate (TECH-120): every pull request and every push to main must pass the
+# full build and test suite, including the Flyway migration gate against a real
+# PostgreSQL via Testcontainers (ADR-009). The workflow needs no secrets, no
+# .env file, and no credentials: the unit suite runs on H2 and the migration
+# gate provisions its own throwaway PostgreSQL container on the runner's Docker.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: the job only reads the repository. Nothing here writes to
+# the repo, publishes packages, or comments on PRs.
+permissions:
+  contents: read
+
+# One run per branch/PR: a newer push cancels the previous in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build & verify (Java 25, Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 25 (Temurin) with Maven dependency cache
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build and run full test suite
+        run: ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      # FlywayMigrationsTest self-skips when Docker is unavailable
+      # (@Testcontainers(disabledWithoutDocker = true)) — correct on a developer
+      # laptop, but in CI a silent skip would void the migration gate. Fail the
+      # build if the suite did not actually execute.
+      - name: Assert the Flyway migration gate ran (not skipped)
+        run: |
+          report="target/surefire-reports/TEST-com.dalejandrov.sipsa.infrastructure.persistence.FlywayMigrationsTest.xml"
+          if [ ! -f "$report" ]; then
+            echo "::error::FlywayMigrationsTest report not found — the migration gate did not run at all."
+            exit 1
+          fi
+          suite=$(head -2 "$report" | tail -1)
+          tests=$(printf '%s' "$suite" | sed -n 's/.*tests="\([0-9]*\)".*/\1/p')
+          skipped=$(printf '%s' "$suite" | sed -n 's/.*skipped="\([0-9]*\)".*/\1/p')
+          echo "FlywayMigrationsTest: tests=${tests:-?} skipped=${skipped:-?}"
+          if [ "${tests:-0}" -eq 0 ] || [ "${skipped:-0}" -ne 0 ]; then
+            echo "::error::FlywayMigrationsTest was skipped (tests=${tests:-0}, skipped=${skipped:-0}). Docker must be available to the runner for the Testcontainers migration gate."
+            exit 1
+          fi
+
+      - name: Upload test reports (on failure only)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7
