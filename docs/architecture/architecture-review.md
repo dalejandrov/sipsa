@@ -322,7 +322,7 @@ These require business or product input before any implementation.
 |---|---|---|
 | What is the natural deduplication key for `SipsaParcial`? | TECH-010, TECH-011 | `computeKeyHash()` currently generates a random UUID. See [ADR-001](../adr/ADR-001-data-deduplication.md). |
 | Should `IngestionHandler` declare `isMonthly()`? | TECH-055 | `WindowPolicy` currently infers daily/monthly from method name strings. See [ADR-006](../adr/ADR-006-ingestion-handler-contract.md). |
-| What authentication mechanism for internal endpoints? | TECH-001 | Options: Basic Auth with env credentials, API key header, mTLS, network-level restriction. See [ADR-002](../adr/ADR-002-internal-endpoint-security.md). |
+| ~~What authentication mechanism for internal endpoints?~~ **Decided** (2026-07-15): OAuth 2.0 Resource Server with Cognito JWT scopes, layered with API Gateway and private networking — [ADR-002](../adr/ADR-002-internal-endpoint-security.md) `Accepted`, implemented by TECH-001 (PR #17) | ~~TECH-001~~ resolved | Original options considered: Basic Auth with env credentials, API key header, mTLS, network-level restriction. |
 
 ---
 
@@ -331,10 +331,10 @@ These require business or product input before any implementation.
 | Risk | Probability | Impact | Mitigation |
 |---|---|---|---|
 | `sipsa_parcial` growing unboundedly from duplicate inserts | High (if system ran in production with the current code) | High (DB storage, query performance) | Investigate in TECH-012 before taking action |
-| Unauthorized activation of ingestion against DANE's SOAP service | High (if system is reachable over network) | Medium (DANE rate limiting, data consistency) | Implement TECH-001 |
+| Unauthorized activation of ingestion against DANE's SOAP service | ~~High~~ **Mitigated** (2026-07-15): `/api/internal/**` now requires a JWT with the operation's scope (TECH-001/ADR-002, e2e-validated) | Medium (DANE rate limiting, data consistency) | ~~Implement TECH-001~~ Done — residual exposure tracked as TECH-130..132 (AWS layers) |
 | Single scheduler thread blocked for 60+ minutes during Parcial ingestion | Medium (depends on volume and timing) | Low (other scheduled tasks unaffected for this run; subsequent same-cron runs may be skipped) | Implement TECH-053 |
 | Audit events lost on JVM crash during async processing | Low (requires bad timing) | Low (audit trail incomplete, not data loss) | Acceptable risk; document in ADR-004 |
-| Docker image `eclipse-temurin:25-jre-noble` not available in registry | Low | High (deployment fails) | Verify during next Docker-available build |
+| Docker image `eclipse-temurin:25-jre-noble` not available in registry | ~~Low~~ **Closed** — verified 2026-07-14: full `docker compose build && up` green (the *build-stage* image was the one that didn't exist and was replaced; see the migration notes' Pending Risks) | High (deployment fails) | Verified |
 
 ---
 

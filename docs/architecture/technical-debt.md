@@ -109,8 +109,11 @@ Each item references a backlog story for implementation planning.
 | Code Quality | — | — | — | 6 | 6 |
 | **Total** | **2** | **4** | **7** | **15** | **28** |
 
-**Status note (2026-07-13):** of the 28 registered items, **2 are resolved** (T-01, T-06 —
-closed by TECH-110/TECH-040) and **1 is partially resolved / re-scoped** (A-01 — closed for
+**Status note (2026-07-15):** of the 28 registered items, **4 are resolved** (T-01, T-06 —
+closed by TECH-110/TECH-040; S-01, S-02 — closed by TECH-001/TECH-002/ADR-002 on
+2026-07-15, application layer merged via PR #17 and e2e-validated against the mock OIDC
+issuer; the AWS gateway/network layers remain tracked as TECH-130..132)
+and **1 is partially resolved / re-scoped** (A-01 — closed for
 the 3 internal commands by TECH-090; the residual imports are accepted by ADR-007). Items
 are annotated in place rather than deleted, so the registry remains the full historical
 record. All other items remain pending.

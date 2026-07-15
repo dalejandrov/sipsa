@@ -201,6 +201,12 @@ PostgreSQL 18 compatibility was already present before this migration.
 
 ## Tests Executed
 
+> **Historical note:** this table records the state at migration time (2026-07-13). The
+> two "Not tested" rows were closed on 2026-07-14 — see Pending Risks #1 below (full
+> `docker compose build && up` verified after fixing the two defects that verification
+> uncovered). The suite has since grown to 104 tests (0 failures, 0 skips as of
+> 2026-07-15), run in CI on every PR (TECH-120).
+
 | Command | Result |
 |---|---|
 | `./mvnw clean compile` | BUILD SUCCESS |
@@ -208,8 +214,8 @@ PostgreSQL 18 compatibility was already present before this migration.
 | `./mvnw clean package -DskipTests` | BUILD SUCCESS |
 | `./mvnw clean verify` | BUILD SUCCESS — 1 test, 0 failures, 0 errors |
 | `docker compose config` | Valid |
-| Docker build | Not tested (Docker daemon unavailable in build environment) |
-| PostgreSQL + Docker Compose startup | Not tested (Docker daemon unavailable) |
+| Docker build | Not tested at migration time (see historical note) |
+| PostgreSQL + Docker Compose startup | Not tested at migration time (see historical note) |
 
 ### Test infrastructure
 A `src/test/resources/application.yaml` was added that substitutes PostgreSQL with
@@ -283,8 +289,11 @@ data changes were made, so no database rollback is needed.
 
 1. Add Testcontainers to enable `@SpringBootTest` without requiring a locally
    running PostgreSQL instance.
+   ✅ **Resolved 2026-07-14** (ADR-009): Testcontainers adopted and proven by
+   `FlywayMigrationsTest`, which runs the full migration chain against a real
+   PostgreSQL 18 container (enforced as non-skippable in CI by TECH-120).
 2. Consider migrating WireMock to `wiremock-spring-boot:4.x` for Spring Boot 4
-   integration tests.
+   integration tests. *(Still open — tracked as the WireMock half of TECH-044.)*
 3. Review and upgrade GitHub CI workflows (none exist in the repository currently).
    ✅ **Resolved 2026-07-14** (TECH-120, branch `ci/github-actions`): `.github/workflows/ci.yml`
    runs `./mvnw clean verify` on Temurin 25 for every PR and push to `main`, including the

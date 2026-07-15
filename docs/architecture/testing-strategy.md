@@ -9,18 +9,20 @@
 
 | Metric | Value |
 |---|---|
-| Test files | 7 (`SipsaApplicationTests`, `WindowPolicyTest`, `SipsaSchedulingCronTest`, `SipsaIngestionSchedulerTest`, `SipsaSchedulingContextTest`, `SipsaSchedulingDisabledByDefaultTest`, `InternalIngestionCommandsTest`) |
-| Test methods | 65 (1 pre-existing + 58 added by TECH-110 + 6 added by TECH-090) |
-| Business logic coverage | `WindowPolicy`, `SipsaIngestionScheduler`, and the `application/command` static factories now covered (no JaCoCo configured yet — line-coverage % not measured) |
-| Database dependency for tests | H2 in-memory (added during migration); the scheduling/window/command tests need no database at all |
-| Intentional skips | 2 (`@Disabled`, documenting TECH-111's desired post-fix behavior — see [scheduled-ingestion-validation.md](scheduled-ingestion-validation.md)) |
+| Test files | 10 (`SipsaApplicationTests`, `WindowPolicyTest`, `SipsaSchedulingCronTest`, `SipsaIngestionSchedulerTest`, `SipsaSchedulingContextTest`, `SipsaSchedulingDisabledByDefaultTest`, `InternalIngestionCommandsTest`, `InternalEndpointSecurityTest`, `SipsaJwtValidatorsTest`, `FlywayMigrationsTest`) |
+| Test methods | 104 (0 failures, 0 skips as of 2026-07-15) |
+| Business logic coverage | `WindowPolicy`, `SipsaIngestionScheduler`, the `application/command` static factories, the ADR-002 security chain (authentication, scopes, client allowlist), and the ADR-009 Flyway migration gate (no JaCoCo configured yet — line-coverage % not measured) |
+| Database dependency for tests | H2 in-memory for context tests; `FlywayMigrationsTest` provisions real PostgreSQL 18 via Testcontainers (self-skips without Docker locally; CI fails if it skips — TECH-120) |
+| Intentional skips | 0 — the 2 `@Disabled` tests documenting TECH-111's desired behavior were re-enabled when TECH-111 fixed the defect (2026-07-14) |
 
-Updated by TECH-110 (`test/scheduled-ingestion-jobs`) and TECH-090
-(`InternalIngestionCommandsTest`, verifying the moved command classes' factory behavior) — see
-[Scheduled Ingestion Validation](scheduled-ingestion-validation.md) for the full report.
-Everything else in this document (`SpecificationBuilderTest`, `IngestionJobTest`,
-`GlobalExceptionHandlerTest`, and the recommended/optional/integration sections below)
-remains as originally planned and **not yet implemented**.
+Updated by TECH-110 (`test/scheduled-ingestion-jobs`), TECH-090
+(`InternalIngestionCommandsTest`), TECH-111 (re-enabled and extended `WindowPolicyTest`,
+now 34 cases), ADR-009 (`FlywayMigrationsTest`, 4 cases against real PostgreSQL 18), and
+TECH-001/TECH-002 (`InternalEndpointSecurityTest`, 15 cases; `SipsaJwtValidatorsTest`,
+11 cases) — see [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) for
+the scheduling report. Everything else in this document (`SpecificationBuilderTest`,
+`IngestionJobTest`, `GlobalExceptionHandlerTest`, and the recommended/optional/integration
+sections below) remains as originally planned and **not yet implemented**.
 
 ---
 
@@ -53,12 +55,13 @@ These must exist before any further refactoring of production code.
 `setClock`, defaults to `Clock.system(zone)` — no production behavior change). 25 test
 cases across 5 nested classes: DANE-documented 14:00 boundary, production 14:20 buffer,
 current (method-agnostic) monthly window behavior, `windowKey` semantics, and a dedicated
-`MonthlyWindowConfirmedBugDemonstration` class. 23 pass; 2 are `@Disabled`, documenting the
-desired post-fix behavior of a confirmed defect (`WindowPolicy` does not bind the allowed
-monthly day to the specific method — see
-[scheduled-ingestion-validation.md](scheduled-ingestion-validation.md), F-WP-01/F-WP-02,
-tracked as proposed story TECH-111). Superset of the original planned case list below,
-kept for historical reference:
+`MonthlyWindowConfirmedBugDemonstration` class. At the time, 23 passed and 2 were
+`@Disabled`, documenting the desired post-fix behavior of a confirmed defect
+(`WindowPolicy` did not bind the allowed monthly day to the specific method — see
+[scheduled-ingestion-validation.md](scheduled-ingestion-validation.md), F-WP-01/F-WP-02).
+TECH-111 (2026-07-14, merged via PR #15) fixed the defect, re-enabled both tests, and
+extended the suite: `WindowPolicyTest` now has 34 cases, 0 skips. Superset of the original
+planned case list below, kept for historical reference:
 
 | Original planned test case | Covered by |
 |---|---|

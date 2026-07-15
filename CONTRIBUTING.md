@@ -161,17 +161,18 @@ starting the app — no code or config file changes.
 
 ## Branch Strategy
 
-All work is done on feature branches created from `main`. The migration branch
-`chore/migrate-spring-boot-4-java-25` should be merged first.
+All work is done on feature branches created from `main`.
 
 ```
 main
-├── fix/internal-endpoint-security         ← Phase 1
-├── fix/request-mapping-leading-slash      ← Phase 1
-├── test/window-policy                     ← Phase 3
+├── fix/request-mapping-leading-slash      ← Phase 1 (pending)
+├── test/specification-builder             ← Phase 3 (pending)
 ├── fix/parcial-data-integrity             ← Phase 5 (blocked by SPIKE)
 └── docs/architecture-decisions            ← Ongoing
 ```
+
+(Merged examples: `fix/internal-endpoint-security` → PR #17,
+`ci/github-actions` → PR #16, `fix/window-policy-monthly-rules` → PR #15.)
 
 Branch naming follows **Conventional Branches**:
 - `fix/` — bug fixes or error corrections
@@ -304,9 +305,12 @@ See the full [Implementation Roadmap](docs/architecture/implementation-roadmap.m
 Some stories are blocked by an ADR in `Proposed` state. Check:
 
 ```
-TECH-001 → ADR-002 (security mechanism must be decided first)
 TECH-010 → ADR-001 (deduplication key must be decided first)
 TECH-053 → ADR-005 (sync vs async scheduler must be decided first)
+TECH-055 → ADR-006 (handler contract must be decided first)
 ```
+
+(TECH-001 → ADR-002 followed this rule and is now resolved: ADR-002 was accepted on
+2026-07-15 and the story implemented in the same cycle.)
 
 Do not implement a blocked story until the corresponding ADR is `Accepted`.

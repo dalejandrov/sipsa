@@ -1,7 +1,7 @@
 # Technical Backlog — SIPSA Integration Service
 
-**Version:** 1.0  
-**Date:** 2026-07-13  
+**Version:** 1.1  
+**Date:** 2026-07-15 (originally 2026-07-13)  
 **Source:** Architectural review (2026-07-13)
 
 This backlog is the single source of truth for planned technical improvements.
@@ -1603,7 +1603,8 @@ independently testable and independently revertable.)
       as fixed.
 - [x] ADR-008 left untouched, still `Proposed`.
 
-**Completed:** 2026-07-14, branch `fix/window-policy-monthly-rules`. Four commits:
+**Completed:** 2026-07-14, branch `fix/window-policy-monthly-rules`, merged via
+[PR #15](https://github.com/dalejandrov/sipsa/pull/15). Four commits:
 per-method day/grace-day binding with the time gate on both days (F-WP-01 + F-WP-03,
 including the `monthly-run-days` startup sanity check per the confirmed decision above),
 stable `YYYY-MM-M8`/`YYYY-MM-M10` window keys (F-WP-02), re-enabled and extended tests
@@ -1676,7 +1677,11 @@ stages (e.g., SOAP contract tests behind WireMock).
       development-workflow.md (Step 6 note), CHANGELOG.md, and the migration notes'
       post-migration recommendation #3 marked resolved.
 
-**Completed:** 2026-07-14, branch `ci/github-actions`.
+**Completed:** 2026-07-14, branch `ci/github-actions`, merged via
+[PR #16](https://github.com/dalejandrov/sipsa/pull/16). First `main` run green on
+2026-07-15: `./mvnw clean verify` passed on GitHub Actions with `FlywayMigrationsTest`
+executing against real PostgreSQL 18 (`tests=4`, `skipped=0` — the migration-gate guard
+step confirmed the suite ran).
 
 ---
 

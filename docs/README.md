@@ -4,6 +4,21 @@ Technical documentation for the SIPSA Integration Service.
 
 ---
 
+## Sources of Truth
+
+When two documents disagree, the one below wins for its topic; fix the other one.
+
+| Topic | Authoritative document |
+|---|---|
+| Delivered changes (per release / `[Unreleased]`) | [`CHANGELOG.md`](../CHANGELOG.md) |
+| Story status (Pending / Done / Blocked) | [Technical Backlog](backlog/technical-backlog.md) |
+| Accepted architectural decisions | The [ADRs](adr/README.md) (`Accepted` status only) |
+| Active debt and resolved debt items | [Technical Debt Registry](architecture/technical-debt.md) |
+| Local operation and verifiable procedures | [`CONTRIBUTING.md`](../CONTRIBUTING.md) and the [development guides](#development-process) |
+| Migration history, risks and recommendations | [Migration notes](migrations/spring-boot-4-java-25.md) — historical record; resolved items are marked inline, not deleted |
+
+---
+
 ## Architecture
 
 | Document | Description |
@@ -15,7 +30,7 @@ Technical documentation for the SIPSA Integration Service.
 | [Refactoring Roadmap](architecture/refactoring-roadmap.md) | Active and deferred refactorings, with justifications for deferral |
 | [Implementation Roadmap](architecture/implementation-roadmap.md) | Phased plan for all backlog items |
 | [Testing Strategy](architecture/testing-strategy.md) | Test pyramid, mandatory/recommended/optional tests, tooling |
-| [Scheduled Ingestion Validation](architecture/scheduled-ingestion-validation.md) | Evidence-backed validation of the scheduled ingestion pipeline (TECH-110): job inventory, cron table, DANE contrast matrix, confirmed findings F-WP-01/02/03 |
+| [Scheduled Ingestion Validation](architecture/scheduled-ingestion-validation.md) | Evidence-backed validation of the scheduled ingestion pipeline (TECH-110): job inventory, cron table, DANE contrast matrix, findings F-WP-01/02/03 (all fixed by TECH-111, 2026-07-14) |
 | [Timezone/Locale Strategy Review](architecture/timezone-locale-date-strategy-review.md) | Temporal inventory, DANE contrast matrix, `TimezoneFilter`/`WindowPolicy` evaluation, alternatives comparison — evidence for ADR-008 (Proposed) |
 
 ## Architecture Decision Records
@@ -31,6 +46,7 @@ Technical documentation for the SIPSA Integration Service.
 | [ADR-006](adr/ADR-006-ingestion-handler-contract.md) | Ingestion Handler Contract | Proposed |
 | [ADR-007](adr/ADR-007-package-boundaries-and-internal-models.md) | Package Boundaries and Internal Models | **Accepted** (scoped to F1, F2, F4, F5) |
 | [ADR-008](adr/ADR-008-timezone-locale-and-date-semantics.md) | Timezone, Locale, and Date Semantics Strategy | Proposed |
+| [ADR-009](adr/ADR-009-database-migration-strategy.md) | Database Migration Strategy (Flyway) | **Accepted** |
 
 See [ADR Index](adr/README.md) for the full list and status guide.
 
@@ -38,7 +54,7 @@ See [ADR Index](adr/README.md) for the full list and status guide.
 
 | Document | Description |
 |---|---|
-| [Technical Backlog](backlog/technical-backlog.md) | All 36 stories, prioritized with acceptance criteria and Git branches |
+| [Technical Backlog](backlog/technical-backlog.md) | All 40 stories, prioritized with acceptance criteria and Git branches — the official source of truth for story status |
 
 ## Migrations
 
@@ -68,6 +84,7 @@ See [ADR Index](adr/README.md) for the full list and status guide.
 | Document | Description |
 |---|---|
 | [Development Workflow](development/development-workflow.md) | Full cycle: story → branch → implement → test → PR |
+| [Database Migrations](development/database-migrations.md) | Day-to-day Flyway workflow (ADR-009): naming, conventions, the Testcontainers migration gate |
 | [Branching Strategy](development/branching-strategy.md) | Branch naming, lifecycle, merge strategy |
 | [Implementation Guidelines](development/implementation-guidelines.md) | Scope rules, testing rules, documentation checklist |
 | [Pull Request Checklist](development/pull-request-checklist.md) | Mandatory checklist for every PR |

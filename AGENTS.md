@@ -169,8 +169,11 @@ A story is complete only when ALL of the following are true:
 
 ## Critical Known Issues (act on these — they are in the backlog)
 
-1. **Internal endpoints have no authentication** — `TECH-001`, Phase 1. Critical.
-2. **`SipsaParcial` deduplication is broken** — `TECH-010` (SPIKE), Phase 5. Blocked pending business decision.
+1. **`SipsaParcial` deduplication is broken** — `TECH-010` (SPIKE), Phase 5. Blocked pending business decision.
+
+(Resolved 2026-07-15: internal endpoints now require a JWT with per-operation scopes —
+`TECH-001`/`TECH-002`, ADR-002 `Accepted`, merged via PR #17 and e2e-validated against
+the mock OIDC issuer. The AWS gateway/network layers remain as TECH-130..132.)
 
 Do not implement a fix for TECH-010 without completing the SPIKE first.
 

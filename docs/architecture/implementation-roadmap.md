@@ -20,16 +20,20 @@ Before starting any phase:
 
 ---
 
-## ► Next Step: Phase 1
+## ► Next Step: finish Phase 1
 
-**Phase 1 is the next phase to implement.** All prerequisites are met:
+**Phase 1 is partially done and still the active phase.** Status:
 - The Spring Boot 4 / Java 25 migration is merged to `main`.
-- `./mvnw clean verify` passes (65 tests, 0 failures, 2 intentional skips).
-- No Phase 1 stories are blocked by pending ADR decisions.
+- `./mvnw clean verify` passes (104 tests, 0 failures, 0 skips as of 2026-07-15) and runs
+  in CI on every PR and push to `main` (TECH-120, merged via PR #16).
+- The Phase 1 security stories are **done**: TECH-001/TECH-002 merged via PR #17
+  (2026-07-15, ADR-002 Accepted) and e2e-validated against the mock OIDC issuer.
+- The remaining Phase 1 stories (TECH-020/030/031/050/051/052/070/071) are pending and
+  unblocked.
 
-Note: part of Phase 3 (TECH-040, via TECH-110) was completed ahead of sequence as an
-independently approved validation track. This does not change the phase order for the
-remaining stories — Phase 1 is still next.
+Note: parts of Phase 3 (TECH-040 via TECH-110, and TECH-111) were completed ahead of
+sequence as independently approved tracks. This does not change the phase order for the
+remaining stories.
 
 ---
 
@@ -57,6 +61,19 @@ deduplication changes, or general service refactoring).
 
 ---
 
+## Parallel Track — CI and AWS Infrastructure
+
+Also outside the phase sequence (see the backlog for full stories):
+
+| Story | Title | Status |
+|---|---|---|
+| TECH-120 | Continuous integration pipeline (GitHub Actions) | **Done** (2026-07-14, merged via PR #16; first run green — `FlywayMigrationsTest` executed with `tests=4`, `skipped=0`) |
+| TECH-130 | Cognito resource server, scopes and app clients | Pending (AWS infrastructure) |
+| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | Pending (AWS infrastructure) |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB | Pending (AWS infrastructure) |
+
+---
+
 ## Phase 1 — Foundation Cleanup
 
 **Objective:** Fix bugs, enforce minimum security, and remove low-risk debt.
@@ -66,8 +83,8 @@ No behavioral changes to the public API. No new dependencies (except Spring Secu
 
 | Story | Title | Type | Branch |
 |---|---|---|---|
-| TECH-001 | Protect `/api/internal/**` with authentication | Security | `fix/internal-endpoint-security` |
-| TECH-002 | Restrict Actuator `loggers` endpoint | Security | `fix/internal-endpoint-security` |
+| TECH-001 | Protect `/api/internal/**` with authentication — **Done** (2026-07-15, PR #17, ADR-002) | Security | `fix/internal-endpoint-security` |
+| TECH-002 | Restrict Actuator `loggers` endpoint — **Done** (2026-07-15, PR #17) | Security | `fix/internal-endpoint-security` |
 | TECH-020 | Fix `@RequestMapping` without leading `/` | Bug | `fix/request-mapping-leading-slash` |
 | TECH-030 | Named executor in `@Async` for audit logging | Bug | `fix/async-executor-audit` |
 | TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Config | `refactor/health-indicator-config` |
@@ -127,18 +144,19 @@ those phases modify production code that needs a safety net.
 |---|---|---|---|---|
 | TECH-040 | Unit tests for `WindowPolicy` | Testing | `test/scheduled-ingestion-jobs` (bundled into TECH-110) | **Done** (2026-07-13) |
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | Testing | `test/scheduled-ingestion-jobs` | **Done** (2026-07-13) |
-| TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | Correctiva | `fix/window-policy-monthly-rules` (not created yet) | Pending — plan approved, not implemented |
+| TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | Correctiva | `fix/window-policy-monthly-rules` | **Done** (2026-07-14, merged via PR #15) |
 | TECH-041 | Unit tests for `SpecificationBuilder` | Testing | `test/specification-builder` | Pending |
 | TECH-042 | Unit tests for `IngestionJob` | Testing | `test/ingestion-job` | Pending |
 | TECH-043 | Tests for `GlobalExceptionHandler` | Testing | `test/exception-handler` | Pending |
 
-**Progress (2026-07-13):** TECH-040 was completed via TECH-110 (`main` now has 65 tests);
-TECH-111 was produced by that validation and is pending. TECH-041/042/043 have not started
-— the phase remains open.
+**Progress (2026-07-15):** TECH-040 was completed via TECH-110; TECH-111 was produced by
+that validation and implemented on 2026-07-14 (merged via PR #15). TECH-041/042/043 have
+not started — the phase remains open.
 
 **Acceptance criteria for phase exit:**
-- `./mvnw clean verify` passes with ≥ 30 unit tests. *(Already met — 65 tests — but the
-  phase does not exit until the per-component criteria below are also met.)*
+- `./mvnw clean verify` passes with ≥ 30 unit tests. *(Already met — 104 tests as of
+  2026-07-15 — but the phase does not exit until the per-component criteria below are
+  also met.)*
 - `WindowPolicy`: ≥ 8 test cases covering daily/monthly, force=true, timezone. ✅ (25 delivered)
 - `SpecificationBuilder`: ≥ 7 test cases covering all filter combinations.
 - `IngestionJob`: ≥ 7 test cases covering all execution paths.
@@ -200,7 +218,7 @@ This phase can run in parallel with any of the above phases.
 |---|---|---|---|
 | TECH-044 | SPIKE: Evaluate WireMock/Testcontainers for integration tests | SPIKE | `spike/integration-test-strategy` |
 | TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | SPIKE | `spike/ingestion-handler-contract` |
-| TECH-080 | Write ADR-002 (security) after TECH-001 | Documentation | `docs/architecture-decisions` |
+| TECH-080 | Write ADR-002 (security) after TECH-001 — **Done** (2026-07-15, PR #17; ADR-002 Accepted, documented with the implementation) | Documentation | `fix/internal-endpoint-security` |
 | TECH-081 | Write ADR-001 (deduplication) after TECH-010 | Documentation | `docs/architecture-decisions` |
 
 ---
@@ -210,8 +228,8 @@ This phase can run in parallel with any of the above phases.
 ```
 main (post-migration)
 │
-├── Phase 1 — Foundation Cleanup          [Can start now]
-│   Security + Bugs + QA + Config
+├── Phase 1 — Foundation Cleanup          [Active; security half done]
+│   Security (TECH-001/002 done, PR #17) + Bugs + QA + Config (pending)
 │   Duration estimate: 2–3 days
 │
 ├── Phase 2 — Contract and Correctness    [After Phase 1]
@@ -220,7 +238,8 @@ main (post-migration)
 │
 ├── Phase 3 — Testing                     [After Phase 2; partially done ahead of sequence]
 │   Unit tests for critical logic
-│   TECH-040/TECH-110 done (2026-07-13); TECH-041/042/043 + TECH-111 remain
+│   TECH-040/TECH-110 done (2026-07-13); TECH-111 done (2026-07-14, PR #15);
+│   TECH-041/042/043 remain
 │   Duration estimate: 3–5 days
 │
 ├── Phase 4 — Observability + Performance [After Phase 3]
