@@ -50,13 +50,16 @@ public class SipsaJwtProperties {
             return List.of();
         }
         List<String> ids = new ArrayList<>();
-        for (String part : csv.split(",", -1)) {
-            String id = part.trim();
+        String[] parts = csv.split(",", -1);
+        for (int i = 0; i < parts.length; i++) {
+            String id = parts[i].trim();
             if (id.isEmpty()) {
+                // Deliberately reports the position only — never the configured values.
                 throw new SipsaConfigurationException(
                         "sipsa.security.jwt.allowed-client-ids (SIPSA_JWT_ALLOWED_CLIENT_IDS) is malformed: "
-                                + "blank entry in '" + csv + "'. Provide a comma-separated list of client ids, "
-                                + "or leave it empty to accept any client of the trusted issuer.");
+                                + "entry " + (i + 1) + " of " + parts.length + " is blank. Provide a "
+                                + "comma-separated list of client ids, or leave the variable empty to accept "
+                                + "any client of the trusted issuer.");
             }
             ids.add(id);
         }
