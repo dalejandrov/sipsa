@@ -20,6 +20,26 @@ services:
       timeout: 5s
       retries: 5
 
+  # Local mock OIDC issuer (navikt/mock-oauth2-server, multi-arch amd64/arm64).
+  # DEV-ONLY: issues unsigned-trust JWTs for exercising the API's scoped
+  # security locally without any AWS/Cognito dependency (ADR-002). The mock
+  # derives the token's `iss` from the Host header it is called with, so tokens
+  # must be requested through the same hostname the app validates against
+  # (http://oidc:9000/default) — see CONTRIBUTING.md for the one-line /etc/hosts
+  # setup and token commands. Contains no real secrets by definition.
+  oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:5.0.2
+    container_name: sipsa-oidc
+    ports:
+      - "9000:9000"
+    environment:
+      - SERVER_PORT=9000
+      - JSON_CONFIG_PATH=/app/config.json
+    volumes:
+      - ./docker/mock-oidc-config.json:/app/config.json:ro
+    networks:
+      - sipsa-network
+
   app:
     image: sipsa-app
     build: .
@@ -36,9 +56,16 @@ services:
       - DB_NAME=${DB_NAME:-sipsa_db}
       - DB_USERNAME=${DB_USERNAME:-sipsa_user}
       - DB_PASSWORD=${DB_PASSWORD:-sipsa_pass}
+      # JWT issuer: defaults to the compose-internal mock OIDC service
+      # (application-docker.yaml). Override from the shell to point at a real
+      # issuer (e.g. a dev Cognito user pool) without editing any file.
+      - SIPSA_JWT_ISSUER_URI=${SIPSA_JWT_ISSUER_URI:-http://oidc:9000/default}
+      - SIPSA_JWT_ALLOWED_CLIENT_IDS=${SIPSA_JWT_ALLOWED_CLIENT_IDS:-}
     depends_on:
       db:
         condition: service_healthy
+      oidc:
+        condition: service_started
     networks:
       - sipsa-network
     healthcheck:

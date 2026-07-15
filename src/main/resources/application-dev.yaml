@@ -15,6 +15,18 @@ spring:
     password: ${DB_PASSWORD:sipsa_pass}
 
   # ----------------------------------------------------------------------------
+  # Local JWT issuer default: the mock OIDC server from docker-compose
+  # (`docker compose up -d oidc`). An issuer URI is not a secret. Override
+  # SIPSA_JWT_ISSUER_URI to point at a dev Cognito user pool for real
+  # AWS integration testing.
+  # ----------------------------------------------------------------------------
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${SIPSA_JWT_ISSUER_URI:http://localhost:9000/default}
+
+  # ----------------------------------------------------------------------------
   # Readable SQL in logs
   # ----------------------------------------------------------------------------
   jpa:

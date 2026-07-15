@@ -1,0 +1,52 @@
+{
+  "interactiveLogin": false,
+  "httpServer": "NettyWrapper",
+  "tokenCallbacks": [
+    {
+      "issuerId": "default",
+      "tokenExpiry": 3600,
+      "requestMappings": [
+        {
+          "requestParam": "scope",
+          "match": "sipsa/ingestion.execute",
+          "claims": {
+            "token_use": "access",
+            "scope": "sipsa/ingestion.execute"
+          }
+        },
+        {
+          "requestParam": "scope",
+          "match": "sipsa/ingestion.cancel",
+          "claims": {
+            "token_use": "access",
+            "scope": "sipsa/ingestion.cancel"
+          }
+        },
+        {
+          "requestParam": "scope",
+          "match": "sipsa/ingestion.read",
+          "claims": {
+            "token_use": "access",
+            "scope": "sipsa/ingestion.read"
+          }
+        },
+        {
+          "requestParam": "scope",
+          "match": "sipsa/audit.read",
+          "claims": {
+            "token_use": "access",
+            "scope": "sipsa/audit.read"
+          }
+        },
+        {
+          "requestParam": "grant_type",
+          "match": "client_credentials",
+          "claims": {
+            "token_use": "access",
+            "scope": "sipsa/ingestion.execute sipsa/ingestion.cancel sipsa/ingestion.read sipsa/audit.read"
+          }
+        }
+      ]
+    }
+  ]
+}
