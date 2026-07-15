@@ -136,9 +136,22 @@ through, and it must match the issuer the app validates against.
 - App on the host (`./mvnw spring-boot:run`, dev profile): issuer defaults to
   `http://localhost:9000/default` — request tokens via `localhost` as above. ✔️
 - Full stack (`docker compose up`): the containerized app validates against
-  `http://oidc:9000/default`. To use host-obtained tokens against it, add
-  `127.0.0.1 oidc` to your `/etc/hosts` once and request tokens via
-  `http://oidc:9000/default/token`.
+  `http://oidc:9000/default`. **Preferred:** request tokens with `curl --resolve`, which
+  sends the right `Host` header without touching any system file:
+
+  ```bash
+  TOKEN=$(curl -s --resolve oidc:9000:127.0.0.1 \
+    -X POST http://oidc:9000/default/token \
+    -d grant_type=client_credentials \
+    -d client_id=local-dev -d client_secret=anything \
+    -d scope=sipsa/ingestion.read | jq -r .access_token)
+  ```
+
+  Alternative: add `127.0.0.1 oidc` to your `/etc/hosts` once and request tokens via
+  `http://oidc:9000/default/token` directly.
+
+This full-stack flow was validated end-to-end on 2026-07-15 (9/9 checks green — token
+claims, issuer, `401`/`403`/`2xx` matrix, Actuator policy; see ADR-002).
 
 To test against a real dev Cognito user pool instead, export
 `SIPSA_JWT_ISSUER_URI=https://cognito-idp.<region>.amazonaws.com/<userPoolId>` before

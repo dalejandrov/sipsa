@@ -24,7 +24,7 @@ Technical documentation for the SIPSA Integration Service.
 |---|---|---|
 | [ADR-000](adr/ADR-000-current-architecture.md) | Current Architecture Snapshot | Accepted |
 | [ADR-001](adr/ADR-001-data-deduplication.md) | Data Deduplication Strategy | Proposed |
-| [ADR-002](adr/ADR-002-internal-endpoint-security.md) | Internal Endpoint Security | Proposed |
+| [ADR-002](adr/ADR-002-internal-endpoint-security.md) | Internal Endpoint Security | **Accepted** |
 | [ADR-003](adr/ADR-003-error-response-model.md) | Error Response Model | Proposed |
 | [ADR-004](adr/ADR-004-transaction-boundaries.md) | Transaction Boundaries in Ingestion | **Accepted** |
 | [ADR-005](adr/ADR-005-scheduler-execution-model.md) | Scheduler Execution Model | Proposed |

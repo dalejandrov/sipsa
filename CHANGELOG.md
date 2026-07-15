@@ -38,6 +38,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     moved `@AutoConfigureMockMvc` into the dedicated `spring-boot-webmvc-test` module).
   - Infrastructure layers formalized as TECH-130 (Cognito), TECH-131 (API Gateway),
     TECH-132 (private networking) — pending, tracked in the backlog.
+  - Merged via PR #17 (2026-07-15). **Post-merge validation (2026-07-15):** manual
+    end-to-end check of the full Docker Compose stack against the mock OIDC issuer,
+    9/9 green — token issuance, `token_use=access`, `scope` claim, issuer coherence,
+    `401` (no/invalid/tampered token), `403` (missing scope, both ingestion↔audit
+    directions), `2xx` (correct scope), `/actuator/health` public with
+    `/actuator/info`/`/actuator/metrics` token-protected, and default deny on
+    undeclared routes. No changes to `docker/mock-oidc-config.json` or the Spring
+    Security implementation were required. Evidence recorded in ADR-002 and TECH-001.
 
 ### Added
 

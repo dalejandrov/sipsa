@@ -96,6 +96,16 @@ docker-compose environments, so the project runs without AWS connectivity. A dev
 user pool is used for real AWS integration testing by overriding `SIPSA_JWT_ISSUER_URI`.
 The base profile has no issuer default and fails fast at startup.
 
+**Post-merge validation (2026-07-15):** after PR #17 merged, the full policy was verified
+end-to-end against the running Docker Compose stack (app + PostgreSQL + mock OIDC), 9/9
+checks green: access-token issuance, `token_use=access`, `scope` claim, issuer coherence
+(`http://oidc:9000/default`), `401` without/with an invalid or tampered token, `403` on a
+missing scope (both directions, ingestion↔audit), `2xx` with the correct scope,
+`/actuator/health` public while `/actuator/info`/`/actuator/metrics` require a token, and
+default deny on undeclared routes. No changes to `docker/mock-oidc-config.json` or the
+Spring Security implementation were needed. Token-request commands:
+[CONTRIBUTING.md](../../CONTRIBUTING.md#local-authentication-mock-oidc).
+
 ## Consequences
 
 - The application layer (item 3) is implemented and tested in this repository; items 1, 2
