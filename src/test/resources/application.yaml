@@ -11,6 +11,15 @@ spring:
     open-in-view: false
   flyway:
     enabled: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Dummy issuer: satisfies the fail-fast startup check without any
+          # network dependency — the decoder is lazy (SupplierJwtDecoder) and
+          # security tests authenticate via spring-security-test's jwt()
+          # post-processor or a mocked JwtDecoder, never against a real issuer.
+          issuer-uri: https://sipsa-test-issuer.invalid
   task:
     scheduling:
       pool:
