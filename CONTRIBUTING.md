@@ -102,6 +102,50 @@ Environment variables used by the application are documented in `.env.example`.
 
 ---
 
+## Local Authentication (mock OIDC)
+
+`/api/internal/**` requires a JWT with the operation's scope
+([ADR-002](docs/adr/ADR-002-internal-endpoint-security.md)). Locally, tokens come from the
+`oidc` compose service (`mock-oauth2-server`, config in `docker/mock-oidc-config.json`) —
+no AWS needed, and the mock holds no real secrets (`client_id`/`client_secret` values are
+arbitrary).
+
+```bash
+# Start only the mock issuer (enough for ./mvnw spring-boot:run with the dev profile)
+docker compose up -d oidc
+
+# Token with ONE scope (the mock's request mappings match single-scope requests)
+TOKEN=$(curl -s -X POST http://localhost:9000/default/token \
+  -d grant_type=client_credentials \
+  -d client_id=local-dev -d client_secret=anything \
+  -d scope=sipsa/ingestion.read | jq -r .access_token)
+
+# Token with ALL four sipsa scopes (fallback mapping for client_credentials;
+# also what you get for a multi-scope or unrecognized scope request)
+ADMIN_TOKEN=$(curl -s -X POST http://localhost:9000/default/token \
+  -d grant_type=client_credentials \
+  -d client_id=local-dev -d client_secret=anything | jq -r .access_token)
+
+# Call a protected endpoint
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/internal/ingestion/runs
+```
+
+**Issuer coherence:** the token's `iss` claim derives from the hostname you request it
+through, and it must match the issuer the app validates against.
+
+- App on the host (`./mvnw spring-boot:run`, dev profile): issuer defaults to
+  `http://localhost:9000/default` — request tokens via `localhost` as above. ✔️
+- Full stack (`docker compose up`): the containerized app validates against
+  `http://oidc:9000/default`. To use host-obtained tokens against it, add
+  `127.0.0.1 oidc` to your `/etc/hosts` once and request tokens via
+  `http://oidc:9000/default/token`.
+
+To test against a real dev Cognito user pool instead, export
+`SIPSA_JWT_ISSUER_URI=https://cognito-idp.<region>.amazonaws.com/<userPoolId>` before
+starting the app — no code or config file changes.
+
+---
+
 ## Branch Strategy
 
 All work is done on feature branches created from `main`. The migration branch

@@ -8,6 +8,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+
+- **TECH-001/TECH-002 — application security layer** ([ADR-002](docs/adr/ADR-002-internal-endpoint-security.md),
+  now `Accepted` with the layered AWS model: API Gateway API keys + Cognito JWT +
+  Resource Server + private networking). Spring Boot is now an OAuth 2.0 Resource Server:
+  - `/api/internal/**` requires a Cognito access token with the per-operation scope —
+    `sipsa/ingestion.execute` (run), `sipsa/ingestion.cancel` (cancel),
+    `sipsa/ingestion.read` (run queries), `sipsa/audit.read` (audit trail). **Breaking for
+    previously-unauthenticated operational scripts, by design.**
+  - JWT validation: issuer/signature/expiry, `token_use=access` (Cognito ID tokens
+    rejected), optional client allowlist via `SIPSA_JWT_ALLOWED_CLIENT_IDS` (fail-fast on
+    malformed values). Issuer configured via `SIPSA_JWT_ISSUER_URI` (required — the app
+    refuses to start without it; no secrets involved, none versioned).
+  - Stateless chain: no sessions, no CSRF surface, no form login, no HTTP Basic, no
+    cookies. Default deny for undeclared routes. `401`/`403` are JSON in the
+    `ErrorResponse` shape with generic messages (no HTML, no stack traces, no hint of
+    which validation failed).
+  - `GET /api/sipsa/**` stays public in the application — per-consumer API keys, quotas
+    and throttling are API Gateway's job (TECH-131). `/actuator/health` stays public for
+    container healthchecks; every other Actuator endpoint now requires a valid token
+    (closing TECH-002), and Actuator is excluded from the public gateway surface.
+  - Local development runs without AWS: `docker compose up` now includes a mock OIDC
+    service (`ghcr.io/navikt/mock-oauth2-server:5.0.2`, config in
+    `docker/mock-oidc-config.json`); the `dev` profile defaults the issuer to
+    `http://localhost:9000/default`. See CONTRIBUTING.md for token commands.
+  - New dependencies: `spring-boot-starter-oauth2-resource-server`;
+    `spring-security-test` and `spring-boot-webmvc-test` (test scope — Spring Boot 4
+    moved `@AutoConfigureMockMvc` into the dedicated `spring-boot-webmvc-test` module).
+  - Infrastructure layers formalized as TECH-130 (Cognito), TECH-131 (API Gateway),
+    TECH-132 (private networking) — pending, tracked in the backlog.
+
 ### Added
 
 - **TECH-120 — CI pipeline** (`.github/workflows/ci.yml`). Every pull request and every

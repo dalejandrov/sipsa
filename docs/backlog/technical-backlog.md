@@ -17,8 +17,8 @@ When a story is implemented:
 
 | ID | Title | Priority | Phase | Status |
 |---|---|---|---|---|
-| TECH-001 | Protect `/api/internal/**` with authentication | Critical | 1 | Pending |
-| TECH-002 | Restrict Actuator `loggers` endpoint | High | 1 | Pending |
+| TECH-001 | Protect `/api/internal/**` with authentication | Critical | 1 | **Done** (application layer; gateway/network layers: TECH-130..132) |
+| TECH-002 | Restrict Actuator `loggers` endpoint | High | 1 | **Done** |
 | TECH-010 | SPIKE: Parcial deduplication key | High | 5 | Pending |
 | TECH-011 | Implement correct deduplication for Parcial | High | 5 | Pending |
 | TECH-012 | SPIKE: Verify `sipsa_parcial` growth in production | High | 5 | Pending |
@@ -43,7 +43,7 @@ When a story is implemented:
 | TECH-060 | Fix N+1 in `upsertFallbackBatch` | Medium | 4 | Pending |
 | TECH-070 | Bean Validation on `SoapProperties` | Low | 1 | Pending |
 | TECH-071 | Align `batch-size` defaults | Low | 1 | Pending |
-| TECH-080 | Write ADR-002 (security) | Low | 6 | Pending |
+| TECH-080 | Write ADR-002 (security) | Low | 6 | **Done** |
 | TECH-081 | Write ADR-001 (deduplication) | Low | 6 | Pending |
 | TECH-090 | Move internal ingestion commands to `application/command` | Low | — | **Done** |
 | TECH-091 | Move `TimezoneFilter` out of `infrastructure/config` into `api` | Low | — | **Done** |
@@ -54,6 +54,9 @@ When a story is implemented:
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
+| TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending (infrastructure) |
+| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending (infrastructure) |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | Pending (infrastructure) |
 
 ---
 
@@ -67,7 +70,14 @@ When a story is implemented:
 **Type:** Security  
 **Priority:** Critical  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Done** — application security layer implemented 2026-07-15 on branch
+`fix/internal-endpoint-security` (ADR-002, Option E). **This closes the application
+layer:** Spring Boot is an OAuth 2.0 Resource Server validating Cognito JWTs
+(issuer, signature, `token_use=access`, optional client allowlist) and enforcing
+per-operation scopes on `/api/internal/**`, stateless, with JSON 401/403. The API
+Gateway, Cognito provisioning, and private-network layers are deliberately separate
+infrastructure stories — see [TECH-130](#tech-130), [TECH-131](#tech-131),
+[TECH-132](#tech-132) — and do not reopen this one.  
 **Complexity:** S  
 **Branch:** `fix/internal-endpoint-security`
 
@@ -86,15 +96,16 @@ Add authentication to all endpoints under `/api/internal/**`. Keep `/api/sipsa/*
 **Dependencies:** See [ADR-002](../adr/ADR-002-internal-endpoint-security.md) for the authentication mechanism decision.
 
 **Acceptance Criteria:**
-- [ ] `POST /api/internal/ingestion/run` returns `401` without credentials.
-- [ ] `GET /api/internal/audit/recent` returns `401` without credentials.
-- [ ] `GET /api/sipsa/ciudad` returns `200` without credentials.
-- [ ] `GET /actuator/health` returns `200` without credentials (Docker healthcheck).
-- [ ] `GET /actuator/loggers` is not publicly accessible.
-- [ ] `./mvnw clean verify` passes.
-- [ ] ADR-002 is written after this story is complete (TECH-080).
+- [x] `POST /api/internal/ingestion/run` returns `401` without credentials.
+- [x] `GET /api/internal/audit/recent` returns `401` without credentials.
+- [x] `GET /api/sipsa/ciudad` returns `200` without credentials.
+- [x] `GET /actuator/health` returns `200` without credentials (Docker healthcheck).
+- [x] `GET /actuator/loggers` is not publicly accessible.
+- [x] `./mvnw clean verify` passes.
+- [x] ADR-002 is written after this story is complete (TECH-080).
 
-**Completed:** —
+**Completed:** 2026-07-15, branch `fix/internal-endpoint-security`. Verified by
+`InternalEndpointSecurityTest` (15 cases) and `SipsaJwtValidatorsTest` (11 cases).
 
 ---
 
@@ -104,7 +115,11 @@ Add authentication to all endpoints under `/api/internal/**`. Keep `/api/sipsa/*
 **Type:** Security  
 **Priority:** High  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Done** — closed in two steps: exposure removed from the base profile
+(2026-07-14, `chore/config-cleanup-dev-profile` — `loggers` is dev-only since then), and
+authentication added on every non-health Actuator endpoint in all profiles (2026-07-15,
+`fix/internal-endpoint-security`, ADR-002). Actuator is additionally excluded from the
+public API Gateway surface by design (see ADR-002 §5, TECH-131).  
 **Complexity:** XS  
 **Branch:** `fix/internal-endpoint-security` (same as TECH-001)
 
@@ -119,11 +134,12 @@ which allows changing log levels at runtime without authentication.
 **Dependencies:** TECH-001 (can be resolved in the same branch).
 
 **Acceptance Criteria:**
-- [ ] `GET /actuator/loggers` is not accessible without authentication.
-- [ ] `GET /actuator/health` remains accessible without authentication.
-- [ ] `./mvnw clean verify` passes.
+- [x] `GET /actuator/loggers` is not accessible without authentication.
+- [x] `GET /actuator/health` remains accessible without authentication.
+- [x] `./mvnw clean verify` passes.
 
-**Completed:** —
+**Completed:** 2026-07-15, branch `fix/internal-endpoint-security` (with the exposure
+half completed 2026-07-14 on `chore/config-cleanup-dev-profile`).
 
 ---
 
@@ -762,17 +778,21 @@ each record in the batch, producing N database queries for N records.
 **Type:** Documentation  
 **Priority:** Low  
 **Phase:** 6  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** XS  
-**Branch:** `docs/architecture-decisions`
+**Branch:** `fix/internal-endpoint-security` (documented together with the implementation,
+not on a separate docs branch)
 
 **Dependencies:** TECH-001 must be implemented first.
 
 **Acceptance Criteria:**
-- [ ] `docs/adr/ADR-002-internal-endpoint-security.md` is updated from `Proposed` to `Accepted`.
-- [ ] The chosen mechanism is documented with its rationale.
+- [x] `docs/adr/ADR-002-internal-endpoint-security.md` is updated from `Proposed` to `Accepted`.
+- [x] The chosen mechanism is documented with its rationale.
 
-**Completed:** —
+**Completed:** 2026-07-15, branch `fix/internal-endpoint-security`. ADR-002 accepted with
+the layered model (Option E: API Gateway keys + Cognito JWT scopes + Spring Resource
+Server + private networking), superseding the original Option A (HTTP Basic)
+recommendation after the AWS deployment target was confirmed.
 
 ---
 
@@ -1646,3 +1666,105 @@ stages (e.g., SOAP contract tests behind WireMock).
       post-migration recommendation #3 marked resolved.
 
 **Completed:** 2026-07-14, branch `ci/github-actions`.
+
+---
+
+### TECH-130
+
+**Title:** Cognito resource server, scopes and app clients
+**Type:** Infrastructure / Security
+**Priority:** High
+**Phase:** —
+**Status:** Pending
+**Complexity:** M
+**Branch:** — (infrastructure work; IaC location to be defined — likely a separate repository)
+
+**Origin:** [ADR-002](../adr/ADR-002-internal-endpoint-security.md) (Accepted, Option E),
+layer 2. The application side (Resource Server, TECH-001) is already implemented and
+validated against a local mock OIDC issuer; this story provisions the real identity
+provider.
+
+**Scope:**
+- Cognito user pool for the SIPSA platform (dev and prod).
+- Resource server `sipsa` declaring the custom scopes:
+  `sipsa/ingestion.execute`, `sipsa/ingestion.cancel`, `sipsa/ingestion.read`,
+  `sipsa/audit.read`.
+- One `client_credentials` app client per machine-to-machine integration, each authorized
+  only for the scopes it needs. Client secrets live in the consumer's secret store, never
+  in this repository.
+- App client (authorization code + hosted UI) for human operators.
+- Document the issuer URI per environment; the backend consumes it via
+  `SIPSA_JWT_ISSUER_URI` and optionally pins clients via `SIPSA_JWT_ALLOWED_CLIENT_IDS`.
+
+**Acceptance Criteria:**
+- [ ] A token obtained via `client_credentials` from the dev pool authorizes the matching
+      `/api/internal/**` operation against a deployed backend (401/403/2xx matrix passes).
+- [ ] Scopes not granted to a client are rejected with `403`.
+- [ ] No secret is committed to this repository.
+
+**Completed:** —
+
+---
+
+### TECH-131
+
+**Title:** API Gateway — API keys, usage plans, throttling and access logs
+**Type:** Infrastructure / Security
+**Priority:** High
+**Phase:** —
+**Status:** Pending
+**Complexity:** M
+**Branch:** — (infrastructure work)
+
+**Origin:** ADR-002 (Accepted, Option E), layer 1.
+
+**Scope:**
+- API Gateway as the single public entry point for `/api/sipsa/**` (per-consumer API
+  keys, usage plans — e.g. `basic` 10 rps / 100k req/month, `partner` 50 rps / 1M — 429 on
+  quota, revocation, per-key consumption metrics) and for `/api/internal/**` (JWT
+  authorizer against the TECH-130 pool, or IAM/SigV4 routes for AWS-native automation; no
+  API key requirement on admin routes).
+- Access logs with `apiKeyId`/`clientId` per request.
+- **Actuator is not routed** through the gateway (ADR-002 §5).
+- API keys are identification and metering only — never authentication (ADR-002).
+
+**Acceptance Criteria:**
+- [ ] `GET /api/sipsa/**` without an API key is rejected at the gateway; with a key it is
+      forwarded and metered against the key's usage plan.
+- [ ] `/api/internal/**` requires a valid Cognito JWT (or IAM signature) at the gateway
+      *and* is re-validated by the backend.
+- [ ] `/actuator/**` is not reachable through the gateway.
+- [ ] Exceeding a usage plan returns `429` from the gateway.
+
+**Completed:** —
+
+---
+
+### TECH-132
+
+**Title:** Private networking — ECS, VPC Link, internal ALB, gateway-bypass prevention
+**Type:** Infrastructure / Security
+**Priority:** High
+**Phase:** —
+**Status:** Pending
+**Complexity:** M
+**Branch:** — (infrastructure work)
+
+**Origin:** ADR-002 (Accepted, Option E), layer 4.
+
+**Scope:**
+- ECS service in private subnets, no public IP; internal ALB; API Gateway reaches the
+  service exclusively via VPC Link. ALB security group admits only the VPC Link ENIs.
+- `/actuator/health` used by the ALB target group inside the VPC.
+- Decide the metrics path (Prometheus scrape with token inside the VPC, ADOT sidecar, or
+  CloudWatch) — `/actuator/prometheus` requires a valid token per ADR-002 §5.
+- This layer is the enforcing control for IAM-authorized routes (SigV4 cannot be
+  re-validated by the application) and eliminates metering evasion on the public data API.
+
+**Acceptance Criteria:**
+- [ ] The backend has no publicly routable address; requests bypassing API Gateway do not
+      reach it.
+- [ ] Healthchecks and deployments remain functional through the internal path.
+- [ ] The metrics collection path is decided and documented.
+
+**Completed:** —

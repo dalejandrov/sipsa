@@ -62,18 +62,25 @@ createdb sipsa_db
 - `GET /api/sipsa/mayoristas/mensual` - Monthly wholesale aggregates
 - `GET /api/sipsa/abastecimientos/mensual` - Monthly supply to wholesale markets
 
-### Operations Endpoints (Internal)
+### Operations Endpoints (Internal — require authentication)
+
+Every `/api/internal/**` endpoint requires a Cognito access token (JWT, `Bearer`) with
+the operation's scope — see [ADR-002](docs/adr/ADR-002-internal-endpoint-security.md).
+Locally, tokens come from the mock OIDC service — see
+[CONTRIBUTING.md](CONTRIBUTING.md#local-authentication-mock-oidc).
 
 **Base URL**: `/api/internal/ingestion`
 
-- `POST /api/internal/ingestion/run` - Trigger manual ingestion (query params: `method`, `force`)
+- `POST /api/internal/ingestion/run` - Trigger manual ingestion (query params: `method`, `force`) — scope `sipsa/ingestion.execute`
 - `GET /api/internal/ingestion/methods` - List available ingestion methods
 - `GET /api/internal/ingestion/running` - Get currently active ingestion runs
 - `GET /api/internal/ingestion/runs` - List all ingestion runs
 - `GET /api/internal/ingestion/runs/{runId}` - Get specific run status
-- `POST /api/internal/ingestion/cancel/{runId}` - Cancel an active run
+- `POST /api/internal/ingestion/cancel/{runId}` - Cancel an active run — scope `sipsa/ingestion.cancel`
 
-### Audit Endpoints (Internal)
+The `GET` endpoints above require scope `sipsa/ingestion.read`.
+
+### Audit Endpoints (Internal — scope `sipsa/audit.read`)
 
 **Base URL**: `/api/internal/audit`
 
@@ -102,12 +109,17 @@ no `.env` file is read at runtime. Set the variables through your shell,
 
 Spring profiles:
 - **`dev`** (default when `SPRING_PROFILES_ACTIVE` is unset): local database
-  credentials, verbose logging, Actuator `loggers` endpoint.
-- **`docker`** (set by `docker-compose.yml`): container topology (`db` host).
-- **Base / production**: no credential defaults — `DB_USERNAME` and
-  `DB_PASSWORD` are required and the application fails fast if they are missing.
+  credentials, verbose logging, Actuator `loggers` endpoint, JWT issuer defaulting
+  to the local mock OIDC server (`http://localhost:9000/default`).
+- **`docker`** (set by `docker-compose.yml`): container topology (`db` host, `oidc`
+  issuer).
+- **Base / production**: no credential defaults — `DB_USERNAME`, `DB_PASSWORD` and
+  `SIPSA_JWT_ISSUER_URI` are required and the application fails fast if they are
+  missing.
 
 Key configurations available in [.env.example](.env.example):
+- **Security**: JWT issuer (`SIPSA_JWT_ISSUER_URI`) and optional client allowlist
+  (`SIPSA_JWT_ALLOWED_CLIENT_IDS`) — no secrets, see ADR-002
 - **Database**: Connection settings (host, port, credentials)
 - **Server**: Port and active profiles
 - **SOAP Service**: DANE endpoint and timeouts
