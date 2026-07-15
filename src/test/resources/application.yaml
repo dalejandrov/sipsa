@@ -70,7 +70,9 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        # metrics is exposed here only so InternalEndpointSecurityTest can prove
+        # that non-health actuator endpoints require authentication.
+        include: health,metrics
   endpoint:
     health:
       show-details: never
