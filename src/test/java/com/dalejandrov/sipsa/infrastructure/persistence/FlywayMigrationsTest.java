@@ -62,9 +62,32 @@ class FlywayMigrationsTest {
     void flywayAppliedMigrations() {
         MigrationInfo[] applied = flyway.info().applied();
 
-        assertThat(applied).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(applied).hasSizeGreaterThanOrEqualTo(3);
         assertThat(applied[0].getVersion().getVersion()).isEqualTo("1");
         assertThat(applied[1].getVersion().getVersion()).isEqualTo("2");
+        assertThat(applied[2].getVersion().getVersion()).isEqualTo("3");
+    }
+
+    @Test
+    @DisplayName("V3: redundant key_hash index is gone; the UNIQUE constraint index remains (TECH-119)")
+    void redundantKeyHashIndexRemovedAndConstraintPreserved() {
+        Integer redundant = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_indexes WHERE tablename = 'sipsa_parcial' "
+                        + "AND indexname = 'idx_sipsa_parcial_key_hash'",
+                Integer.class);
+        Integer constraintBacking = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_indexes WHERE tablename = 'sipsa_parcial' "
+                        + "AND indexname = 'sipsa_parcial_key_hash_key'",
+                Integer.class);
+        Integer uniqueConstraint = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_constraint con JOIN pg_class tbl ON tbl.oid = con.conrelid "
+                        + "WHERE tbl.relname = 'sipsa_parcial' AND con.contype = 'u' "
+                        + "AND con.conname = 'sipsa_parcial_key_hash_key'",
+                Integer.class);
+
+        assertThat(redundant).as("explicit duplicate index dropped by V3").isZero();
+        assertThat(constraintBacking).as("UNIQUE constraint backing index preserved").isEqualTo(1);
+        assertThat(uniqueConstraint).as("UNIQUE (key_hash) constraint still active").isEqualTo(1);
     }
 
     @Test
