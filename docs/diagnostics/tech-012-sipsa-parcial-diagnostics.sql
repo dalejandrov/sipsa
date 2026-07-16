@@ -125,8 +125,8 @@ FROM (
 SELECT
     status,
     COUNT(*)              AS corridas,
-    MIN(started_at)       AS primera,
-    MAX(started_at)       AS ultima,
+    MIN(start_time)       AS primera,
+    MAX(start_time)       AS ultima,
     SUM(records_seen)     AS total_vistos,
     SUM(records_inserted) AS total_insertados,
     SUM(records_updated)  AS total_actualizados
@@ -144,12 +144,12 @@ SELECT
     p.ingestion_run_id,
     r.window_key,
     r.status,
-    r.started_at,
+    r.start_time,
     COUNT(*) AS filas_persistidas
 FROM sipsa_parcial p
 LEFT JOIN ingestion_runs r ON r.run_id = p.ingestion_run_id
-GROUP BY p.ingestion_run_id, r.window_key, r.status, r.started_at
-ORDER BY r.started_at DESC NULLS LAST
+GROUP BY p.ingestion_run_id, r.window_key, r.status, r.start_time
+ORDER BY r.start_time DESC NULLS LAST
 LIMIT 30;
 
 
