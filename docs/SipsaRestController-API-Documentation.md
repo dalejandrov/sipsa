@@ -353,9 +353,15 @@ Provides detailed market information at municipality level, including price rang
 - `fechaEncuesta`: Filter by survey date (YYYY-MM-DD)
 - `startDate`: Filter by date range start (YYYY-MM-DD)
 - `endDate`: Filter by date range end (YYYY-MM-DD)
-- `muniId`: Filter by municipality ID (positive number)
+- `muniId`: Filter by municipality DIVIPOLA code — **text, exact match**. Leading zeros
+  are significant and preserved: `05001` and `5001` are different codes. Max 50 chars.
+  A present-but-blank value returns `400`.
 - `fuenId`: Filter by source ID (positive number)
-- `artiId`: Filter by product ID (positive number)
+- `idArtiSemana`: Filter by product/article ID (positive number) — **canonical parameter**,
+  matches the `idArtiSemana` field returned in responses.
+- `artiId`: Compatibility alias for `idArtiSemana` (kept because it is the product-filter
+  name used by the other SIPSA endpoints). If both `idArtiSemana` and `artiId` are sent,
+  they must have the same value — conflicting values return `400 VALIDATION_ERROR`.
 - `muniNombre`: Filter by municipality name (exact match)
 - `deptNombre`: Filter by department name (exact match)
 - `fuenNombre`: Filter by source name (exact match)
@@ -365,12 +371,16 @@ Provides detailed market information at municipality level, including price rang
 #### Query Combinations
 - **By date**: `?fechaEncuesta=2020-02-01`
 - **By date range**: `?startDate=2020-01-01&endDate=2020-03-01`
-- **By municipality**: `?muniId=11001` or `?muniNombre=BOGOTÁ, D.C.`
+- **By municipality**: `?muniId=05001` (leading zero preserved) or `?muniId=11001` or `?muniNombre=BOGOTÁ, D.C.`
 - **By department**: `?deptNombre=BOGOTÁ, D. C.`
 - **By source**: `?fuenId=1` or `?fuenNombre=Bogotá, D.C., Corabastos`
-- **By product**: `?artiId=14` or `?artiNombre=Aguacate*`
+- **By product**: `?idArtiSemana=14` (canonical), `?artiId=14` (alias) or `?artiNombre=Aguacate*`
 - **By group**: `?grupNombre=FRUTAS`
-- **Combined**: `?muniNombre=BOGOTÁ, D.C.&artiNombre=Aguacate*&startDate=2020-01-01&endDate=2020-03-01`
+- **Combined**: `?muniId=05001&idArtiSemana=14&startDate=2020-01-01&endDate=2020-03-01`
+
+#### Validation errors (`400 VALIDATION_ERROR`)
+- `?muniId=` or `?muniId=%20%20` — blank municipality code
+- `?idArtiSemana=1&artiId=2` — contradictory article parameters
 
 #### Examples
 ```
