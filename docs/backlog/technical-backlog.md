@@ -63,7 +63,7 @@ When a story is implemented:
 | TECH-116 | Disable `baseline-on-migrate` after per-environment Flyway history inventory | Low | — | Pending |
 | TECH-117 | Handle concurrent `SipsaParcial` duplicate insertion safely | Medium | — | Pending |
 | TECH-118 | Align `SipsaParcial` decimal precision (JPA 15,2 vs DDL 19,2) | Low | — | Pending |
-| TECH-119 | Remove redundant `idx_sipsa_parcial_key_hash` index | Low | — | Pending |
+| TECH-119 | Remove redundant `idx_sipsa_parcial_key_hash` index | Low | — | **Done** (2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`, migration V3) |
 | TECH-122 | Harden `SipsaParcial` natural-key constraints (NOT NULL / natural unique) | Low | — | Pending (contract phase; gated on TECH-012 external half) |
 | TECH-123 | Add `first_seen_at`/`last_seen_at` republication traceability | Low | — | Optional — not recommended now (write cost; see story) |
 | TECH-124 | Optimize `SipsaParcial` API query indexes (`muni_id, enma_fecha`) | Low | — | Optional — no evidence of need at current volume |
@@ -1958,14 +1958,22 @@ all three price columns. XSD declares plain `xs:decimal` (no bound).
 **Title:** Remove redundant `idx_sipsa_parcial_key_hash` index
 **Type:** Performance
 **Priority:** Low
-**Status:** Pending
+**Status:** **Done** (2026-07-16)
 **Origin:** TECH-011 index inventory. `key_hash` is indexed twice: the implicit unique
 index of the `UNIQUE` constraint (`sipsa_parcial_key_hash_key`, 80 MB at 676K rows) and
 the explicit non-unique `idx_sipsa_parcial_key_hash` (80 MB, created by V1). One of the
 two is pure write/storage overhead on every insert. Dropping the explicit one requires a
 new migration (never editing V1) and a check that no query names it explicitly.
 
-**Completed:** —
+**Completed:** 2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`,
+migration `V3__drop_redundant_parcial_key_hash_index.sql` (transactional `DROP INDEX`,
+no `IF EXISTS`; rationale in the script). Verified: no code/test/script references the
+index name (grep); V1→V2→V3 from empty base and V2→V3 upgrade with data preserved
+(`ParcialKeyHashIndexMigrationTest`); `UNIQUE (key_hash)` still rejects duplicates
+post-V3; hash lookups use `sipsa_parcial_key_hash_key` with identical plan cost; live
+upgrade on the real 676K local base in 8 ms with −80 MB of indexes (254→174 MB) and a
+subsequent full idempotent re-ingestion (`inserted=0, skipped=676,210`). Suite: 138
+tests, 0 failures.
 
 ---
 
