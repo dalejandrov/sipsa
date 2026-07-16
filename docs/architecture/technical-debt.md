@@ -77,7 +77,7 @@ Each item references a backlog story for implementation planning.
 
 | ID | Item | Priority | Impact | Complexity | Risk | Backlog |
 |---|---|---|---|---|---|---|
-| PS-01 | `SipsaParcial` deduplication uses random UUID — no real deduplication | **Critical** | Potential unbounded table growth with duplicate records per run | M | High | [TECH-010](../backlog/technical-backlog.md#tech-010) (SPIKE), [TECH-011](../backlog/technical-backlog.md#tech-011) |
+| PS-01 | ~~`SipsaParcial` deduplication uses random UUID — no real deduplication~~ **Resolved** (2026-07-16, TECH-010/TECH-011/ADR-001 — deterministic natural-key hash + skip-first upsert, validated with 3 real DANE ingestions: linear ×run duplication before, 0 duplicates after; legacy UUID rows deduplicate at ingestion time) | **Critical** | Potential unbounded table growth with duplicate records per run | M | High | [TECH-010](../backlog/technical-backlog.md#tech-010) (SPIKE), [TECH-011](../backlog/technical-backlog.md#tech-011) |
 | PS-02 | Business logic (`batchUpsert`) in repository `default` methods | **Low** | SRP violation; logic hard to test independently from Spring Data | M | Medium | Not in active backlog. See [Refactoring Roadmap](refactoring-roadmap.md). |
 
 ---

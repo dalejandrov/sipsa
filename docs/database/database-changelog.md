@@ -71,9 +71,28 @@ Cada migración añade una entrada con estos campos:
 | Evidencia de validación | `FlywayMigrationsTest` (Testcontainers, PostgreSQL 18) en cada `./mvnw clean verify` y en CI (TECH-120) |
 | Ambientes aplicados | dev / docker / CI (por diseño en cada arranque); staging / prod: **pendiente de inventario** (ver §Baseline) |
 
-*(Las próximas migraciones — conceptualmente E1/E2/E3 de la transición de `SipsaParcial`,
-ver [runbook Parte II](../diagnostics/tech-012-runbook.md) — añadirán aquí su entrada con
-numeración definitiva asignada desde `main` justo antes de implementar.)*
+### V2 — add_parcial_natural_key_index
+
+| Campo | Valor |
+|---|---|
+| Archivo | `V2__add_parcial_natural_key_index.sql` |
+| Fecha (merge a main) | 2026-07-16 (rama `fix/sipsa-parcial-data-integrity`) |
+| Historia relacionada | TECH-011 (fase expand — corresponde a la "E1" conceptual del runbook) |
+| Propósito | Índice compuesto de soporte sobre la clave natural de `sipsa_parcial`, confirmada por TECH-012 contra datos reales de DANE |
+| Cambios de esquema | `CREATE INDEX idx_sipsa_parcial_natural_key ON sipsa_parcial (muni_id, fuen_id, futi_id, id_arti_semana, enma_fecha)` |
+| Cambios de datos | **Ninguno** (expand-only; sin limpieza, sin backfill, sin NOT NULL, sin constraint único natural) |
+| Impacto en índices | +1 índice no-único; sin `CONCURRENTLY` (justificación en el propio script: no hay tráfico productivo que proteger) |
+| Impacto en constraints | Ninguno (el `key_hash UNIQUE` existente pasa a ser efectivo por el hash determinista, sin cambio de DDL) |
+| Compatibilidad hacia atrás | Total — la versión anterior de la aplicación opera igual con el índice presente |
+| Requiere downtime | No |
+| Estrategia ante fallo | Fix-forward (índice sin datos; re-creación en `V3` si fuera necesario) |
+| Riesgos | Bajo — índice adicional sobre tabla que se reconstruyó localmente desde cero |
+| Evidencia de validación | `FlywayMigrationsTest` (cadena completa desde base vacía + existencia del índice, PostgreSQL 18 real); `ParcialMigrationUpgradeTest` (upgrade V1→V2 sobre datos duplicados legados, verifica que no toca datos); ciclo Docker Compose completo con 3 ingestas reales de DANE |
+| Ambientes aplicados | dev/docker/CI (por diseño en cada arranque/build); staging/producción: **no existen aún** (TECH-130..132 pendientes) |
+
+*(Las próximas migraciones de la transición — constraint natural definitivo y fase
+contract, "E2/E3" del runbook — añadirán aquí su entrada con numeración asignada desde
+`main` justo antes de implementar.)*
 
 ---
 

@@ -3,13 +3,23 @@
 **Fecha:** 2026-07-16
 **Script:** [`tech-012-sipsa-parcial-diagnostics.sql`](tech-012-sipsa-parcial-diagnostics.sql) (solo `SELECT`, fusionado en PR #19)
 **Relacionados:** [SPIKE de integridad](../architecture/sipsa-parcial-data-integrity-spike.md) ·
-[ADR-001](../adr/ADR-001-data-deduplication.md) (`Proposed`) · [ADR-009](../adr/ADR-009-database-migration-strategy.md) ·
+[ADR-001](../adr/ADR-001-data-deduplication.md) (`Accepted` 2026-07-16) · [ADR-009](../adr/ADR-009-database-migration-strategy.md) ·
 [Database Changelog](../database/database-changelog.md) · TECH-010/011/012/081
 **Este documento no cambia el estado de ninguna historia ni de ningún ADR.**
 
 ---
 
 # Parte I — Ejecución de TECH-012
+
+> **Ejecución realizada (2026-07-16, ambiente local controlado):** el script se ejecutó
+> tres veces contra un PostgreSQL 18 de Docker Compose cargado con ingestas reales del
+> endpoint de DANE (no existe base externa histórica conocida; ese supuesto sigue
+> pendiente de confirmación formal — TECH-012 mitad externa / TECH-115). Resultados:
+> corrida completa = 676.210 registros (histórico 2020-02 → hoy re-publicado íntegro en
+> cada llamada); pre-fix, la segunda corrida duplicó el 100% (todas las repeticiones ×2,
+> precios idénticos); post-fix (TECH-011), corridas 2 y 3 → `inserted=0`,
+> `skipped=676.210`, 0 grupos duplicados. `enma_fecha_null=0` (H-1 no confirmado).
+> El script referencia `start_time` (corregido — el esquema real nunca tuvo `started_at`).
 
 ## 1. Prerrequisitos (los 5 son bloqueantes)
 

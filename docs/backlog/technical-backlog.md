@@ -19,9 +19,9 @@ When a story is implemented:
 |---|---|---|---|---|
 | TECH-001 | Protect `/api/internal/**` with authentication | Critical | 1 | **Done** (application layer; gateway/network layers: TECH-130..132) |
 | TECH-002 | Restrict Actuator `loggers` endpoint | High | 1 | **Done** |
-| TECH-010 | SPIKE: Parcial deduplication key | High | 5 | Pending |
-| TECH-011 | Implement correct deduplication for Parcial | High | 5 | Pending |
-| TECH-012 | SPIKE: Verify `sipsa_parcial` growth in production | High | 5 | Pending |
+| TECH-010 | SPIKE: Parcial deduplication key | High | 5 | **Done** (2026-07-16 — key confirmed against real DANE data; ADR-001 Accepted) |
+| TECH-011 | Implement correct deduplication for Parcial | High | 5 | **Done** (2026-07-16, branch `fix/sipsa-parcial-data-integrity`) |
+| TECH-012 | SPIKE: Verify `sipsa_parcial` growth in production | High | 5 | **Partially closed** — local diagnostic on real DANE data complete (duplication confirmed ×run, then 0 post-fix); final closure conditional on confirming whether an external historical database exists |
 | TECH-020 | Fix `@RequestMapping` without leading `/` | High | 1 | Pending |
 | TECH-021 | `SipsaParseException` → HTTP 502 | Medium | 2 | Pending |
 | TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Medium | 2 | Pending |
@@ -44,7 +44,7 @@ When a story is implemented:
 | TECH-070 | Bean Validation on `SoapProperties` | Low | 1 | Pending |
 | TECH-071 | Align `batch-size` defaults | Low | 1 | Pending |
 | TECH-080 | Write ADR-002 (security) | Low | 6 | **Done** |
-| TECH-081 | Write ADR-001 (deduplication) | Low | 6 | Pending |
+| TECH-081 | Write ADR-001 (deduplication) | Low | 6 | **Done** (2026-07-16 — ADR-001 Accepted with empirical evidence) |
 | TECH-090 | Move internal ingestion commands to `application/command` | Low | — | **Done** |
 | TECH-091 | Move `TimezoneFilter` out of `infrastructure/config` into `api` | Low | — | **Done** |
 | TECH-092 | Separate generated SOAP sources from manual code | Low | — | **Blocked** (needs TECH-094 SPIKE) |
@@ -57,6 +57,10 @@ When a story is implemented:
 | TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending (infrastructure) |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending (infrastructure) |
 | TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | Pending (infrastructure) |
+| TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | Pending |
+| TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
+| TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
+| TECH-116 | Disable `baseline-on-migrate` after per-environment Flyway history inventory | Low | — | Pending |
 
 ---
 
@@ -182,11 +186,17 @@ Produce ADR-001 answering:
 **Dependencies:** None (this is the blocker for TECH-011).
 
 **Acceptance Criteria:**
-- [ ] ADR-001 is written and approved.
-- [ ] Natural key is identified with evidence from the DANE data schema.
-- [ ] Behavior for duplicates is defined (skip vs update).
+- [x] ADR-001 is written and approved.
+- [x] Natural key is identified with evidence from the DANE data schema.
+- [x] Behavior for duplicates is defined (skip vs update).
 
-**Completed:** —
+**Completed:** 2026-07-16, branch `fix/sipsa-parcial-data-integrity`. The key
+`(muniId, fuenId, futiId, idArtiSemana, enmaFecha)` was validated empirically against a
+real full DANE ingestion into a clean local PostgreSQL 18: 676,210 records → 676,210
+distinct keys (zero intra-run collisions); a second identical pre-fix run duplicated all
+of them (×2, prices identical — no divergent re-publications observed). Behavior: skip
+(insert-only), consistent with the other four types. See ADR-001 (`Accepted`) and the
+[SPIKE report](../architecture/sipsa-parcial-data-integrity-spike.md).
 
 ---
 
@@ -205,13 +215,24 @@ Produce ADR-001 answering:
 **Dependencies:** TECH-010 must be resolved first.
 
 **Acceptance Criteria:**
-- [ ] `computeKeyHash()` produces the same value for the same business inputs.
-- [ ] Two consecutive runs of `promediosSipsaParcial` with the same data produce `skipped > 0` on the second run.
-- [ ] `UpsertMetrics.inserted` matches the number of genuinely new records.
-- [ ] `./mvnw clean verify` passes.
-- [ ] If production data contains duplicates: a migration plan is documented and applied.
+- [x] `computeKeyHash()` produces the same value for the same business inputs
+      (`ParcialKeyHash`: versioned, unit-separator-delimited, UTF-8 SHA-256 hex).
+- [x] Two consecutive runs of `promediosSipsaParcial` with the same data produce `skipped > 0`
+      on the second run — validated against the real DANE endpoint: run 1 inserted 676,210;
+      run 2 inserted 0, skipped 676,210; run 3 (after container restart) identical.
+- [x] `UpsertMetrics.inserted` matches the number of genuinely new records.
+- [x] `./mvnw clean verify` passes (116 tests, 0 failures, Testcontainers gates executed).
+- [x] Duplicates in production: no external database is known to exist; the local diagnostic
+      base was rebuilt from scratch. Cleanup of a confirmed external base is TECH-115 (conditional).
 
-**Completed:** —
+**Completed:** 2026-07-16, branch `fix/sipsa-parcial-data-integrity`. Implementation:
+deterministic `ParcialKeyHash`, skip-first `batchUpsert` (intra-batch dedupe + one bulk
+hash lookup + one bulk date lookup that recomputes natural-key hashes to deduplicate
+legacy UUID rows without backfill — no N+1), strict `enmaFecha` parsing with explicit
+rejection (no implicit zone), `skipped` propagated to `IngestionContext` and logs,
+migration `V2__add_parcial_natural_key_index.sql` (expand-only), and suites
+`ParcialKeyHashTest`, `ParcialIngestionHandlerTest`, `ParcialMigrationUpgradeTest`
+plus extended `FlywayMigrationsTest`.
 
 ---
 
@@ -238,10 +259,18 @@ GROUP BY method_name;
 ```
 
 **Acceptance Criteria:**
-- [ ] Report documenting: total records, successful runs, ratio of records per run.
-- [ ] Decision taken on whether data cleanup is required before TECH-011.
+- [x] Report documenting: total records, successful runs, ratio of records per run —
+      executed 2026-07-16 against a clean local PostgreSQL 18 loaded from the real DANE
+      endpoint (no external/remote database was available or known to exist): 676,210
+      records per full ingestion, duplication exactly linear per pre-fix run (×2 after two
+      runs, all groups identical prices), 0 duplicates after the TECH-011 fix across three
+      runs including a container restart. `enma_fecha` 100% parseable (H-1 not confirmed).
+- [ ] **Remaining:** confirm with the data owner whether any external historical
+      `sipsa_parcial` database exists. If none: close this story as complete with the
+      local evidence. If one exists: execute the read-only script there per the
+      [runbook](../diagnostics/tech-012-runbook.md) and evaluate TECH-115.
 
-**Completed:** —
+**Completed:** — (local half complete 2026-07-16; external half conditional, see above)
 
 ---
 
@@ -820,10 +849,12 @@ recommendation after the AWS deployment target was confirmed.
 **Dependencies:** TECH-010 (SPIKE) must be resolved first.
 
 **Acceptance Criteria:**
-- [ ] `docs/adr/ADR-001-data-deduplication.md` is updated from `Proposed` to `Accepted`.
-- [ ] Natural keys for all five data types are documented.
+- [x] `docs/adr/ADR-001-data-deduplication.md` is updated from `Proposed` to `Accepted`.
+- [x] Natural keys for all five data types are documented (ADR-001 §Current Deduplication
+      per Data Type; Parcial's key now empirically confirmed).
 
-**Completed:** —
+**Completed:** 2026-07-16, branch `fix/sipsa-parcial-data-integrity` — ADR-001 accepted
+with empirical evidence from real DANE ingestions (see TECH-010/TECH-011).
 
 ---
 
@@ -1782,5 +1813,83 @@ green); this story provisions the real identity provider.
       reach it.
 - [ ] Healthchecks and deployments remain functional through the internal path.
 - [ ] The metrics collection path is decided and documented.
+
+**Completed:** —
+
+---
+
+### TECH-113
+
+**Title:** Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial`
+**Type:** Bug
+**Priority:** Medium
+**Status:** Pending
+**Complexity:** S
+**Branch:** `fix/parcial-query-filters`
+**Origin:** H-2/H-3 of the [SipsaParcial integrity SPIKE](../architecture/sipsa-parcial-data-integrity-spike.md).
+
+**Problem:** `SipsaReadService.getParcial()` filters on attribute `artiId`, which does not
+exist on `SipsaParcial` (→ `IllegalArgumentException`/HTTP 500 when a client uses the
+parameter), and `ParcialQueryRequest.muniId` is a `@Positive Long` while the entity/DB
+column is a `String` DIVIPOLA code (type mismatch; leading zeros unfilterable).
+
+**Acceptance Criteria:**
+- [ ] `GET /api/sipsa/parcial?artiId=…` filters by `idArtiSemana` (or the parameter is
+      renamed with a documented contract decision) and returns `200`.
+- [ ] `muniId` filters as text, accepting DIVIPOLA codes with leading zeros.
+- [ ] Regression tests cover both filters.
+
+**Completed:** —
+
+---
+
+### TECH-114
+
+**Title:** Strict `enmaFecha` parsing with explicit rejection (H-1)
+**Type:** Correctiva
+**Priority:** Medium
+**Status:** **Done** — implemented within TECH-011 (2026-07-16)
+**Origin:** H-1 of the integrity SPIKE. TECH-012's local execution showed the risk does
+**not** materialize with current real DANE data (0 unparseable dates in 676,210 records),
+so this hardening is preventive: `ParcialIngestionHandler.parseDate` remains strict
+ISO-8601-instant-only and the handler now **rejects** (audited) any record whose date
+cannot be parsed — a zoneless `xs:dateTime` is never interpreted in an implicit zone.
+
+**Completed:** 2026-07-16, within `fix/sipsa-parcial-data-integrity` (test:
+`ParcialIngestionHandlerTest.zonelessDateIsRejected`).
+
+---
+
+### TECH-115
+
+**Title:** Backfill/consolidation of a pre-existing external `sipsa_parcial` database
+**Type:** Datos
+**Priority:** Medium
+**Status:** **Conditional** — activate only if an external historical database is
+confirmed to exist (the remaining half of TECH-012). No such database is currently known.
+
+**Scope if activated:** execute the read-only diagnostics remotely per the
+[runbook](../diagnostics/tech-012-runbook.md); then apply its Part II transition plan
+(Alternative A vs B, operational job vs Flyway per the documented criteria). The
+application code already deduplicates against legacy UUID rows at ingestion time, so the
+backfill is about storage/consistency of the historical rows, not about preventing new
+duplicates.
+
+**Completed:** —
+
+---
+
+### TECH-116
+
+**Title:** Disable `baseline-on-migrate` after per-environment Flyway history inventory
+**Type:** Config
+**Priority:** Low
+**Status:** Pending
+**Origin:** ADR-009 rule 6 follow-up, formalized during the TECH-012 preparation.
+
+**Acceptance Criteria:**
+- [ ] Inventory (per the runbook's annex queries) confirms every real environment has
+      correct Flyway history and no baselined non-empty schemas.
+- [ ] `baseline-on-migrate: false` applied in a dedicated PR (never mixed with TECH-011).
 
 **Completed:** —

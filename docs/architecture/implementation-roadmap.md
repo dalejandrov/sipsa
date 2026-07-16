@@ -190,15 +190,17 @@ not started — the phase remains open.
 
 **Objective:** Resolve the `SipsaParcial` deduplication issue.
 
-**This phase is BLOCKED until:**
-1. `TECH-010` (SPIKE) is complete — business decision on the natural deduplication key.
-2. `TECH-012` (SPIKE) is complete — production data volume is assessed.
+**Status (2026-07-16): essentially complete.** TECH-010 and TECH-011 are **Done**
+(branch `fix/sipsa-parcial-data-integrity`, validated with three real DANE ingestions on
+Docker Compose); ADR-001 is `Accepted`. TECH-012's local half is complete; its only
+remaining item is confirming with the data owner whether an external historical database
+exists (if so, TECH-115 activates).
 
 | Story | Title | Type | Branch |
 |---|---|---|---|
-| TECH-010 | SPIKE: Define natural deduplication key for Parcial | SPIKE | `spike/parcial-deduplication` |
-| TECH-012 | SPIKE: Verify `sipsa_parcial` growth in production | SPIKE | (SQL-only, no branch) |
-| TECH-011 | Implement correct deduplication for Parcial | Correctiva | `fix/parcial-data-integrity` |
+| TECH-010 | SPIKE: Define natural deduplication key for Parcial — **Done** (2026-07-16) | SPIKE | `fix/sipsa-parcial-data-integrity` |
+| TECH-012 | SPIKE: Verify `sipsa_parcial` growth — **local half done**; external half conditional | SPIKE | (read-only script + runbook) |
+| TECH-011 | Implement correct deduplication for Parcial — **Done** (2026-07-16) | Correctiva | `fix/sipsa-parcial-data-integrity` |
 
 **Acceptance criteria for phase exit:**
 - Two consecutive runs of `promediosSipsaParcial` (same window key) produce zero new records on the second run.

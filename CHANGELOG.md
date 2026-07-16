@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **TECH-011 — `SipsaParcial` deduplication** ([ADR-001](docs/adr/ADR-001-data-deduplication.md),
+  now `Accepted`; closes debt PS-01). `computeKeyHash()` no longer generates a random
+  UUID per row: `key_hash` is the deterministic SHA-256 (versioned, unit-separator
+  delimited, UTF-8, lowercase hex) of the natural key
+  `(muniId, fuenId, futiId, idArtiSemana, enmaFecha)` — confirmed unique against real
+  DANE data by the TECH-012 diagnostic. `SipsaParcialRepository.batchUpsert()` is now a
+  real skip-first upsert: intra-batch dedupe, one bulk lookup by hash, and one bulk
+  lookup by survey date that recomputes natural-key hashes so **legacy UUID rows
+  deduplicate too, without any backfill** (no per-record queries). The survey date is
+  parsed strictly (ISO-8601 instant with explicit offset/zone) and records with
+  unparseable dates are rejected with audit trail instead of persisted with a silent
+  null (closes the SPIKE's H-1 risk preventively — 0 occurrences observed in real data).
+  `skipped` is now propagated to `IngestionContext` and the completion log.
+  **Validated end-to-end against the real DANE endpoint on Docker Compose:** pre-fix,
+  two identical runs duplicated the full dataset (676,210 → 1,352,420 rows, every group
+  ×2 with identical prices); post-fix, run 1 inserted 676,210, run 2 and run 3 (after a
+  container restart) inserted 0 and skipped 676,210 each, table stable with 0 duplicate
+  groups. New migration `V2__add_parcial_natural_key_index.sql` (expand-only support
+  index; no data changes — see [docs/database/database-changelog.md](docs/database/database-changelog.md)).
+  New tests: `ParcialKeyHashTest`, `ParcialIngestionHandlerTest` (idempotent
+  re-ingestion, legacy-UUID dedupe, strict date rejection), `ParcialMigrationUpgradeTest`
+  (V1→V2 upgrade over duplicated legacy data on real PostgreSQL), extended
+  `FlywayMigrationsTest`. Suite: 116 tests. TECH-012's script fixed to use the real
+  `start_time` column (was `started_at`).
+
 ### Security
 
 - **TECH-001/TECH-002 — application security layer** ([ADR-002](docs/adr/ADR-002-internal-endpoint-security.md),
