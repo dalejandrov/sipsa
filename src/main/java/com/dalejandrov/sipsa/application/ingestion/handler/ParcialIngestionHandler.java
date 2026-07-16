@@ -90,6 +90,15 @@ public class ParcialIngestionHandler implements IngestionHandler {
                 }
 
                 Instant fechaEncuesta = parseDate(record.fechaEncuestaText());
+                if (fechaEncuesta == null) {
+                    String rawData = String.format("muniId=%s, fuenId=%s, futiId=%s, idArtiSemana=%s, enmaFecha=%s",
+                            record.muniId(), record.fuenId(), record.futiId(), record.idArtiSemana(),
+                            record.enmaFecha());
+                    context.addRejectedRecord(rawData,
+                            "Invalid enmaFecha: not an ISO-8601 instant with explicit offset/zone: "
+                                    + record.fechaEncuestaText());
+                    continue;
+                }
 
                 batch.add(mapper.toEntity(record, fechaEncuesta, context.getRunId()));
 
@@ -101,8 +110,9 @@ public class ParcialIngestionHandler implements IngestionHandler {
             flushBatch(batch, context);
 
             // Log completion with method name and total records
-            log.info("SOAP method '{}' completed successfully. Total records obtained: {}, Rejected: {}",
-                     getMethodName(), context.getRecordsSeen(), context.getRejectCount());
+            log.info("SOAP method '{}' completed successfully. Total records obtained: {}, Inserted: {}, Skipped (already present): {}, Rejected: {}",
+                     getMethodName(), context.getRecordsSeen(), context.getRecordsInserted(),
+                     context.getRecordsSkipped(), context.getRejectCount());
         } catch (Exception e) {
             log.warn("Error during ingestion, attempting to save partial progress. Processed {} records so far",
                     context.getRecordsSeen());
@@ -132,9 +142,23 @@ public class ParcialIngestionHandler implements IngestionHandler {
         for (int i = 0; i < metrics.inserted(); i++) {
             context.incrementInserted();
         }
+        for (int i = 0; i < metrics.skipped(); i++) {
+            context.incrementSkipped();
+        }
         batch.clear();
     }
 
+    /**
+     * Parses the survey date strictly as an ISO-8601 instant with an explicit
+     * offset or {@code Z} (the format DANE emits for {@code xs:dateTime}).
+     * <p>
+     * A value without a timezone is NOT interpreted in any implicit zone — the
+     * caller rejects the record explicitly instead, so an upstream format change
+     * surfaces as audited rejections rather than silently null survey dates.
+     *
+     * @param dateStr raw text of the {@code enmafecha} element
+     * @return the parsed instant, or null if the text is not a valid ISO-8601 instant
+     */
     private Instant parseDate(String dateStr) {
         if (dateStr == null)
             return null;

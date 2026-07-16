@@ -22,7 +22,10 @@ import java.time.Instant;
  * </ul>
  * <p>
  * <b>Unique Hash Key:</b><br>
- * Each record has an auto-generated UUID for uniqueness.
+ * {@code keyHash} is the deterministic SHA-256 of the natural business key
+ * {@code (muniId, fuenId, futiId, idArtiSemana, enmaFecha)} (ADR-001, Option A).
+ * Rows persisted before the fix carry a legacy random UUID instead; the repository's
+ * batch upsert deduplicates against them by recomputing the natural-key hash.
  *
  * @see com.dalejandrov.sipsa.application.ingestion.handler.ParcialIngestionHandler
  */
@@ -42,7 +45,7 @@ public class SipsaParcial {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Auto-generated UUID for uniqueness */
+    /** Deterministic natural-key hash (SHA-256 hex); legacy rows hold a random UUID */
     @Column(name = "key_hash", length = 100)
     private String keyHash;
 
