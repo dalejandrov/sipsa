@@ -38,7 +38,7 @@ When two documents disagree, the one below wins for its topic; fix the other one
 | ADR | Title | Status |
 |---|---|---|
 | [ADR-000](adr/ADR-000-current-architecture.md) | Current Architecture Snapshot | Accepted |
-| [ADR-001](adr/ADR-001-data-deduplication.md) | Data Deduplication Strategy | Proposed |
+| [ADR-001](adr/ADR-001-data-deduplication.md) | Data Deduplication Strategy | **Accepted** |
 | [ADR-002](adr/ADR-002-internal-endpoint-security.md) | Internal Endpoint Security | **Accepted** |
 | [ADR-003](adr/ADR-003-error-response-model.md) | Error Response Model | Proposed |
 | [ADR-004](adr/ADR-004-transaction-boundaries.md) | Transaction Boundaries in Ingestion | **Accepted** |

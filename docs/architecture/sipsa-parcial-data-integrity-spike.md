@@ -5,6 +5,15 @@
 **Estado:** Diagnóstico entregado — pendiente de revisión, respuestas de negocio y ejecución de TECH-012 contra la base real.
 **Estados que este documento NO cambia:** ADR-001 permanece `Proposed`; TECH-010, TECH-011,
 TECH-012 y TECH-081 permanecen `Pending`. Nada aquí autoriza implementación.
+
+> **Actualización (2026-07-16):** TECH-012 se ejecutó contra datos reales de DANE cargados
+> en un PostgreSQL 18 local limpio (no existe base externa histórica conocida) y el
+> diagnóstico de este SPIKE quedó confirmado e implementado: clave natural única en
+> 676.210 registros reales, duplicación lineal ×corrida pre-fix (todas las repeticiones
+> con precios idénticos), H-1 **no** confirmado en datos reales (0 fechas imparseables;
+> parseo endurecido preventivamente), `idArtiSemana` estable. ADR-001 → `Accepted`;
+> TECH-010/011/081 → `Done`; H-2/H-3 formalizados como TECH-113. Evidencia completa en
+> el [CHANGELOG](../../CHANGELOG.md) y el [backlog](../backlog/technical-backlog.md).
 **Relacionados:** [ADR-001](../adr/ADR-001-data-deduplication.md) (`Proposed`), deuda PS-01 ([technical-debt.md](technical-debt.md)), [TECH-010](../backlog/technical-backlog.md#tech-010), [TECH-011](../backlog/technical-backlog.md#tech-011), [TECH-012](../backlog/technical-backlog.md#tech-012), [TECH-081](../backlog/technical-backlog.md#tech-081).
 
 Ningún cambio funcional acompaña este documento. El único artefacto adicional es el

@@ -58,12 +58,24 @@ class FlywayMigrationsTest {
     private JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("Flyway auto-configuration is active and applied at least one migration")
+    @DisplayName("Flyway auto-configuration is active and applied the full migration chain")
     void flywayAppliedMigrations() {
         MigrationInfo[] applied = flyway.info().applied();
 
-        assertThat(applied).isNotEmpty();
+        assertThat(applied).hasSizeGreaterThanOrEqualTo(2);
         assertThat(applied[0].getVersion().getVersion()).isEqualTo("1");
+        assertThat(applied[1].getVersion().getVersion()).isEqualTo("2");
+    }
+
+    @Test
+    @DisplayName("V2: sipsa_parcial natural-key support index exists (TECH-011 expand phase)")
+    void parcialNaturalKeyIndexExists() {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_indexes WHERE tablename = 'sipsa_parcial' "
+                        + "AND indexname = 'idx_sipsa_parcial_natural_key'",
+                Integer.class);
+
+        assertThat(count).isEqualTo(1);
     }
 
     @Test

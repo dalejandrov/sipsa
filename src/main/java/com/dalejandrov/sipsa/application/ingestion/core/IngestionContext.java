@@ -49,6 +49,7 @@ public class IngestionContext {
     private int recordsSeen = 0;
     private int recordsInserted = 0;
     private int recordsUpdated = 0;
+    private int recordsSkipped = 0;
     private int rejectCount = 0;
     private int parseErrors = 0;
 
@@ -81,6 +82,16 @@ public class IngestionContext {
      */
     public void incrementUpdated() {
         recordsUpdated++;
+    }
+
+    /**
+     * Increments the count of records skipped because they already exist.
+     * <p>
+     * This should be called when deduplication finds the record's business key
+     * already persisted and leaves the existing row untouched (skip-first upsert).
+     */
+    public void incrementSkipped() {
+        recordsSkipped++;
     }
 
     /**
@@ -156,9 +167,9 @@ public class IngestionContext {
         return String.format(
             "IngestionContext(runId=%d, methodName=%s, windowKey=%s, requestId=%s, " +
             "requestSource=%s, recordsSeen=%d, recordsInserted=%d, recordsUpdated=%d, " +
-            "rejectCount=%d, parseErrors=%d)",
+            "recordsSkipped=%d, rejectCount=%d, parseErrors=%d)",
             runId, methodName, windowKey, requestId, requestSource,
-            recordsSeen, recordsInserted, recordsUpdated, rejectCount, parseErrors
+            recordsSeen, recordsInserted, recordsUpdated, recordsSkipped, rejectCount, parseErrors
         );
     }
 

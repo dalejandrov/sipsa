@@ -1,7 +1,7 @@
 # ADR-001 — Data Deduplication Strategy
 
-**Status:** Proposed  
-**Date:** 2026-07-13  
+**Status:** Accepted (2026-07-16)  
+**Date:** 2026-07-13 (accepted 2026-07-16 with empirical evidence from real DANE ingestions)  
 **Author:** Architectural review (2026-07-13)  
 **Backlog:** [TECH-010](../backlog/technical-backlog.md#tech-010), [TECH-011](../backlog/technical-backlog.md#tech-011)
 
@@ -117,12 +117,36 @@ Document this as intentional behavior.
 
 ## Decision
 
-**Not yet decided.** This ADR is `Proposed` pending answers to the business questions above.
+**Option A — deterministic hash + insert-only/skip — accepted (2026-07-16)**, on empirical
+evidence from controlled ingestions of the real DANE endpoint into a clean local
+PostgreSQL 18 (full procedure and per-query results in the
+[TECH-012 diagnostics](../diagnostics/tech-012-runbook.md) flow; summary below):
 
-Tentative recommendation: **Option A** (deterministic hash), subject to:
-- Confirmation of the natural key `(muniId, fuenId, futiId, idArtiSemana, enmaFecha)`.
-- A decision to match the skip-first semantics of Ciudad, Semanal, Mensual, and Abas.
-- A data migration plan for production if needed.
+1. **The natural key is confirmed unique on real data.** One full ingestion returned
+   676,210 records spanning 2020-02-01 → 2026-07-15 (1,997 survey dates — DANE re-publishes
+   its complete history on every call), and produced exactly 676,210 distinct
+   `(muniId, fuenId, futiId, idArtiSemana, enmaFecha)` tuples — zero intra-run collisions.
+2. **Duplication was linear per run, as PS-01 predicted.** A second identical ingestion
+   under the pre-fix code doubled the table (1,352,420 rows): 676,210 duplicate groups,
+   every one exactly ×2, **all with identical prices** (zero divergent groups) — DANE
+   returned a byte-identical dataset, so skip-first semantics lose nothing.
+3. **`idArtiSemana` is stable across runs** — every re-published record matched its
+   previous key. **`enmaFecha` arrives as a parseable ISO instant** (all values are local
+   midnight `America/Bogota`, stored as `05:00Z`; zero unparseable dates — H-1's mechanism
+   exists in code but did not fire on real data; parsing is now strict anyway).
+4. Skip-first matches the semantics of the other four data types.
+
+**Answers to the business questions:** (1) yes — confirmed empirically; (2) skip (observed
+re-publications are identical; revisit only if divergent re-publications ever appear);
+(3) no snapshots — canonical state only; (4) no external historical database is known to
+exist — if one is ever confirmed, its cleanup is a separate story (TECH-115 proposal);
+the local diagnostic base was rebuilt from scratch after the fix, so no cleanup migration
+was needed.
+
+**Scope note:** hash payload is versioned (`v1`), unit-separator delimited, UTF-8,
+SHA-256 lowercase hex — see `ParcialKeyHash`. Legacy UUID rows deduplicate at ingestion
+time via a natural-key candidate lookup (no backfill required); a backfill/consolidation
+of any pre-existing external database remains conditional and out of scope here.
 
 ---
 
