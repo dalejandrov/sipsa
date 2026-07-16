@@ -137,12 +137,15 @@ public class SipsaReadService {
                 parcialRepository,
                 parcialMapper::toDto,
                 () -> {
-                    paginationConfig.validateIds(request.artiId(), request.fuenId(), request.muniId());
+                    /* TECH-113: muniId is TEXT (DIVIPOLA codes keep leading zeros) and the
+                     * article filter targets the real entity attribute `idArtiSemana`
+                     * (`artiId` is a validated compatibility alias, resolved in the DTO). */
+                    paginationConfig.validateIds(request.fuenId(), request.idArtiSemana(), request.artiId());
                     return SpecificationBuilder.<SipsaParcial>builder(timezone)
                             .withDateOrRange("enmaFecha", request.fechaEncuesta(), request.startDate(), request.endDate())
-                            .withAttribute("muniId", request.muniId())
+                            .withAttribute("muniId", request.validatedMuniId())
                             .withAttribute("fuenId", request.fuenId())
-                            .withAttribute("artiId", request.artiId())
+                            .withAttribute("idArtiSemana", request.effectiveArticleId())
                             .withAttribute("muniNombre", request.muniNombre())
                             .withAttribute("deptNombre", request.deptNombre())
                             .withAttribute("fuenNombre", request.fuenNombre())
