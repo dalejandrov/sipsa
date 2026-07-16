@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **TECH-113 — `GET /api/sipsa/parcial` filters corrected** (H-2/H-3 from the integrity
+  SPIKE). The article filter no longer targets the nonexistent entity attribute `artiId`
+  (which produced `IllegalArgumentException` → HTTP 500 whenever used): the canonical
+  parameter is now `idArtiSemana`, matching the entity and the DANE contract, with
+  `artiId` retained as a validated compatibility alias (same value → one condition;
+  conflicting values → `400 VALIDATION_ERROR`). The municipality filter `muniId` is now
+  **text** instead of `Long`, preserving DIVIPOLA leading zeros exactly (107,468 real
+  rows carry them; `05001` ≠ `5001`) — trimmed, non-blank, max 50 chars (column bound),
+  no numeric conversion ever. Filter errors return `400`, never `500`. Verified against
+  real PostgreSQL via Testcontainers through the HTTP endpoint
+  (`ParcialQueryFilterIntegrationTest`, 9 cases) plus 11 unit cases
+  (`ParcialQueryRequestTest`); API documentation updated with the canonical/alias rule
+  and leading-zero examples. No schema change needed — `muni_id VARCHAR(50)` was always
+  correct; the bug was only in the query contract.
+
 - **TECH-011 — `SipsaParcial` deduplication** ([ADR-001](docs/adr/ADR-001-data-deduplication.md),
   now `Accepted`; closes debt PS-01). `computeKeyHash()` no longer generates a random
   UUID per row: `key_hash` is the deterministic SHA-256 (versioned, unit-separator

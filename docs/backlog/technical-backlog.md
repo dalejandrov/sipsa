@@ -57,7 +57,7 @@ When a story is implemented:
 | TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending (infrastructure) |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending (infrastructure) |
 | TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | Pending (infrastructure) |
-| TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | Pending |
+| TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
 | TECH-116 | Disable `baseline-on-migrate` after per-environment Flyway history inventory | Low | — | Pending |
@@ -1841,12 +1841,19 @@ parameter), and `ParcialQueryRequest.muniId` is a `@Positive Long` while the ent
 column is a `String` DIVIPOLA code (type mismatch; leading zeros unfilterable).
 
 **Acceptance Criteria:**
-- [ ] `GET /api/sipsa/parcial?artiId=…` filters by `idArtiSemana` (or the parameter is
-      renamed with a documented contract decision) and returns `200`.
-- [ ] `muniId` filters as text, accepting DIVIPOLA codes with leading zeros.
-- [ ] Regression tests cover both filters.
+- [x] `GET /api/sipsa/parcial?artiId=…` filters by `idArtiSemana` and returns `200` —
+      contract decision documented: `idArtiSemana` is canonical, `artiId` stays as a
+      validated compatibility alias (equal values collapse; conflicting values → `400`).
+- [x] `muniId` filters as text, accepting DIVIPOLA codes with leading zeros (`05001` ≠
+      `5001`; trimmed; blank or >50 chars → `400`; never converted to a number).
+- [x] Regression tests cover both filters: `ParcialQueryRequestTest` (11 unit cases) and
+      `ParcialQueryFilterIntegrationTest` (9 HTTP cases against real PostgreSQL via
+      Testcontainers, fixtures with `"05001"` and `"5001"` as distinct municipalities).
 
-**Completed:** —
+**Completed:** 2026-07-16, branch `fix/sipsa-parcial-query-filters`. No schema change
+(the columns were always correct); fix confined to DTO, service, documentation and
+tests. Suite: 136 tests, 0 failures. Article-only filtering still seq-scans (no index
+starts with `id_arti_semana`) — functionally correct, tracked as part of TECH-124.
 
 ---
 
