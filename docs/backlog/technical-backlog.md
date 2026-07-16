@@ -21,7 +21,7 @@ When a story is implemented:
 | TECH-002 | Restrict Actuator `loggers` endpoint | High | 1 | **Done** |
 | TECH-010 | SPIKE: Parcial deduplication key | High | 5 | **Done** (2026-07-16 — key confirmed against real DANE data; ADR-001 Accepted) |
 | TECH-011 | Implement correct deduplication for Parcial | High | 5 | **Done** (2026-07-16, branch `fix/sipsa-parcial-data-integrity`) |
-| TECH-012 | SPIKE: Verify `sipsa_parcial` growth in production | High | 5 | **Partially closed** — local diagnostic on real DANE data complete (duplication confirmed ×run, then 0 post-fix); final closure conditional on confirming whether an external historical database exists |
+| TECH-012 | SPIKE: Verify `sipsa_parcial` growth in production | High | 5 | **Pending external verification** — local real-data diagnosis completed 2026-07-16 (see story); the external check applies only if a historical external database is confirmed to exist |
 | TECH-020 | Fix `@RequestMapping` without leading `/` | High | 1 | Pending |
 | TECH-021 | `SipsaParseException` → HTTP 502 | Medium | 2 | Pending |
 | TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Medium | 2 | Pending |
@@ -61,6 +61,13 @@ When a story is implemented:
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
 | TECH-116 | Disable `baseline-on-migrate` after per-environment Flyway history inventory | Low | — | Pending |
+| TECH-117 | Handle concurrent `SipsaParcial` duplicate insertion safely | Medium | — | Pending |
+| TECH-118 | Align `SipsaParcial` decimal precision (JPA 15,2 vs DDL 19,2) | Low | — | Pending |
+| TECH-119 | Remove redundant `idx_sipsa_parcial_key_hash` index | Low | — | Pending |
+| TECH-122 | Harden `SipsaParcial` natural-key constraints (NOT NULL / natural unique) | Low | — | Pending (contract phase; gated on TECH-012 external half) |
+| TECH-123 | Add `first_seen_at`/`last_seen_at` republication traceability | Low | — | Optional — not recommended now (write cost; see story) |
+| TECH-124 | Optimize `SipsaParcial` API query indexes (`muni_id, enma_fecha`) | Low | — | Optional — no evidence of need at current volume |
+| TECH-125 | Define `SipsaParcial`/ingestion data retention policy | Low | — | Pending decision |
 
 ---
 
@@ -1891,5 +1898,129 @@ duplicates.
 - [ ] Inventory (per the runbook's annex queries) confirms every real environment has
       correct Flyway history and no baselined non-empty schemas.
 - [ ] `baseline-on-migrate: false` applied in a dedicated PR (never mixed with TECH-011).
+
+**Completed:** —
+
+---
+
+### TECH-117
+
+**Title:** Handle concurrent `SipsaParcial` duplicate insertion safely
+**Type:** Correctiva
+**Priority:** Medium
+**Status:** Pending
+**Origin:** TECH-011 final review (2026-07-16). Current behavior under a lookup→insert
+race between two concurrent executions of the same publication: both observe absence,
+both insert, the `key_hash UNIQUE` constraint rejects one — the losing batch's
+`DataIntegrityViolationException` propagates, the batch transaction rolls back, and the
+handler rethrows: **the losing run fails** instead of recording the row as skipped. No
+data corruption is possible (the constraint holds), but the run outcome is wrong. Today's
+deployment is single-instance with a single scheduler, so the race is not reachable in
+practice — this is a prerequisite for any multi-instance rollout (with ShedLock or an
+equivalent also to be evaluated then).
+
+**Acceptance Criteria:**
+- [ ] Two concurrent executions of the same publication → one inserts, the other records
+      `skipped`, neither run fails.
+- [ ] Constraint-violation fallback re-checks existence and reclassifies instead of
+      failing the batch; metrics stay coherent.
+- [ ] A concurrency test (Testcontainers, two parallel writers) proves it.
+
+**Completed:** —
+
+---
+
+### TECH-118
+
+**Title:** Align `SipsaParcial` decimal precision (JPA `precision=15,2` vs DDL `NUMERIC(19,2)`)
+**Type:** Config
+**Priority:** Low
+**Status:** Pending
+**Origin:** TECH-011 schema review. Hibernate `validate` does not compare precision, so
+nothing fails; real data observed (676,210 rows) ranges 230.00–22,000.00 with ≤2 decimals
+— both definitions are far above the real range, no truncation risk. Cosmetic drift only:
+pick one source of truth (recommend annotating the entity to match the DDL, `19,2`) for
+all three price columns. XSD declares plain `xs:decimal` (no bound).
+
+**Completed:** —
+
+---
+
+### TECH-119
+
+**Title:** Remove redundant `idx_sipsa_parcial_key_hash` index
+**Type:** Performance
+**Priority:** Low
+**Status:** Pending
+**Origin:** TECH-011 index inventory. `key_hash` is indexed twice: the implicit unique
+index of the `UNIQUE` constraint (`sipsa_parcial_key_hash_key`, 80 MB at 676K rows) and
+the explicit non-unique `idx_sipsa_parcial_key_hash` (80 MB, created by V1). One of the
+two is pure write/storage overhead on every insert. Dropping the explicit one requires a
+new migration (never editing V1) and a check that no query names it explicitly.
+
+**Completed:** —
+
+---
+
+### TECH-122
+
+**Title:** Harden `SipsaParcial` natural-key constraints
+**Type:** Datos
+**Priority:** Low
+**Status:** Pending — contract phase; **gated on TECH-012's external half** (no
+constraint can assume UUID-era rows are gone until the external-database question closes)
+**Scope when activated:** `NOT NULL` on the five key columns (real data shows 0 nulls),
+`CHECK (muni_id <> '')`, optionally `CHECK` on non-negative prices (0 negatives observed;
+confirm contract first), and — only after all rows carry deterministic hashes — a natural
+unique constraint replacing the hash as enforcement point if the team prefers. Apply via
+expand–migrate–contract with `NOT VALID` + `VALIDATE CONSTRAINT` where applicable.
+
+**Completed:** —
+
+---
+
+### TECH-123
+
+**Title:** Add `first_seen_at`/`last_seen_at` republication traceability to `SipsaParcial`
+**Type:** Observabilidad
+**Priority:** Low
+**Status:** Optional — **not recommended now.** Skip-first currently performs zero writes
+for re-published rows; maintaining `last_seen_at` would turn every full DANE republication
+into ~676K UPDATEs per daily run (the exact write amplification TECH-011 just removed).
+The republication signal already exists cheaply at run granularity: `ingestion_runs` +
+the `skipped` metric in logs. Activate only if per-row republication evidence becomes a
+real requirement; consider then whether it belongs in a side table instead.
+
+**Completed:** —
+
+---
+
+### TECH-124
+
+**Title:** Optimize `SipsaParcial` API query indexes
+**Type:** Performance
+**Priority:** Low
+**Status:** Optional — no current evidence of need. The combined API filter
+(`muniId` + date range) resolves via `idx_sipsa_parcial_fecha` with a residual filter
+(20 distinct municipalities → low selectivity); local `EXPLAIN ANALYZE` shows
+sub-millisecond execution. A composite `(muni_id, enma_fecha DESC)` index would only pay
+off with much higher volume or many more municipalities. Revisit with production metrics
+(TECH-032). Note: `idx_sipsa_parcial_muni` shows 0 scans — evaluate together.
+
+**Completed:** —
+
+---
+
+### TECH-125
+
+**Title:** Define retention policy for `SipsaParcial` and ingestion metadata
+**Type:** Datos
+**Priority:** Low
+**Status:** Pending decision
+**Scope:** distinguish functional retention (`sipsa_parcial` — fully reconstructible from
+DANE, which republishes its complete history on every call), audit retention
+(`ingestion_audit`, `ingestion_rejects`), and operational retention (`ingestion_runs`,
+logs). No automatic deletion is implemented or proposed until the team defines
+requirements; growth is currently bounded by deduplication (~340 rows/day net).
 
 **Completed:** —
