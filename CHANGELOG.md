@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **TECH-119 — redundant `SipsaParcial` index removed** (migration
+  `V3__drop_redundant_parcial_key_hash_index.sql`). `V1` had created two identical
+  B-tree indexes on `sipsa_parcial.key_hash`: the explicit non-unique
+  `idx_sipsa_parcial_key_hash` and the backing index of the `UNIQUE (key_hash)`
+  constraint. V3 drops the explicit one; **the `UNIQUE` constraint and its index are
+  preserved** and now serve every hash lookup (verified by `EXPLAIN` before/after with
+  identical cost, and by a full idempotent re-ingestion of 676,210 real records:
+  `inserted=0, skipped=676,210`). Storage on the local real-data base: total indexes
+  254 MB → 174 MB (−80 MB); every insert also stops paying double index maintenance.
+  Transactional `DROP INDEX` (8 ms observed on 676K rows; rationale in the migration and
+  in `docs/database/database-changelog.md`). No data changes, no API change; validated
+  from empty base (V1→V2→V3) and as a V2→V3 upgrade with data via Testcontainers
+  (`ParcialKeyHashIndexMigrationTest`), including a post-V3 duplicate insert rejected by
+  the constraint.
+
 ### Fixed
 
 - **TECH-113 — `GET /api/sipsa/parcial` filters corrected** (H-2/H-3 from the integrity

@@ -90,6 +90,25 @@ Cada migración añade una entrada con estos campos:
 | Evidencia de validación | `FlywayMigrationsTest` (cadena completa desde base vacía + existencia del índice, PostgreSQL 18 real); `ParcialMigrationUpgradeTest` (upgrade V1→V2 sobre datos duplicados legados, verifica que no toca datos); ciclo Docker Compose completo con 3 ingestas reales de DANE |
 | Ambientes aplicados | dev/docker/CI (por diseño en cada arranque/build); staging/producción: **no existen aún** (TECH-130..132 pendientes) |
 
+### V3 — drop_redundant_parcial_key_hash_index
+
+| Campo | Valor |
+|---|---|
+| Archivo | `V3__drop_redundant_parcial_key_hash_index.sql` |
+| Fecha (merge a main) | 2026-07-16 (rama `fix/remove-redundant-parcial-key-hash-index`) |
+| Historia relacionada | TECH-119 |
+| Propósito | Eliminar `idx_sipsa_parcial_key_hash` (V1 creó dos índices B-tree idénticos sobre `key_hash`: el explícito no-único y el implícito del constraint `UNIQUE`) |
+| Cambios de esquema | `DROP INDEX idx_sipsa_parcial_key_hash`. **Se conserva** `sipsa_parcial_key_hash_key` (índice de respaldo del constraint `UNIQUE (key_hash)`, que queda intacto y activo) |
+| Cambios de datos | **Ninguno** — 676.210 filas verificadas idénticas antes/después en la base local |
+| Impacto en índices | −80 MB en la base local de 676K filas (254 MB → 174 MB de índices totales); menor amplificación de escritura en cada inserción |
+| Impacto en constraints | Ninguno — la unicidad de `key_hash` sigue vigente (verificado con inserción duplicada → unique violation post-V3) |
+| Compatibilidad hacia atrás | Total — el planner usa `sipsa_parcial_key_hash_key` para los lookups por hash con costo idéntico (EXPLAIN antes/después) |
+| Requiere downtime | No en los ambientes actuales (sin tráfico productivo; TECH-130..132 pendientes). `DROP INDEX` transaccional toma un lock ACCESS EXCLUSIVE breve — ejecutado en **8 ms** sobre la base local de 676K filas. Si un ambiente futuro con tráfico concurrente y tabla grande necesitara esta migración, aplicarla en una ventana breve (o re-evaluar `CONCURRENTLY` con `executeInTransaction=false`, no necesario hoy) |
+| Estrategia ante fallo | Migración **transaccional**: PostgreSQL revierte el DROP si falla → reintento tras diagnóstico o fix-forward `V4`. Sin estados parciales posibles |
+| Riesgos | Mínimos — el índice eliminado no respaldaba ningún constraint y ninguna consulta/test/script referencia su nombre (verificado por grep en todo el repo) |
+| Evidencia de validación | `FlywayMigrationsTest` (cadena V1→V2→V3 desde base vacía + ausencia del índice + constraint presente); `ParcialKeyHashIndexMigrationTest` (upgrade V2→V3 con datos: filas y hashes preservados, plan usa el índice único, duplicado rechazado); upgrade en vivo sobre la base local real de 676.210 filas; re-ingestión completa idempotente posterior (dedupe TECH-011 operando solo con el índice único) |
+| Ambientes aplicados | dev/docker/CI (por diseño en cada arranque/build); staging/producción: **no existen aún** |
+
 *(Las próximas migraciones de la transición — constraint natural definitivo y fase
 contract, "E2/E3" del runbook — añadirán aquí su entrada con numeración asignada desde
 `main` justo antes de implementar.)*
