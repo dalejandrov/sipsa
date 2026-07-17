@@ -2,12 +2,14 @@ package com.dalejandrov.sipsa.application.ingestion.core;
 
 import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
 import com.dalejandrov.sipsa.domain.exception.WindowViolationException;
+import com.dalejandrov.sipsa.infrastructure.config.IngestionProperties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.time.ZoneId;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,14 +47,24 @@ class WindowPolicyTest {
         return Clock.fixed(Instant.parse(isoInstant), BOGOTA);
     }
 
+    /**
+     * Builds the typed properties WindowPolicy consumes since TECH-133 — a plain
+     * validated POJO, so no Spring context is ever needed in this test class.
+     */
+    private static IngestionProperties props(String monthlyStartHHmm) {
+        IngestionProperties properties = new IngestionProperties();
+        properties.setMonthlyWindowStart(LocalTime.parse(monthlyStartHHmm));
+        return properties;
+    }
+
     /** Mirrors application.yaml's resolved defaults: 14:20-23:59 daily, 8/10 monthly, 14:00 monthly start. */
     private static WindowPolicy productionPolicy() {
-        return new WindowPolicy("14:20", "23:59", "8,10", "14:00", "America/Bogota");
+        return new WindowPolicy("14:20", "23:59", "8,10", props("14:00"), "America/Bogota");
     }
 
     /** Isolates DANE's raw documented 2:00 p.m. boundary, without the deployed 20-minute buffer. */
     private static WindowPolicy daneDocumentedBoundaryPolicy() {
-        return new WindowPolicy("14:00", "23:59", "8,10", "14:00", "America/Bogota");
+        return new WindowPolicy("14:00", "23:59", "8,10", props("14:00"), "America/Bogota");
     }
 
     // ---------------------------------------------------------------------
@@ -68,11 +80,11 @@ class WindowPolicyTest {
         @Test
         @DisplayName("configured set missing a contractual principal day (8 or 10) -> fails at construction")
         void missingPrincipalDay_failsFast() {
-            assertThatThrownBy(() -> new WindowPolicy("14:20", "23:59", "8", "14:00", "America/Bogota"))
+            assertThatThrownBy(() -> new WindowPolicy("14:20", "23:59", "8", props("14:00"), "America/Bogota"))
                     .isInstanceOf(SipsaConfigurationException.class)
                     .hasMessageContaining("monthly-run-days");
 
-            assertThatThrownBy(() -> new WindowPolicy("14:20", "23:59", "10,11", "14:00", "America/Bogota"))
+            assertThatThrownBy(() -> new WindowPolicy("14:20", "23:59", "10,11", props("14:00"), "America/Bogota"))
                     .isInstanceOf(SipsaConfigurationException.class)
                     .hasMessageContaining("monthly-run-days");
         }
@@ -80,8 +92,118 @@ class WindowPolicyTest {
         @Test
         @DisplayName("exact contractual set (8,10) and supersets are accepted")
         void contractualSetAndSupersets_accepted() {
-            new WindowPolicy("14:20", "23:59", "8,10", "14:00", "America/Bogota");
-            new WindowPolicy("14:20", "23:59", "8,9,10,11", "14:00", "America/Bogota");
+            new WindowPolicy("14:20", "23:59", "8,10", props("14:00"), "America/Bogota");
+            new WindowPolicy("14:20", "23:59", "8,9,10,11", props("14:00"), "America/Bogota");
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Monthly window start from typed IngestionProperties (TECH-133): the
+    // authorization gate is centrally configured; the old @Value fallback
+    // (06:00, never effective) is gone. All boundaries tested with Clock.fixed
+    // so results are identical on any machine, JVM default zone, or container.
+    // ---------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Monthly window start — typed configuration (TECH-133)")
+    class MonthlyWindowStartFromProperties {
+
+        /** Same policy as production but with the gate overridden to 10:30. */
+        private WindowPolicy overriddenPolicy() {
+            return new WindowPolicy("14:20", "23:59", "8,10", props("10:30"), "America/Bogota");
+        }
+
+        @Test
+        @DisplayName("plain IngestionProperties default is the canonical 14:00 — never 06:00")
+        void canonicalDefaultIs1400() {
+            assertThat(new IngestionProperties().getMonthlyWindowStart())
+                    .isEqualTo(IngestionProperties.DEFAULT_MONTHLY_WINDOW_START)
+                    .isEqualTo(LocalTime.of(14, 0));
+        }
+
+        @Test
+        @DisplayName("overridden gate 10:30 — one minute before (10:29) the run is rejected")
+        void overriddenGate_oneMinuteBefore_rejected() {
+            WindowPolicy policy = overriddenPolicy();
+            policy.setClock(fixedBogota("2026-06-08T15:29:00Z")); // day 8, 10:29 America/Bogota
+
+            assertThatThrownBy(() -> policy.validateAndGetKey("promediosSipsaMesMadr", false))
+                    .isInstanceOf(WindowViolationException.class)
+                    .hasMessageContaining("10:30");
+        }
+
+        @Test
+        @DisplayName("overridden gate 10:30 — exactly at 10:30:00 the run is authorized")
+        void overriddenGate_exactStart_authorized() {
+            WindowPolicy policy = overriddenPolicy();
+            policy.setClock(fixedBogota("2026-06-08T15:30:00Z")); // day 8, 10:30:00 America/Bogota
+
+            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-M8");
+        }
+
+        @Test
+        @DisplayName("overridden gate 10:30 — one minute after (10:31) the run is authorized")
+        void overriddenGate_oneMinuteAfter_authorized() {
+            WindowPolicy policy = overriddenPolicy();
+            policy.setClock(fixedBogota("2026-06-08T15:31:00Z")); // day 8, 10:31 America/Bogota
+
+            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-M8");
+        }
+
+        @Test
+        @DisplayName("an early gate never authorizes the wrong day — day 7 rejected even after 10:30")
+        void overriddenGate_wrongDayStillRejected() {
+            WindowPolicy policy = overriddenPolicy();
+            policy.setClock(fixedBogota("2026-06-07T17:00:00Z")); // day 7, 12:00 America/Bogota
+
+            assertThatThrownBy(() -> policy.validateAndGetKey("promediosSipsaMesMadr", false))
+                    .isInstanceOf(WindowViolationException.class);
+        }
+
+        @Test
+        @DisplayName("the configured zone decides the outcome — the same instant is authorized in UTC but rejected in Bogota")
+        void explicitZone_decidesOutcome_notTheMachine() {
+            // 2026-06-08T15:00:00Z is 15:00 in UTC (>= 10:30 -> authorized) but only
+            // 10:00 in America/Bogota (< 10:30 -> rejected). Whatever zone the JVM,
+            // container or CI machine runs in, each policy answers from its own
+            // configured zone, never from ZoneId.systemDefault().
+            Instant instant = Instant.parse("2026-06-08T15:00:00Z");
+
+            WindowPolicy utcPolicy = new WindowPolicy("14:20", "23:59", "8,10", props("10:30"), "UTC");
+            utcPolicy.setClock(Clock.fixed(instant, ZoneId.of("UTC")));
+            assertThat(utcPolicy.validateAndGetKey("promediosSipsaMesMadr", false)).isEqualTo("2026-06-M8");
+
+            WindowPolicy bogotaPolicy = overriddenPolicy();
+            bogotaPolicy.setClock(Clock.fixed(instant, BOGOTA));
+            assertThatThrownBy(() -> bogotaPolicy.validateAndGetKey("promediosSipsaMesMadr", false))
+                    .isInstanceOf(WindowViolationException.class);
+        }
+
+        @Test
+        @DisplayName("force=true bypasses the gate before the window start but still returns the stable period key")
+        void force_bypassesGate_keepsStableKey() {
+            WindowPolicy policy = productionPolicy();
+            policy.setClock(fixedBogota("2026-06-08T10:00:00Z")); // day 8, 05:00 America/Bogota
+
+            assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", true)).isEqualTo("2026-06-M8");
+        }
+
+        @Test
+        @DisplayName("an invalid timezone fails at construction, before any run is attempted")
+        void invalidZone_failsAtConstruction() {
+            assertThatThrownBy(() -> new WindowPolicy("14:20", "23:59", "8,10", props("14:00"), "America/Bogotaa"))
+                    .isInstanceOf(java.time.DateTimeException.class);
+        }
+
+        @Test
+        @DisplayName("a null monthly window start fails at construction with the property name")
+        void nullMonthlyStart_failsAtConstruction() {
+            IngestionProperties broken = new IngestionProperties();
+            broken.setMonthlyWindowStart(null);
+
+            assertThatThrownBy(() -> new WindowPolicy("14:20", "23:59", "8,10", broken, "America/Bogota"))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("sipsa.ingestion.monthly-window-start");
         }
     }
 

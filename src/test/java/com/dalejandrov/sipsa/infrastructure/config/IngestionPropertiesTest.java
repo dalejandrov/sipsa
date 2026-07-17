@@ -7,6 +7,8 @@ import org.springframework.boot.test.context.assertj.AssertableApplicationContex
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 
+import java.time.LocalTime;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -33,6 +35,10 @@ class IngestionPropertiesTest {
      */
     private static final String YAML_PLACEHOLDER_CHAIN =
             "sipsa.ingestion.batch-size=${INGESTION_BATCH_SIZE:500}";
+
+    /** Same, for the monthly window start (TECH-133). */
+    private static final String MONTHLY_YAML_PLACEHOLDER_CHAIN =
+            "sipsa.ingestion.monthly-window-start=${INGESTION_MONTHLY_WINDOW_START:14:00}";
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(PropertiesHost.class);
@@ -119,6 +125,91 @@ class IngestionPropertiesTest {
         runner.withPropertyValues("sipsa.ingestion.batch-size=" + IngestionProperties.MAX_BATCH_SIZE)
                 .run(context -> assertThat(context.getBean(IngestionProperties.class).getBatchSize())
                         .isEqualTo(IngestionProperties.MAX_BATCH_SIZE));
+    }
+
+    // -------------------------------------------------------------------
+    // Monthly ingestion window start (TECH-133)
+    // -------------------------------------------------------------------
+
+    @Test
+    @DisplayName("without any override the canonical monthly window start is 14:00 — never the old 06:00 fallback")
+    void defaultMonthlyWindowStartIs1400() {
+        runner.run(context -> assertThat(context.getBean(IngestionProperties.class).getMonthlyWindowStart())
+                .isEqualTo(IngestionProperties.DEFAULT_MONTHLY_WINDOW_START)
+                .isEqualTo(LocalTime.of(14, 0)));
+    }
+
+    @Test
+    @DisplayName("sipsa.ingestion.monthly-window-start=10:30 overrides the default")
+    void monthlyWindowStartPropertyOverrideWins() {
+        runner.withPropertyValues("sipsa.ingestion.monthly-window-start=10:30")
+                .run(context -> assertThat(context.getBean(IngestionProperties.class).getMonthlyWindowStart())
+                        .isEqualTo(LocalTime.of(10, 30)));
+    }
+
+    @Test
+    @DisplayName("the yaml placeholder chain resolves to 14:00 when INGESTION_MONTHLY_WINDOW_START is unset")
+    void monthlyPlaceholderChainFallsBackTo1400() {
+        runner.withPropertyValues(MONTHLY_YAML_PLACEHOLDER_CHAIN)
+                .run(context -> assertThat(context.getBean(IngestionProperties.class).getMonthlyWindowStart())
+                        .isEqualTo(LocalTime.of(14, 0)));
+    }
+
+    @Test
+    @DisplayName("INGESTION_MONTHLY_WINDOW_START=18:45 wins over the placeholder default")
+    void monthlyEnvironmentVariableEquivalentWins() {
+        runner.withSystemProperties("INGESTION_MONTHLY_WINDOW_START=18:45")
+                .withPropertyValues(MONTHLY_YAML_PLACEHOLDER_CHAIN)
+                .run(context -> assertThat(context.getBean(IngestionProperties.class).getMonthlyWindowStart())
+                        .isEqualTo(LocalTime.of(18, 45)));
+    }
+
+    @Test
+    @DisplayName("monthly-window-start=24:00 aborts startup naming the property")
+    void monthlyWindowStart2400FailsStartup() {
+        runner.withPropertyValues("sipsa.ingestion.monthly-window-start=24:00")
+                .run(context -> assertThat(failureMessages(context))
+                        .contains("monthly-window-start"));
+    }
+
+    @Test
+    @DisplayName("monthly-window-start=14:99 aborts startup naming the property")
+    void monthlyWindowStartBadMinutesFailsStartup() {
+        runner.withPropertyValues("sipsa.ingestion.monthly-window-start=14:99")
+                .run(context -> assertThat(failureMessages(context))
+                        .contains("monthly-window-start"));
+    }
+
+    @Test
+    @DisplayName("a non-time monthly-window-start aborts startup naming the property")
+    void monthlyWindowStartNonTimeFailsStartup() {
+        runner.withPropertyValues("sipsa.ingestion.monthly-window-start=invalid")
+                .run(context -> assertThat(failureMessages(context))
+                        .contains("monthly-window-start"));
+    }
+
+    @Test
+    @DisplayName("an explicitly empty monthly-window-start behaves as unset under standard Spring binding — the canonical default applies")
+    void monthlyWindowStartEmptyBehavesAsUnset() {
+        // Spring's binder treats an empty value as absent for typed targets, so the
+        // field keeps its canonical default instead of binding null. Pinned here so
+        // a future switch to stricter semantics is a conscious decision. Note the
+        // docker-compose passthrough uses ${VAR:-14:00}, which already replaces an
+        // empty environment variable with the canonical value before Spring sees it.
+        runner.withPropertyValues("sipsa.ingestion.monthly-window-start=")
+                .run(context -> assertThat(context.getBean(IngestionProperties.class).getMonthlyWindowStart())
+                        .isEqualTo(IngestionProperties.DEFAULT_MONTHLY_WINDOW_START));
+    }
+
+    @Test
+    @DisplayName("midnight and end-of-day boundary values are accepted")
+    void monthlyWindowStartBoundaryValuesAccepted() {
+        runner.withPropertyValues("sipsa.ingestion.monthly-window-start=00:00")
+                .run(context -> assertThat(context.getBean(IngestionProperties.class).getMonthlyWindowStart())
+                        .isEqualTo(LocalTime.MIDNIGHT));
+        runner.withPropertyValues("sipsa.ingestion.monthly-window-start=23:59")
+                .run(context -> assertThat(context.getBean(IngestionProperties.class).getMonthlyWindowStart())
+                        .isEqualTo(LocalTime.of(23, 59)));
     }
 
     /**
