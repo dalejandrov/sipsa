@@ -124,7 +124,11 @@ Key configurations available in [.env.example](.env.example):
 - **Server**: Port and active profiles
 - **SOAP Service**: DANE endpoint and timeouts
 - **Ingestion**: Batch size and quality thresholds (windows and cron schedules
-  are fixed by the DANE contract in `application.yaml`)
+  are fixed by the DANE contract in `application.yaml`). The batch size
+  (`INGESTION_BATCH_SIZE` → `sipsa.ingestion.batch-size`, default **500**,
+  positive integer up to 10,000) is validated at startup and affects batches
+  per run, memory use, dedup-query size, and ingestion duration — larger is
+  not automatically better
 - **Logging**: Log levels per package
 
 For advanced configuration, see [application.yaml](src/main/resources/application.yaml).

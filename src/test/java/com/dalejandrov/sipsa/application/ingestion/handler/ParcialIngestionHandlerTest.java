@@ -4,13 +4,13 @@ import com.dalejandrov.sipsa.application.ingestion.core.IngestionContext;
 import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import com.dalejandrov.sipsa.domain.entity.SipsaParcial;
 import com.dalejandrov.sipsa.domain.gateway.SoapGateway;
+import com.dalejandrov.sipsa.infrastructure.config.IngestionProperties;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.SipsaParcialRepository;
 import com.dalejandrov.sipsa.infrastructure.soap.mapper.SipsaIngestionMapper;
 import com.dalejandrov.sipsa.infrastructure.soap.mapper.SipsaIngestionMapperImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -80,6 +80,7 @@ class ParcialIngestionHandlerTest {
 
     private SoapGateway soapGateway;
     private SipsaParcialRepository repository;
+    private IngestionProperties properties;
     private ParcialIngestionHandler handler;
 
     /** In-memory store simulating the database across executions, keyed by primary key. */
@@ -125,8 +126,9 @@ class ParcialIngestionHandlerTest {
         });
         // flush() is void: the Mockito mock is a no-op by default, which is what we want.
 
-        handler = new ParcialIngestionHandler(soapGateway, repository, mapper);
-        ReflectionTestUtils.setField(handler, "batchSize", 500);
+        // Plain POJO with the canonical default (500) — no Spring context needed.
+        properties = new IngestionProperties();
+        handler = new ParcialIngestionHandler(soapGateway, repository, mapper, properties);
     }
 
     private static InputStream xml(String payload) {
@@ -181,6 +183,24 @@ class ParcialIngestionHandlerTest {
                 .as("only the genuinely new record is inserted")
                 .isEqualTo(1);
         assertThat(store).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("The configured batch size drives flush cadence — no internal fallback to another size")
+    void configuredBatchSizeDrivesFlushCadence() throws Exception {
+        List<Integer> flushSizes = new ArrayList<>();
+        when(repository.batchUpsert(any())).thenAnswer(inv -> {
+            flushSizes.add(inv.<List<SipsaParcial>>getArgument(0).size());
+            return inv.callRealMethod();
+        });
+        properties.setBatchSize(1);
+
+        when(soapGateway.getParcialData()).thenReturn(xml(XML_TWO_RECORDS));
+        handler.execute(context(5));
+
+        assertThat(flushSizes)
+                .as("each batch handed to the repository matches the configured size")
+                .containsExactly(1, 1);
     }
 
     @Test

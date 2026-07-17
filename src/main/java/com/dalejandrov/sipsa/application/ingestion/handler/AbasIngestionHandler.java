@@ -2,6 +2,7 @@ package com.dalejandrov.sipsa.application.ingestion.handler;
 
 import com.dalejandrov.sipsa.domain.entity.SipsaAbastecimientosMensual;
 import com.dalejandrov.sipsa.domain.gateway.SoapGateway;
+import com.dalejandrov.sipsa.infrastructure.config.IngestionProperties;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.SipsaAbastecimientosMensualRepository;
 import com.dalejandrov.sipsa.application.ingestion.core.IngestionContext;
 import com.dalejandrov.sipsa.infrastructure.soap.mapper.SipsaIngestionMapper;
@@ -9,7 +10,6 @@ import com.dalejandrov.sipsa.infrastructure.soap.dto.SipsaAbasRecord;
 import com.dalejandrov.sipsa.infrastructure.soap.parser.AbasStaxParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
@@ -51,9 +51,7 @@ public class AbasIngestionHandler implements IngestionHandler {
     private final SoapGateway soapGateway;
     private final SipsaAbastecimientosMensualRepository repository;
     private final SipsaIngestionMapper mapper;
-
-    @Value("${sipsa.ingestion.batch-size:2000}")
-    private int batchSize;
+    private final IngestionProperties ingestionProperties;
 
     @Override
     public String getMethodName() {
@@ -78,6 +76,7 @@ public class AbasIngestionHandler implements IngestionHandler {
      */
     @Override
     public void execute(IngestionContext context) throws Exception {
+        final int batchSize = ingestionProperties.getBatchSize();
         List<SipsaAbastecimientosMensual> withTmp = new ArrayList<>(batchSize);
         List<SipsaAbastecimientosMensual> noTmp = new ArrayList<>(batchSize);
 
