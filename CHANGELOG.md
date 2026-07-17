@@ -10,6 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-133 — monthly ingestion window configuration centralized and validated**.
+  `WindowPolicy`'s never-effective `@Value` fallback of `06:00` for
+  `sipsa.ingestion.monthly-window-start` is gone: the property now binds as a typed
+  `LocalTime` in `IngestionProperties` (canonical default **14:00**, the value
+  `application.yaml` always made effective — DANE publishes around 14:00 COT and the
+  monthly crons fire at 14:30). **Effective behavior is unchanged.** The value is an
+  authorization gate (earliest time of day a monthly run may execute on its
+  publication/grace day in `America/Bogota`, ADR-008), not the scheduler fire time.
+  Invalid formats (`24:00`, `14:99`, free text) abort startup naming the property; an
+  explicitly empty value falls back to the canonical default under standard Spring
+  binding. Overridable via `INGESTION_MONTHLY_WINDOW_START` (passed through by
+  `docker-compose.yml`). Startup logs one safe confirmation pair: window start and
+  timezone. Boundary behavior is pinned with `Clock.fixed` tests (gate−1min/gate/gate+1min,
+  wrong-day rejection, UTC-vs-Bogota same-instant divergence, `force=true` bypass).
+
 - **TECH-071 — ingestion batch size unified into a single source of truth**
   (`IngestionProperties`, bound to `sipsa.ingestion.batch-size`). The divergent
   `@Value("${sipsa.ingestion.batch-size:2000}")` default that 5 ingestion handlers
