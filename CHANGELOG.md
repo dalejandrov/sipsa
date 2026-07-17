@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-071 — ingestion batch size unified into a single source of truth**
+  (`IngestionProperties`, bound to `sipsa.ingestion.batch-size`). The divergent
+  `@Value("${sipsa.ingestion.batch-size:2000}")` default that 5 ingestion handlers
+  carried is gone: all handlers now inject the same typed, validated configuration.
+  Canonical default is **500** — the value used by every recent real-data validation
+  (676,210 records, TECH-011 evidence) — overridable via the `INGESTION_BATCH_SIZE`
+  environment variable (now passed through by `docker-compose.yml`). Invalid values
+  (zero, negative, non-numeric, or above the preventive maximum of 10,000 — chosen to
+  keep per-batch dedup `IN` lookups far below the PostgreSQL JDBC limit of 32,767 bind
+  parameters) abort startup with a clear validation message instead of failing
+  mid-ingestion. The effective size is logged once at startup
+  (`Ingestion batch size = …`). No functional change: with the default 500 the
+  behavior is identical to what TECH-011 validated.
+
 - **TECH-119 — redundant `SipsaParcial` index removed** (migration
   `V3__drop_redundant_parcial_key_hash_index.sql`). `V1` had created two identical
   B-tree indexes on `sipsa_parcial.key_hash`: the explicit non-unique

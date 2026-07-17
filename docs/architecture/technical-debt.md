@@ -69,7 +69,7 @@ Each item references a backlog story for implementation planning.
 | ID | Item | Priority | Impact | Complexity | Risk | Backlog |
 |---|---|---|---|---|---|---|
 | C-01 | `SoapProperties` lacks Bean Validation constraints | **Low** | Configuration errors discovered at runtime | XS | Low | [TECH-070](../backlog/technical-backlog.md#tech-070) |
-| C-02 | `batch-size` default mismatch: `@Value` (2000) vs `application.yaml` (500) | **Low** | Confusing to read; may surprise on fresh deploy without yaml | XS | Low | [TECH-071](../backlog/technical-backlog.md#tech-071) |
+| C-02 | ~~`batch-size` default mismatch: `@Value` (2000) vs `application.yaml` (500)~~ **Resolved** (2026-07-16, TECH-071 — all 5 handlers now inject the typed `IngestionProperties`; canonical default 500, startup validation 1..10,000, `INGESTION_BATCH_SIZE` override verified in Docker) | **Low** | Confusing to read; may surprise on fresh deploy without yaml | XS | Low | [TECH-071](../backlog/technical-backlog.md#tech-071) (Done) |
 
 ---
 

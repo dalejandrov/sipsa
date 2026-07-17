@@ -92,7 +92,7 @@ No behavioral changes to the public API. No new dependencies (except Spring Secu
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | QA | `fix/cleanup-placeholder-comments` |
 | TECH-052 | `IngestionControlService.getRun()` → `Optional` | QA | `refactor/optional-return-types` |
 | TECH-070 | Bean Validation constraints on `SoapProperties` | Config | `refactor/config-validation` |
-| TECH-071 | Align `batch-size` defaults | Config | `refactor/config-validation` |
+| TECH-071 | Align `batch-size` defaults — **Done** (2026-07-16) | Config | `fix/unify-ingestion-batch-size-config` |
 
 **Acceptance criteria for phase exit:**
 - `./mvnw clean verify` passes.

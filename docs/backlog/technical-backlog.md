@@ -42,7 +42,7 @@ When a story is implemented:
 | TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | Low | 6 | Pending |
 | TECH-060 | Fix N+1 in `upsertFallbackBatch` | Medium | 4 | Pending |
 | TECH-070 | Bean Validation on `SoapProperties` | Low | 1 | Pending |
-| TECH-071 | Align `batch-size` defaults | Low | 1 | Pending |
+| TECH-071 | Align `batch-size` defaults | Low | 1 | **Done** (2026-07-16 — single typed source of truth, canonical 500) |
 | TECH-080 | Write ADR-002 (security) | Low | 6 | **Done** |
 | TECH-081 | Write ADR-001 (deduplication) | Low | 6 | **Done** (2026-07-16 — ADR-001 Accepted with empirical evidence) |
 | TECH-090 | Move internal ingestion commands to `application/command` | Low | — | **Done** |
@@ -801,20 +801,31 @@ each record in the batch, producing N database queries for N records.
 **Type:** Config  
 **Priority:** Low  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** XS  
-**Branch:** `refactor/config-validation` (same branch as TECH-070)
+**Branch:** `fix/unify-ingestion-batch-size-config` (implemented on its own branch;
+the originally planned `refactor/config-validation` with TECH-070 was not used)
 **Dependencies:** None. Can be in the same branch as TECH-070.
 
-**Problem:**
-`@Value("${sipsa.ingestion.batch-size:2000}")` (default 2000) in 5 handlers conflicts with
+**Problem (historical):**
+`@Value("${sipsa.ingestion.batch-size:2000}")` (default 2000) in 5 handlers conflicted with
 `application.yaml: batch-size: ${INGESTION_BATCH_SIZE:500}` (default 500).
 
 **Acceptance Criteria:**
-- [ ] The `@Value` default and the `application.yaml` default agree on the same value.
-- [ ] `./mvnw clean verify` passes.
+- [x] The `@Value` default and the `application.yaml` default agree on the same value —
+      exceeded: the per-handler `@Value` defaults were removed entirely. All 5 handlers
+      inject the typed `IngestionProperties` (`sipsa.ingestion.batch-size`), canonical
+      default **500** (the value used in the TECH-011 real-data validations), overridable
+      via `INGESTION_BATCH_SIZE`. Values outside 1..10,000 (or non-numeric) abort startup
+      with a clear validation message (`IngestionPropertiesTest`, 9 binding/validation
+      cases; `ParcialIngestionHandlerTest` proves the configured size drives flush cadence).
+- [x] `./mvnw clean verify` passes (149 tests).
 
-**Completed:** —
+**Completed:** 2026-07-16, branch `fix/unify-ingestion-batch-size-config`. Docker
+verified: default startup logs `Ingestion batch size = 500`; with
+`INGESTION_BATCH_SIZE=250` it logs `250` (variable now passed through by
+`docker-compose.yml`). Smoke ingestion (`promediosSipsaCiudad`, force) ran clean
+against the local compose stack with the default 500.
 
 ---
 
