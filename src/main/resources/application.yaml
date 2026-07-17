@@ -152,8 +152,10 @@ sipsa:
   # ----------------------------------------------------------------------------
   # Data Ingestion Configuration
   # Window and cron values are aligned with DANE's data publication schedule
-  # (2:00 PM daily; monthly on days 8 and 10). They are contractual, not
-  # environment-specific, so they are fixed here.
+  # (2:00 PM daily; monthly on days 8 and 10). They are contractual and fixed
+  # here, with one operational exception: monthly-window-start accepts an env
+  # override (INGESTION_MONTHLY_WINDOW_START, TECH-133) while keeping the
+  # contractual 14:00 as its canonical default.
   # ----------------------------------------------------------------------------
   ingestion:
     # Batch processing
@@ -164,11 +166,15 @@ sipsa:
     max-reject-rate: ${MAX_REJECT_RATE:0.01}              # 1% max rejection rate
 
     # Window validation (America/Bogota timezone)
-    # Controls when ingestion jobs are ALLOWED to run
+    # Controls when ingestion jobs are ALLOWED to run (authorization gate; the
+    # scheduler itself fires at 14:20/14:30 via the cron expressions below)
     daily-window-start: "14:20"      # 2:20 PM
     daily-window-end: "23:59"        # 11:59 PM
     monthly-run-days: "8,10"         # Day 8 (MesMadr), Day 10 (AbasMes)
-    monthly-window-start: "14:00"    # 2:00 PM
+    # Monthly authorization gate (HH:mm). Canonical 14:00 — DANE publishes the
+    # monthly datasets around 14:00 COT. Overridable for operational tuning
+    # (TECH-133); values must parse as HH:mm or the app refuses to start.
+    monthly-window-start: "${INGESTION_MONTHLY_WINDOW_START:14:00}"
 
     # Cron expressions for scheduled jobs (America/Bogota timezone)
     # DANE publishes data at 2:00 PM, we add 20-30 minutes margin

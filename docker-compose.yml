@@ -65,6 +65,10 @@ services:
       # the shell (e.g. INGESTION_BATCH_SIZE=250 docker compose up -d) for
       # tuning experiments; values must be 1..10000 or the app refuses to start.
       - INGESTION_BATCH_SIZE=${INGESTION_BATCH_SIZE:-500}
+      # Monthly ingestion window start (HH:mm, America/Bogota): canonical 14:00
+      # (TECH-133). Authorization gate for monthly runs, not the cron fire time.
+      # Invalid values abort startup.
+      - INGESTION_MONTHLY_WINDOW_START=${INGESTION_MONTHLY_WINDOW_START:-14:00}
     depends_on:
       db:
         condition: service_healthy
