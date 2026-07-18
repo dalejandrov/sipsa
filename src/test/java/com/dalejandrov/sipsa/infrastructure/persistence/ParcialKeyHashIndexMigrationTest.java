@@ -86,7 +86,11 @@ class ParcialKeyHashIndexMigrationTest {
                 assertThat(rs.getInt(2)).as("key_hash values preserved").isEqualTo(2);
             }
 
-            // The hash lookup can only use the unique index now.
+            // The hash lookup can only use the unique index now. On this 2-row table the
+            // planner rightly prefers a seq scan (any CREATE INDEX in a later migration
+            // refreshes reltuples), so disable seq scans to ask the structural question:
+            // "which index serves key_hash lookups?" — it must be the constraint's own.
+            st.execute("SET enable_seqscan = off");
             try (ResultSet rs = st.executeQuery(
                     "EXPLAIN SELECT * FROM sipsa_parcial WHERE key_hash = "
                             + "'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'")) {
@@ -97,6 +101,8 @@ class ParcialKeyHashIndexMigrationTest {
                 assertThat(plan.toString())
                         .as("planner uses the UNIQUE constraint's index for hash lookups")
                         .contains("sipsa_parcial_key_hash_key");
+            } finally {
+                st.execute("RESET enable_seqscan");
             }
 
             // Integrity after V3: inserting a duplicate key_hash must fail.
