@@ -109,6 +109,25 @@ Cada migración añade una entrada con estos campos:
 | Evidencia de validación | `FlywayMigrationsTest` (cadena V1→V2→V3 desde base vacía + ausencia del índice + constraint presente); `ParcialKeyHashIndexMigrationTest` (upgrade V2→V3 con datos: filas y hashes preservados, plan usa el índice único, duplicado rechazado); upgrade en vivo sobre la base local real de 676.210 filas; re-ingestión completa idempotente posterior (dedupe TECH-011 operando solo con el índice único) |
 | Ambientes aplicados | dev/docker/CI (por diseño en cada arranque/build); staging/producción: **no existen aún** |
 
+### V4 — add_parcial_article_query_index
+
+| Campo | Valor |
+|---|---|
+| Archivo | `V4__add_parcial_article_query_index.sql` |
+| Fecha (merge a main) | pendiente (rama `perf/sipsa-parcial-article-filter-index`) |
+| Historia relacionada | TECH-124 |
+| Propósito | Índice cubriente para el filtro por artículo de `GET /api/sipsa/parcial` (`idArtiSemana` / alias `artiId`): el count por página — Hibernate emite `count(id)` — corría como Parallel Seq Scan de toda la tabla (~17–28 ms por petición a 677K filas), igual que el filtro por artículo inexistente |
+| Cambios de esquema | `CREATE INDEX idx_sipsa_parcial_article_date ON sipsa_parcial (id_arti_semana, enma_fecha DESC) INCLUDE (id)` |
+| Cambios de datos | **Ninguno** — 677.061 filas verificadas idénticas antes/después en la base local |
+| Impacto en índices | +1 índice, 26 MB a 677K filas (tabla 170 MB). Count por artículo: seq scan ~18 ms → **Index Only Scan 0,5–2,3 ms** (`Heap Fetches: 0`); artículo inexistente: 18 ms → 0,02 ms. Escritura: ≈ +0,55 ms por batch de ingesta de 500 filas (medido con inserción masiva local); reingestión todo-skip real sin impacto (0 inserts). Evidencia completa y matriz de alternativas (A/B/C/INCLUDE) en [tech-124-article-filter-analysis.md](../diagnostics/tech-124-article-filter-analysis.md) |
+| Impacto en constraints | Ninguno |
+| Compatibilidad hacia atrás | Total — índice adicional puro; la versión anterior de la aplicación opera igual |
+| Requiere downtime | No en los ambientes actuales (sin tráfico productivo; TECH-130..132 pendientes). `CREATE INDEX` transaccional (no `CONCURRENTLY`, mismo criterio que V2/V3): **197 ms** medidos aplicándola en vivo sobre la base local de 677K filas. Si un ambiente futuro con tráfico concurrente y tabla mucho mayor la necesitara, aplicarla en ventana breve o re-evaluar `CONCURRENTLY` con `executeInTransaction=false` |
+| Estrategia ante fallo | Migración **transaccional**: PostgreSQL revierte el CREATE INDEX si falla → reintento tras diagnóstico o fix-forward `V5`. Sin estados parciales posibles |
+| Riesgos | Bajos — índice no respaldado por constraint, ninguna consulta depende de su existencia (solo de su beneficio); el Index Only Scan del count depende del visibility map (patrón batch semanal + autovacuum lo mantiene efectivo) |
+| Evidencia de validación | `FlywayMigrationsTest` (cadena V1→V4 desde base vacía + forma del índice); `ParcialArticleQueryIndexMigrationTest` (upgrade V3→V4 con 60K filas generadas: filas e índices previos preservados, planner usa el índice en count y en artículo inexistente, sin seq scan en la página); upgrade en vivo sobre la base local real de 677.061 filas (197 ms, `success=true`); ciclo `docker compose down -v && up --build` con carga DANE completa posterior (2m04s, misma magnitud que sin índice) y smoke HTTP funcional 9/9 |
+| Ambientes aplicados | dev/docker/CI (por diseño en cada arranque/build); staging/producción: **no existen aún** |
+
 *(Las próximas migraciones de la transición — constraint natural definitivo y fase
 contract, "E2/E3" del runbook — añadirán aquí su entrada con numeración asignada desde
 `main` justo antes de implementar.)*
