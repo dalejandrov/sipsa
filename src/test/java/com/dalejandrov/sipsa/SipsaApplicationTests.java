@@ -27,4 +27,14 @@ class SipsaApplicationTests {
 	void ingestionBatchSizeBindsFromYaml() {
 		assertThat(ingestionProperties.getBatchSize()).isEqualTo(100);
 	}
+
+	/**
+	 * Same end-to-end proof for {@code sipsa.ingestion.monthly-window-start}
+	 * (TECH-133): the test profile pins "00:00", so seeing midnight here means
+	 * the yaml → typed LocalTime binding works in the real context.
+	 */
+	@Test
+	void monthlyWindowStartBindsFromYaml() {
+		assertThat(ingestionProperties.getMonthlyWindowStart()).isEqualTo(java.time.LocalTime.MIDNIGHT);
+	}
 }

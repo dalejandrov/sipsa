@@ -128,7 +128,11 @@ Key configurations available in [.env.example](.env.example):
   (`INGESTION_BATCH_SIZE` → `sipsa.ingestion.batch-size`, default **500**,
   positive integer up to 10,000) is validated at startup and affects batches
   per run, memory use, dedup-query size, and ingestion duration — larger is
-  not automatically better
+  not automatically better. The monthly window start
+  (`INGESTION_MONTHLY_WINDOW_START` → `sipsa.ingestion.monthly-window-start`,
+  format `HH:mm`, default **14:00** in `America/Bogota`) is the earliest time a
+  monthly run is *authorized* on its publication/grace day — not the cron fire
+  time (14:30); invalid formats abort startup
 - **Logging**: Log levels per package
 
 For advanced configuration, see [application.yaml](src/main/resources/application.yaml).

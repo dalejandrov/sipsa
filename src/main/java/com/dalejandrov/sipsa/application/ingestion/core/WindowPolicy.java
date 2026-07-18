@@ -2,12 +2,15 @@ package com.dalejandrov.sipsa.application.ingestion.core;
 
 import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
 import com.dalejandrov.sipsa.domain.exception.WindowViolationException;
+import com.dalejandrov.sipsa.infrastructure.config.IngestionProperties;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -38,8 +41,13 @@ import java.util.stream.Collectors;
  *       code-level {@link MonthlyRule}s (8 and 10) or the application fails to start with
  *       {@link SipsaConfigurationException}. It does not participate in per-run
  *       validation.</li>
- *   <li>{@code sipsa.ingestion.monthly-window-start} - Monthly window start time</li>
- *   <li>{@code sipsa.timezone} - Timezone for all time calculations</li>
+ *   <li>{@code sipsa.ingestion.monthly-window-start} - Monthly window start time (HH:mm),
+ *       bound through {@link IngestionProperties} (env:
+ *       {@code INGESTION_MONTHLY_WINDOW_START}, canonical default 14:00). This is the
+ *       earliest time of day at which a monthly run is <b>authorized</b> on its
+ *       publication/grace day — not the time the scheduler fires (crons fire at 14:30).</li>
+ *   <li>{@code sipsa.timezone} - Timezone for all time calculations (explicit
+ *       {@code America/Bogota} per ADR-008; never {@code ZoneId.systemDefault()})</li>
  * </ul>
  * <p>
  * <b>Window Keys:</b>
@@ -54,6 +62,7 @@ import java.util.stream.Collectors;
  * @see WindowViolationException
  */
 @Component
+@Slf4j
 public class WindowPolicy {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -103,23 +112,31 @@ public class WindowPolicy {
 
     /**
      * Creates the window policy with configured time windows and timezone.
+     * <p>
+     * The monthly window start comes from the typed {@link IngestionProperties}
+     * (TECH-133): the old {@code @Value} parameter carried a {@code 06:00} fallback that
+     * diverged from the {@code 14:00} that {@code application.yaml} has always made
+     * effective. The properties bean is a plain validated POJO, so tests can instantiate
+     * this policy directly without a Spring context.
      *
      * @param dailyStartStr daily window start time (HH:mm format)
      * @param dailyEndStr daily window end time (HH:mm format)
      * @param monthlyRunDaysStr comma-separated days of month for monthly runs (e.g., "8,10")
-     * @param monthlyStartStr monthly window start time (HH:mm format)
+     * @param ingestionProperties typed ingestion configuration (monthly window start)
      * @param zoneStr timezone identifier (e.g., "America/Bogota")
      */
     public WindowPolicy(
             @Value("${sipsa.ingestion.daily-window-start:14:20}") String dailyStartStr,
             @Value("${sipsa.ingestion.daily-window-end:23:59}") String dailyEndStr,
             @Value("${sipsa.ingestion.monthly-run-days:8,10}") String monthlyRunDaysStr,
-            @Value("${sipsa.ingestion.monthly-window-start:06:00}") String monthlyStartStr,
+            IngestionProperties ingestionProperties,
             @Value("${sipsa.timezone:America/Bogota}") String zoneStr) {
 
         this.dailyStart = LocalTime.parse(dailyStartStr);
         this.dailyEnd = LocalTime.parse(dailyEndStr);
-        this.monthlyStart = LocalTime.parse(monthlyStartStr);
+        this.monthlyStart = Objects.requireNonNull(
+                ingestionProperties.getMonthlyWindowStart(),
+                "sipsa.ingestion.monthly-window-start must not be null");
 
         this.monthlyRunDays = Arrays.stream(monthlyRunDaysStr.split(","))
                 .map(String::trim)
@@ -137,6 +154,10 @@ public class WindowPolicy {
 
         this.zone = ZoneId.of(zoneStr);
         this.clock = Clock.system(this.zone);
+
+        // Single safe startup log so operators can confirm the effective window
+        // configuration; the policy itself never logs per evaluation.
+        log.info("Monthly ingestion timezone = {}", this.zone);
     }
 
     /**

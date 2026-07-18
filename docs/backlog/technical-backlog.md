@@ -68,6 +68,7 @@ When a story is implemented:
 | TECH-123 | Add `first_seen_at`/`last_seen_at` republication traceability | Low | — | Optional — not recommended now (write cost; see story) |
 | TECH-124 | Optimize `SipsaParcial` API query indexes (`muni_id, enma_fecha`) | Low | — | Optional — no evidence of need at current volume |
 | TECH-125 | Define `SipsaParcial`/ingestion data retention policy | Low | — | Pending decision |
+| TECH-133 | Centralize and validate monthly ingestion window configuration | Low | — | **Done** (2026-07-17 — typed `monthlyWindowStart`, divergent `06:00` fallback removed, effective 14:00 unchanged) |
 
 ---
 
@@ -2050,3 +2051,63 @@ logs). No automatic deletion is implemented or proposed until the team defines
 requirements; growth is currently bounded by deduplication (~340 rows/day net).
 
 **Completed:** —
+
+---
+
+### TECH-133
+
+**Title:** Centralize and validate monthly ingestion window configuration  
+**Type:** Config  
+**Priority:** Low  
+**Status:** **Done**  
+**Complexity:** S  
+**Branch:** `fix/unify-monthly-ingestion-window-config`
+**Dependencies:** TECH-071 (extends the `IngestionProperties` class it introduced).
+
+**Problem (historical):**
+`WindowPolicy` carried `@Value("${sipsa.ingestion.monthly-window-start:06:00}")` while
+`application.yaml` set `14:00`. The `06:00` fallback was never effective (the YAML key was
+always present) but promised a different behavior on any deployment missing the YAML, and
+the format was only validated implicitly by `LocalTime.parse` inside the policy
+constructor. Already flagged as F-SC-01 context in
+`docs/architecture/scheduled-ingestion-validation.md` and as an out-of-scope finding of
+TECH-071.
+
+**Functional semantics (confirmed before changing anything):**
+`monthly-window-start` is an **authorization gate**, not a scheduler time: on a monthly
+method's publication day (MesMadr: 8, Abas: 10) or its grace day (9/11), a run is
+authorized only at or after this time of day in the `sipsa.timezone` zone
+(`America/Bogota`, fixed per ADR-008). The monthly crons fire at 14:30 — after the 14:00
+gate — and `force=true` bypasses the gate while preserving the stable period key.
+`WindowPolicy` already used an injectable `Clock` (TECH-110/111) pinned to the configured
+zone; it never consults `ZoneId.systemDefault()`.
+
+**Canonical value decision:** `14:00` retained — it is the value `application.yaml` has
+always made effective, consistent with DANE's ~14:00 COT publication and the 14:30 crons.
+Local `ingestion_runs` history contains no monthly executions (only a manual Ciudad smoke),
+so there was no operational evidence justifying a functional change; the never-effective
+`06:00` fallback was removed. **Effective behavior change: none.** Any different gate time
+remains a business decision to validate separately.
+
+**Acceptance Criteria:**
+- [x] `monthly-window-start` has a single typed source (`IngestionProperties.monthlyWindowStart`,
+      `LocalTime`, canonical default 14:00 as `DEFAULT_MONTHLY_WINDOW_START`).
+- [x] No divergent local `@Value` remains (`WindowPolicy` injects `IngestionProperties`).
+- [x] The effective value did not change (14:00 before via YAML, 14:00 after; pinned by tests).
+- [x] Format validated at startup: `24:00`, `14:99`, non-time text abort the context naming
+      the property; an explicitly empty value behaves as unset under Spring's standard
+      binding (canonical default applies — pinned by a dedicated test; the Compose
+      passthrough `${VAR:-14:00}` additionally replaces empty env values before Spring).
+- [x] Timezone explicit: reuses the canonical `sipsa.timezone` (`America/Bogota`, ADR-008);
+      invalid zones fail at construction; no `ZoneId.systemDefault()` anywhere in the policy.
+- [x] `WindowPolicy` keeps its injectable `Clock`; boundaries proven with `Clock.fixed`
+      (10:29/10:30/10:31 on an overridden gate, wrong-day rejection, UTC-vs-Bogota same
+      instant, `force=true` bypass).
+- [x] Docker override works: `INGESTION_MONTHLY_WINDOW_START` passthrough added to
+      `docker-compose.yml`; verified 14:00 default and 10:30 override in container logs.
+- [x] Operational documentation updated (README, `.env.example`, `application.yaml` comments).
+
+**Completed:** 2026-07-17, branch `fix/unify-monthly-ingestion-window-config`.
+`./mvnw clean verify`: 168 tests green. Startup logs a single safe confirmation pair:
+`Monthly ingestion window start = <HH:mm>` (IngestionProperties) and
+`Monthly ingestion timezone = <zone>` (WindowPolicy).

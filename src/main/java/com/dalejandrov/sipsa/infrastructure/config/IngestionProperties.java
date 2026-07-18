@@ -3,29 +3,33 @@ package com.dalejandrov.sipsa.infrastructure.config;
 import jakarta.annotation.PostConstruct;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
+import java.time.LocalTime;
+
 /**
- * Configuration properties for SIPSA data ingestion batching.
+ * Configuration properties for SIPSA data ingestion batching and windows.
  * <p>
  * Binds to {@code sipsa.ingestion.*} properties in application.yaml and is the
- * <b>single source of truth</b> for the ingestion batch size. All ingestion
- * handlers must obtain the batch size from this class — never from their own
- * {@code @Value} defaults — so every handler processes batches of the same,
- * centrally validated size.
+ * <b>single source of truth</b> for the ingestion batch size and the monthly
+ * ingestion window start. Consumers must obtain these values from this class —
+ * never from their own {@code @Value} defaults — so every component sees the
+ * same, centrally validated configuration.
  * <p>
  * <b>Example Configuration:</b>
  * <pre>{@code
  * sipsa:
  *   ingestion:
  *     batch-size: ${INGESTION_BATCH_SIZE:500}
+ *     monthly-window-start: ${INGESTION_MONTHLY_WINDOW_START:14:00}
  * }</pre>
  * <p>
- * <b>Resolution precedence:</b>
+ * <b>Resolution precedence (batch size):</b>
  * <ol>
  *   <li>{@code INGESTION_BATCH_SIZE} environment variable</li>
  *   <li>{@code sipsa.ingestion.batch-size} property</li>
@@ -79,11 +83,37 @@ public class IngestionProperties {
     private int batchSize = DEFAULT_BATCH_SIZE;
 
     /**
-     * Logs the effective batch size once at startup so operators can confirm
-     * the resolved configuration without per-batch log noise.
+     * Canonical monthly ingestion window start (America/Bogota, see
+     * {@code sipsa.timezone}). 14:00 is the value {@code application.yaml} has
+     * always made effective — DANE publishes the monthly datasets around 14:00
+     * COT and the monthly crons fire at 14:30 — retained for operational
+     * compatibility (TECH-133). It replaces the never-effective {@code 06:00}
+     * Java-level fallback that {@code WindowPolicy} used to carry.
+     */
+    public static final LocalTime DEFAULT_MONTHLY_WINDOW_START = LocalTime.of(14, 0);
+
+    /**
+     * Earliest time of day (HH:mm, in the zone configured by
+     * {@code sipsa.timezone}) at which {@code WindowPolicy} authorizes a
+     * monthly ingestion run on its publication or grace day. This is an
+     * authorization gate consulted when a run is attempted — it is NOT the
+     * time the scheduler fires (the monthly crons fire at 14:30).
+     * <p>
+     * Bound from {@code sipsa.ingestion.monthly-window-start}
+     * (env: {@code INGESTION_MONTHLY_WINDOW_START}). Non-parseable values
+     * (e.g. {@code 24:00}, {@code 14:60}, free text) fail the binding and
+     * abort startup; an explicitly empty value is rejected by {@code @NotNull}.
+     */
+    @NotNull(message = "sipsa.ingestion.monthly-window-start must be a valid HH:mm time (e.g. 14:00)")
+    private LocalTime monthlyWindowStart = DEFAULT_MONTHLY_WINDOW_START;
+
+    /**
+     * Logs the effective values once at startup so operators can confirm the
+     * resolved configuration without per-batch or per-evaluation log noise.
      */
     @PostConstruct
     void logEffectiveConfiguration() {
         log.info("Ingestion batch size = {}", batchSize);
+        log.info("Monthly ingestion window start = {}", monthlyWindowStart);
     }
 }
