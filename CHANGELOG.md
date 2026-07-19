@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-031 — `SipsaHealthIndicator` staleness thresholds externalized**, no effective
+  value changed. The indicator hardcoded `36` (hours, for the daily-window method
+  group) and `35 * 24` (also compared in hours, for every other monitored method) —
+  both now live in the new validated `SipsaHealthProperties`
+  (`sipsa.health.daily-staleness-threshold` / `monthly-staleness-threshold`, env
+  `SIPSA_HEALTH_DAILY_STALENESS_THRESHOLD` / `SIPSA_HEALTH_MONTHLY_STALENESS_THRESHOLD`,
+  canonical defaults `36h` / `840h` — kept in hours, the unit the comparison actually
+  uses, not converted to a day count). Each threshold must be positive; zero or negative
+  values abort startup naming the property (a zero threshold would mark every method
+  `STALE` immediately after its own successful run). `SipsaHealthIndicator` now takes
+  `SipsaHealthProperties` via constructor injection instead of hardcoded literals, and
+  `Instant.now()` became `Instant.now(clock)` with a package-private test-only
+  `setClock` seam mirroring `WindowPolicy`'s existing pattern in this codebase. The
+  strict `>` comparison, per-method `STALE` detail entries, and `UP`/`DOWN`/`UNKNOWN`
+  outcomes are unchanged — new tests pin both method groups at exactly their default
+  threshold (stays `UP`) and one hour past it (`DOWN`), previously uncovered. Verified
+  in Docker: defaults, valid override, and startup abort on an invalid value. No
+  Actuator wiring, security, endpoint, or health-response-shape change; no migration;
+  V1–V4 unchanged.
+
 - **TECH-052 — `IngestionControlService.getRun()` now returns
   `Optional<IngestionRun>`**, an explicit internal absence contract instead of a
   nullable return. `findById` already returned `Optional`; the method was discarding it

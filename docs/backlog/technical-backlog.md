@@ -27,7 +27,7 @@ When a story is implemented:
 | TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Medium | 2 | Pending |
 | TECH-023 | Add `requestId` and `instance` to error responses | Low | 2 | Pending |
 | TECH-030 | Named executor in `@Async` for audit logging | Low | 1 | **Resolved by TECH-136** (2026-07-19 — `@Async("ingestionTaskExecutor")` on `logEvent`) |
-| TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Low | 1 | Pending |
+| TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Low | 1 | **Done** (2026-07-19, branch `refactor/externalize-health-thresholds`) |
 | TECH-032 | Add Micrometer metrics for ingestion | Medium | 4 | Pending |
 | TECH-040 | Unit tests for `WindowPolicy` | High | 3 | **Done** (implemented by TECH-110) |
 | TECH-041 | Unit tests for `SpecificationBuilder` | High | 3 | Pending |
@@ -456,20 +456,51 @@ branch — do not start `fix/async-executor-audit`.
 **Type:** Config  
 **Priority:** Low  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** XS  
-**Branch:** `refactor/health-indicator-config`
+**Branch:** `refactor/externalize-health-thresholds` (the originally-listed
+`refactor/health-indicator-config` name was not reused)
 **Dependencies:** None.
 
 **Problem:**
 Staleness thresholds (36h daily, 35 days monthly) are hardcoded in `SipsaHealthIndicator`.
 
-**Evidence:** `SipsaHealthIndicator.java:107,112`
+**Evidence (re-confirmed against `main` before changing anything):**
+`SipsaHealthIndicator.java:108`: `if (ageHours > 36)` for methods in `DAILY_METHODS`
+(daily ingestion window methods — note `promediosSipsaSemanaMadr`, the weekly wholesale
+endpoint, is in this set too: "daily" means "runs in the daily window", not "publishes
+daily"); `:114`: `if (ageHours > (35 * 24))` for every other monitored method (the
+monthly ones). Both compare against `ageHours = Duration.between(lastSuccess,
+now).toHours()` — the actual comparison unit is **hours** in both branches; `35 * 24`
+was inline day-to-hour arithmetic, not a separate day-based comparison.
 
 **Acceptance Criteria:**
-- [ ] Thresholds are defined in `application.yaml` under `sipsa.health.*`.
-- [ ] `SipsaHealthIndicator` reads them via `@ConfigurationProperties` or `@Value`.
-- [ ] `./mvnw clean verify` passes.
+- [x] Thresholds are defined in `application.yaml` under `sipsa.health.*`.
+- [x] `SipsaHealthIndicator` reads them via `@ConfigurationProperties`
+      (`SipsaHealthProperties`, constructor injection — no `@Value` in the indicator
+      itself).
+- [x] `./mvnw clean verify` passes.
+
+**Completed:** 2026-07-19, branch `refactor/externalize-health-thresholds`. New
+`SipsaHealthProperties` (`sipsa.health.*`, env `SIPSA_HEALTH_DAILY_STALENESS_THRESHOLD`
+/ `SIPSA_HEALTH_MONTHLY_STALENESS_THRESHOLD`) with validated `Duration` fields —
+canonical defaults `36h`/`840h` reproduce the exact prior behavior (kept in hours, not
+converted to a day count, since hours is the unit the code actually compares in); each
+threshold must be positive or startup aborts naming the property (zero would report
+every method `STALE` immediately after its own success — never a meaningful signal). No
+existing properties class was reused (`IngestionProperties` is scoped to
+`sipsa.ingestion.*`, a different domain). `Instant.now()` became `Instant.now(clock)`
+with a package-private test-only `setClock` seam mirroring `WindowPolicy`'s established
+pattern in this codebase (`Clock.systemUTC()` default, behaviorally identical to the
+prior bare `Instant.now()`). The strict `>` comparison, per-method `STALE` detail
+entries, and `UP`/`DOWN`/`UNKNOWN` outcomes are byte-identical to before — evidenced by
+`SipsaHealthPropertiesTest` (7 binding/validation cases) and `SipsaHealthIndicatorTest`
+(6 cases: both method groups exactly at their default threshold stay `UP`, one hour past
+goes `DOWN`, a configured override changes the effective threshold, no-runs-yet stays
+`UNKNOWN`). Verified in Docker: default thresholds logged (`36h`/`840h`), valid override
+(`12h`/`10d` → `PT12H`/`PT240H`), invalid value (`0h`) → `APPLICATION FAILED TO START`
+naming the property, defaults restored, `/actuator/health` and the `sipsa` indicator's
+detail contract unaffected. No Flyway migration; V1–V4 unchanged.
 
 **Completed:** —
 
