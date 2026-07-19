@@ -22,7 +22,7 @@ When a story is implemented:
 | TECH-010 | SPIKE: Parcial deduplication key | High | 5 | **Done** (2026-07-16 — key confirmed against real DANE data; ADR-001 Accepted) |
 | TECH-011 | Implement correct deduplication for Parcial | High | 5 | **Done** (2026-07-16, branch `fix/sipsa-parcial-data-integrity`) |
 | TECH-012 | SPIKE: Verify `sipsa_parcial` growth in production | High | 5 | **Pending external verification** — local real-data diagnosis completed 2026-07-16 (see story); the external check applies only if a historical external database is confirmed to exist |
-| TECH-020 | Fix `@RequestMapping` without leading `/` | High | 1 | Pending |
+| TECH-020 | Fix `@RequestMapping` without leading `/` | High | 1 | **Done** (2026-07-19, branch `fix/request-mapping-leading-slash`) |
 | TECH-021 | `SipsaParseException` → HTTP 502 | Medium | 2 | Pending |
 | TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Medium | 2 | Pending |
 | TECH-023 | Add `requestId` and `instance` to error responses | Low | 2 | Pending |
@@ -291,7 +291,7 @@ GROUP BY method_name;
 **Type:** Bug  
 **Priority:** High  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** XS  
 **Branch:** `fix/request-mapping-leading-slash`
 **Dependencies:** None.
@@ -300,14 +300,31 @@ GROUP BY method_name;
 Two controllers declare their routes without a leading slash, inconsistent with the rest of the project.
 
 **Evidence:**
-- `SipsaOpsController.java:36`: `@RequestMapping("api/internal/ingestion")`
-- `IngestionAuditController.java:33`: `@RequestMapping("api/internal/audit")`
+- `SipsaOpsController.java:35`: `@RequestMapping("api/internal/ingestion")`
+- `IngestionAuditController.java:34`: `@RequestMapping("api/internal/audit")`
+
+**Precision:** Spring MVC normalizes a class-level `@RequestMapping` value at startup
+regardless of a leading slash, so the effective route (`/api/internal/ingestion/**`,
+`/api/internal/audit/**`) was never actually broken — this was a declared-contract
+inconsistency (vs. `SipsaRestController`'s `@RequestMapping("/api/sipsa")`), not a
+routing failure. `SecurityConfig`'s `requestMatchers` already used the leading-slash
+form and already matched correctly before this change.
 
 **Acceptance Criteria:**
-- [ ] Both controllers have `@RequestMapping("/api/internal/...")` with leading `/`.
-- [ ] `./mvnw clean verify` passes.
+- [x] Both controllers have `@RequestMapping("/api/internal/...")` with leading `/`.
+- [x] `./mvnw clean verify` passes.
 
-**Completed:** —
+**Completed:** 2026-07-19, branch `fix/request-mapping-leading-slash`. Both class-level
+annotations now read `@RequestMapping("/api/internal/ingestion")` and
+`@RequestMapping("/api/internal/audit")`. New test
+`InternalControllerRouteMappingTest` pins the structural evidence (Spring's
+`HandlerMapping` resolves each path to the expected controller and handler method,
+independent of HTTP status) alongside the pre-existing `InternalEndpointSecurityTest`
+(15 test cases across both endpoint groups: 401 without token, 403 with wrong scope,
+2xx with correct scope — all still green, confirming security and status codes are
+unchanged). Docker smoke: clean `down -v && up --build`, both endpoint groups exercised
+with the local mock-OIDC token flow, Flyway V1→V4 unaffected (no migration in this
+story). No DTOs, security config, scopes, or business logic touched.
 
 ---
 
