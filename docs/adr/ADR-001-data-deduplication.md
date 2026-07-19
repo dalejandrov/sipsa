@@ -179,7 +179,3 @@ TECH-122's contract phase.)
 - The `UNIQUE` constraint on `key_hash` must be dropped (it creates a false expectation of uniqueness).
 - The system must be documented as accumulating historical snapshots.
 - Monitoring/alerting on table growth is mandatory.
-
----
-
-*Update this ADR to `Accepted` after the business questions are answered and TECH-010 is resolved.*

@@ -167,15 +167,22 @@ A story is complete only when ALL of the following are true:
 
 ---
 
-## Critical Known Issues (act on these — they are in the backlog)
+## Critical Known Issues
 
-1. **`SipsaParcial` deduplication is broken** — `TECH-010` (SPIKE), Phase 5. Blocked pending business decision.
+None currently open. Both items originally listed here are resolved:
 
-(Resolved 2026-07-15: internal endpoints now require a JWT with per-operation scopes —
-`TECH-001`/`TECH-002`, ADR-002 `Accepted`, merged via PR #17 and e2e-validated against
-the mock OIDC issuer. The AWS gateway/network layers remain as TECH-130..132.)
+- **`SipsaParcial` deduplication** — resolved 2026-07-16 (`TECH-010`/`TECH-011`, ADR-001
+  `Accepted`; concurrency hardening followed via `TECH-117` on 2026-07-19). See the
+  backlog's Phase 5 stories for evidence.
+- **Internal endpoint authentication** — resolved 2026-07-15: internal endpoints now
+  require a JWT with per-operation scopes (`TECH-001`/`TECH-002`, ADR-002 `Accepted`,
+  merged via PR #17, e2e-validated against the mock OIDC issuer). The AWS gateway/network
+  layers remain as `TECH-130..132` (infrastructure, not application-code issues).
 
-Do not implement a fix for TECH-010 without completing the SPIKE first.
+If a new critical issue is found, add it here with its backlog story ID and remove it
+only once the story is `Done` with verified evidence — see
+[the reconciliation criteria](docs/backlog/technical-backlog.md) for what counts as
+sufficient evidence.
 
 ---
 

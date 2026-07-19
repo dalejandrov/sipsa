@@ -2,7 +2,8 @@
 
 **Version:** 1.0  
 **Date:** 2026-07-13  
-**Last updated:** 2026-07-13
+**Last updated:** 2026-07-19 (reconciled against `main` — resolution evidence added for
+PS-01, C-02..C-05, Q-05; see the status note at the end of this document)
 
 This registry tracks all known technical debt items identified during the architectural review.
 Each item references a backlog story for implementation planning.
@@ -93,7 +94,7 @@ Each item references a backlog story for implementation planning.
 | Q-02 | `toAuditEventRequest()` returns response type (naming error) | **Low** | Misleading; forces double-reading to understand intent | XS | Low | [TECH-051](../backlog/technical-backlog.md#tech-051) |
 | Q-03 | `IngestionControlService.getRun()` returns nullable `IngestionRun` | **Low** | Breaks Optional contract; callers do null checks | XS | Low | [TECH-052](../backlog/technical-backlog.md#tech-052) |
 | Q-04 | `@RequestMapping` without leading `/` on 2 controllers | **Bug** | Inconsistent; potentially broken with strict proxies | XS | Low | [TECH-020](../backlog/technical-backlog.md#tech-020) |
-| Q-05 | `@Async` in `IngestionAuditService.logEvent()` uses default executor | **Low** | Unmanaged threads (SimpleAsyncTaskExecutor) instead of pool | XS | Low | [TECH-030](../backlog/technical-backlog.md#tech-030) |
+| Q-05 | ~~`@Async` in `IngestionAuditService.logEvent()` uses default executor~~ **Resolved** (2026-07-19, TECH-136 — `@Async("ingestionTaskExecutor")`, verified free of `SimpleAsyncTaskExecutor` and the ambiguous-resolution warning; TECH-030 was the original story for this finding, closed by the same implementation) | **Low** | Unmanaged threads (SimpleAsyncTaskExecutor) instead of pool | XS | Low | [TECH-030](../backlog/technical-backlog.md#tech-030) / [TECH-136](../backlog/technical-backlog.md#tech-136) (Done) |
 | Q-06 | `AuditTrailService.queryAuditEvents()` builds its own `Pageable` | **Low** | Ignores `PaginationConfig`; inconsistent with all other services | XS | Low | Not in active backlog; natural companion of [TECH-054](../backlog/technical-backlog.md#tech-054) (pagination) when that story runs |
 
 ---
@@ -112,14 +113,35 @@ Each item references a backlog story for implementation planning.
 | Code Quality | — | — | — | 6 | 6 |
 | **Total** | **2** | **4** | **7** | **15** | **28** |
 
-**Status note (2026-07-15):** of the 28 registered items, **4 are resolved** (T-01, T-06 —
-closed by TECH-110/TECH-040; S-01, S-02 — closed by TECH-001/TECH-002/ADR-002 on
-2026-07-15, application layer merged via PR #17 and e2e-validated against the mock OIDC
-issuer; the AWS gateway/network layers remain tracked as TECH-130..132)
-and **1 is partially resolved / re-scoped** (A-01 — closed for
-the 3 internal commands by TECH-090; the residual imports are accepted by ADR-007). Items
-are annotated in place rather than deleted, so the registry remains the full historical
-record. All other items remain pending.
+**Status note (reconciled 2026-07-19 against `main`):** of the 28 registered items,
+**10 are resolved**: T-01, T-06 (closed by TECH-110/TECH-040); S-01, S-02 (closed by
+TECH-001/TECH-002/ADR-002 on 2026-07-15, application layer merged via PR #17 and
+e2e-validated against the mock OIDC issuer; the AWS gateway/network layers remain
+tracked as TECH-130..132); PS-01 (closed by TECH-010/TECH-011/ADR-001 on 2026-07-16);
+C-02, C-03, C-04, C-05 (closed by TECH-071/TECH-133/TECH-135/TECH-136, all 2026-07-16
+through 2026-07-19 — see [technical backlog](../backlog/technical-backlog.md) for each);
+Q-05 (closed by TECH-136 on 2026-07-19, resolving the original TECH-030 finding).
+**1 is partially resolved / re-scoped** (A-01 — closed for the 3 internal commands by
+TECH-090; the residual imports are accepted by ADR-007). Items are annotated in place
+rather than deleted, so the registry remains the full historical record.
+
+Of the remaining items, the following were **code-verified still open against `main`**
+on 2026-07-19 (exact code citations in the corresponding backlog story): C-01/TECH-070
+(`SoapProperties` still has no `@Validated`/constraint annotations), O-01/TECH-032 (zero
+Micrometer/`MeterRegistry` usage in `src/main/java`), O-02/TECH-031
+(`SipsaHealthIndicator` thresholds still hardcoded literals), O-03/TECH-023
+(`ErrorResponse` still 5 fields, no `requestId`/`instance`), A-03/TECH-021
+(`SipsaParseException` still maps to 400), A-04/TECH-022 (not-found still throws
+`SipsaBusinessException` → 422, no `SipsaNotFoundException` class exists), P-01/TECH-060
+(`upsertFallbackBatch` still one query per item — same pattern also present in the
+Mensual and Abastecimientos repositories), Q-01/TECH-050 (`// ...existing code...` still
+present in exactly 4 handler files), Q-02/TECH-051 (`toAuditEventRequest` still named
+that, still returns a response DTO), Q-03/TECH-052 (`getRun()` still returns nullable),
+Q-04/TECH-020 (both controllers still missing the leading `/`), and T-04/TECH-043 (no
+`GlobalExceptionHandler` test file exists). O-04/TECH-054, P-02/TECH-053, A-02/TECH-055
+and T-02/T-03 (TECH-041/042) were **not re-verified this cycle** — no evidence
+contradicts their existing "pending" classification, but no fresh code citation was
+collected for them either.
 
 ---
 

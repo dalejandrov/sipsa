@@ -26,7 +26,7 @@ When a story is implemented:
 | TECH-021 | `SipsaParseException` → HTTP 502 | Medium | 2 | Pending |
 | TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Medium | 2 | Pending |
 | TECH-023 | Add `requestId` and `instance` to error responses | Low | 2 | Pending |
-| TECH-030 | Named executor in `@Async` for audit logging | Low | 1 | Pending |
+| TECH-030 | Named executor in `@Async` for audit logging | Low | 1 | **Resolved by TECH-136** (2026-07-19 — `@Async("ingestionTaskExecutor")` on `logEvent`) |
 | TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Low | 1 | Pending |
 | TECH-032 | Add Micrometer metrics for ingestion | Medium | 4 | Pending |
 | TECH-040 | Unit tests for `WindowPolicy` | High | 3 | **Done** (implemented by TECH-110) |
@@ -174,7 +174,7 @@ the 2026-07-15 post-merge e2e validation: `/actuator/health` 200 without a token
 **Type:** SPIKE  
 **Priority:** High  
 **Phase:** 5  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** M  
 **Branch:** `spike/parcial-deduplication`
 
@@ -217,7 +217,7 @@ of them (×2, prices identical — no divergent re-publications observed). Behav
 **Type:** Correctiva  
 **Priority:** High  
 **Phase:** 5  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** M  
 **Branch:** `fix/parcial-data-integrity`
 
@@ -253,7 +253,7 @@ plus extended `FlywayMigrationsTest`.
 **Type:** SPIKE  
 **Priority:** High  
 **Phase:** 5  
-**Status:** Pending  
+**Status:** **Partial — local half Done (2026-07-16); external half Conditional** (see below)  
 **Complexity:** XS  
 **Branch:** None (SQL queries only)
 **Dependencies:** None (SQL query only — no code changes).
@@ -406,9 +406,9 @@ entry corresponds to their received error.
 **Type:** Bug  
 **Priority:** Low  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Resolved by [TECH-136](#tech-136)**  
 **Complexity:** XS  
-**Branch:** `fix/async-executor-audit`
+**Branch:** `fix/async-executor-audit` (superseded — implemented on `refactor/centralize-async-executor-config`)
 **Dependencies:** None.
 
 **Problem:**
@@ -418,10 +418,18 @@ invocation) instead of the configured `ingestionTaskExecutor` pool.
 **Evidence:** `IngestionAuditService.java:67`: `@Async` (no name)
 
 **Acceptance Criteria:**
-- [ ] `logEvent()` uses a named executor: either `@Async("ingestionTaskExecutor")` or a dedicated audit executor.
-- [ ] `./mvnw clean verify` passes.
+- [x] `logEvent()` uses a named executor: either `@Async("ingestionTaskExecutor")` or a dedicated audit executor.
+- [x] `./mvnw clean verify` passes.
 
-**Completed:** —
+**Completed:** 2026-07-19, as part of [TECH-136](#tech-136) (branch
+`refactor/centralize-async-executor-config`). TECH-136 was scoped to C-05 (the
+`AsyncConfig` `@Value` duplication) plus this exact finding, confirmed independently
+during the 2026-07-19 CI-flake investigation before the two stories were connected;
+`logEvent` now declares `@Async("ingestionTaskExecutor")`, verified by
+`IngestionAuditExecutorResolutionTest` (insert thread carries the `ingestion-async-`
+prefix; captured output contains neither `More than one TaskExecutor bean found` nor
+`SimpleAsyncTaskExecutor`). No separate implementation exists under this story's own
+branch — do not start `fix/async-executor-audit`.
 
 ---
 
@@ -864,7 +872,7 @@ recommendation after the AWS deployment target was confirmed.
 **Type:** Documentation  
 **Priority:** Low  
 **Phase:** 6  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** XS  
 **Branch:** `docs/architecture-decisions`
 
@@ -1845,7 +1853,7 @@ green); this story provisions the real identity provider.
 **Title:** Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial`
 **Type:** Bug
 **Priority:** Medium
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** S
 **Branch:** `fix/parcial-query-filters`
 **Origin:** H-2/H-3 of the [SipsaParcial integrity SPIKE](../architecture/sipsa-parcial-data-integrity-spike.md).
@@ -1930,7 +1938,7 @@ duplicates.
 **Title:** Handle concurrent `SipsaParcial` duplicate insertion safely
 **Type:** Correctiva
 **Priority:** Medium
-**Status:** Pending
+**Status:** **Done**
 **Origin:** TECH-011 final review (2026-07-16). Current behavior under a lookup→insert
 race between two concurrent executions of the same publication: both observe absence,
 both insert, the `key_hash UNIQUE` constraint rejects one — the losing batch's
@@ -2084,6 +2092,11 @@ fits only `19,2`, rounding pins, JSON exactness, real-data shapes for `enviado`)
 **Priority:** Low
 **Status:** **Done**
 **Branch:** `refactor/centralize-async-executor-config`
+**Resolves:** [C-05](../architecture/technical-debt.md) and [TECH-030](#tech-030) — the
+pre-existing Phase 1 story for this exact finding (`logEvent` needs a named executor).
+Both were confirmed independently: C-05 from the original architectural review, and the
+`@Async` ambiguity from the 2026-07-19 CI-flake investigation; TECH-136 closes both in
+one implementation.
 **Origin:** C-05 (technical debt: `AsyncConfig` re-declared `@Value` defaults for
 `sipsa.ingestion.async.*`) plus the finding confirmed during the 2026-07-19 CI-flake
 investigation: `IngestionAuditService.logEvent` used a bare `@Async` in a context with
