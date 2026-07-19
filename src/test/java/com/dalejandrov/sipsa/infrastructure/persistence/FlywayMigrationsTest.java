@@ -62,10 +62,25 @@ class FlywayMigrationsTest {
     void flywayAppliedMigrations() {
         MigrationInfo[] applied = flyway.info().applied();
 
-        assertThat(applied).hasSizeGreaterThanOrEqualTo(3);
+        assertThat(applied).hasSizeGreaterThanOrEqualTo(4);
         assertThat(applied[0].getVersion().getVersion()).isEqualTo("1");
         assertThat(applied[1].getVersion().getVersion()).isEqualTo("2");
         assertThat(applied[2].getVersion().getVersion()).isEqualTo("3");
+        assertThat(applied[3].getVersion().getVersion()).isEqualTo("4");
+    }
+
+    @Test
+    @DisplayName("V4: sipsa_parcial article-filter covering index exists with the expected shape (TECH-124)")
+    void parcialArticleQueryIndexExists() {
+        String indexdef = jdbc.queryForObject(
+                "SELECT indexdef FROM pg_indexes WHERE tablename = 'sipsa_parcial' "
+                        + "AND indexname = 'idx_sipsa_parcial_article_date'",
+                String.class);
+
+        assertThat(indexdef)
+                .contains("id_arti_semana")
+                .contains("enma_fecha DESC")
+                .contains("INCLUDE (id)");
     }
 
     @Test

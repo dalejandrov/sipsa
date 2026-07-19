@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **TECH-124 — covering index for the `SipsaParcial` article filter** (migration
+  `V4__add_parcial_article_query_index.sql`): `idx_sipsa_parcial_article_date` on
+  `(id_arti_semana, enma_fecha DESC) INCLUDE (id)`. Measured on the real DANE dataset
+  (677,061 rows, PostgreSQL 18): the per-page count query of
+  `GET /api/sipsa/parcial?idArtiSemana=…` — Hibernate emits `count(id)`, so the index
+  must cover `id` to be usable index-only — drops from a full-table Parallel Seq Scan
+  (~17–28 ms on every page request) to an Index Only Scan (0.5–2.3 ms, `Heap Fetches: 0`);
+  a non-existent article drops from ~18 ms to ~0.02 ms; the `enma_fecha DESC` key column
+  matches the endpoint's default ordering so every article cardinality gets an ordered
+  index walk. Cost: 26 MB (170 MB table), ~0.2 s creation at current volume, ~+0.55 ms
+  per 500-row ingestion batch (all-skip reingestion unaffected: zero writes). Alternatives
+  `(id_arti_semana)`, `(id_arti_semana, enma_fecha DESC)` without INCLUDE, and
+  `(id_arti_semana, muni_id, enma_fecha DESC)` were measured and discarded — evidence and
+  re-evaluation thresholds in `docs/diagnostics/tech-124-article-filter-analysis.md`.
+  No API contract change: `idArtiSemana` stays canonical, `artiId` stays a validated
+  alias, `Page`/count semantics untouched. Deep-page OFFSET cost (~23–31 ms at page 1000)
+  is inherent to OFFSET, marginal at current volume, and explicitly out of scope.
+
 ### Changed
 
 - **TECH-133 — monthly ingestion window configuration centralized and validated**.

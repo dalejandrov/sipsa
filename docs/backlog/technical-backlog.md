@@ -66,7 +66,7 @@ When a story is implemented:
 | TECH-119 | Remove redundant `idx_sipsa_parcial_key_hash` index | Low | — | **Done** (2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`, migration V3) |
 | TECH-122 | Harden `SipsaParcial` natural-key constraints (NOT NULL / natural unique) | Low | — | Pending (contract phase; gated on TECH-012 external half) |
 | TECH-123 | Add `first_seen_at`/`last_seen_at` republication traceability | Low | — | Optional — not recommended now (write cost; see story) |
-| TECH-124 | Optimize `SipsaParcial` API query indexes (`muni_id, enma_fecha`) | Low | — | Optional — no evidence of need at current volume |
+| TECH-124 | Optimize `SipsaParcial` article-filter queries | Low | — | **Done** (2026-07-18, branch `perf/sipsa-parcial-article-filter-index`, migration V4 — covering index; count 18 ms → ~2 ms) |
 | TECH-125 | Define `SipsaParcial`/ingestion data retention policy | Low | — | Pending decision |
 | TECH-133 | Centralize and validate monthly ingestion window configuration | Low | — | **Done** (2026-07-17 — typed `monthlyWindowStart`, divergent `06:00` fallback removed, effective 14:00 unchanged) |
 
@@ -2024,17 +2024,38 @@ real requirement; consider then whether it belongs in a side table instead.
 
 ### TECH-124
 
-**Title:** Optimize `SipsaParcial` API query indexes
+**Title:** Optimize `SipsaParcial` article-filter queries
 **Type:** Performance
 **Priority:** Low
-**Status:** Optional — no current evidence of need. The combined API filter
-(`muniId` + date range) resolves via `idx_sipsa_parcial_fecha` with a residual filter
-(20 distinct municipalities → low selectivity); local `EXPLAIN ANALYZE` shows
-sub-millisecond execution. A composite `(muni_id, enma_fecha DESC)` index would only pay
-off with much higher volume or many more municipalities. Revisit with production metrics
-(TECH-032). Note: `idx_sipsa_parcial_muni` shows 0 scans — evaluate together.
+**Status:** **Done**
+**Branch:** `perf/sipsa-parcial-article-filter-index` (migration V4)
 
-**Completed:** —
+**Problem (measured, not assumed):** `GET /api/sipsa/parcial?idArtiSemana=…` (alias
+`artiId` — same Specification, verified by SQL capture) had no index leading with
+`id_arti_semana`. On the real DANE dataset (677,061 rows, 36 articles, ~2.8% typical
+selectivity) the first page was already sub-millisecond via a backward walk of
+`idx_sipsa_parcial_fecha`, but the **per-page count query** — Hibernate emits
+`count(id)`, not `count(*)` — ran as a full-table Parallel Seq Scan (~17–28 ms on every
+page request, flat across cardinalities), and a non-existent article seq-scanned the
+whole table (~18 ms).
+
+**Decision:** `idx_sipsa_parcial_article_date (id_arti_semana, enma_fecha DESC)
+INCLUDE (id)` — the only measured shape that makes the count an Index Only Scan
+(0.5–2.3 ms, `Heap Fetches: 0`; covering `id` is mandatory because of `count(id)`), while
+the `enma_fecha DESC` key column matches the endpoint's default ordering. Alternatives
+`(id_arti_semana)`, `(id_arti_semana, enma_fecha DESC)` without INCLUDE (count unchanged
+— each article's rows are scattered across ~all heap pages) and
+`(id_arti_semana, muni_id, enma_fecha DESC)` (only helps a case that is already 0.5 ms)
+were measured with real temporary indexes and discarded. Cost: 26 MB, ~0.2 s creation,
+~+0.55 ms per 500-row batch; all-skip reingestion unaffected. Deep-page OFFSET cost
+(~23–31 ms at page 1000) is OFFSET-inherent and out of scope — keyset pagination gets a
+story only if consumers systematically page past ~page 100 or volume grows ~5×.
+Evidence, plans and re-evaluation thresholds:
+[tech-124-article-filter-analysis.md](../diagnostics/tech-124-article-filter-analysis.md).
+
+**Completed:** 2026-07-18. V4 tested from clean base (`FlywayMigrationsTest` V1→V4) and
+as an upgrade with data (`ParcialArticleQueryIndexMigrationTest`, 60K rows; live upgrade
+on the real 677K-row local base in 197 ms). No API contract change (TECH-113 untouched).
 
 ---
 

@@ -1,0 +1,38 @@
+-- -------------------------------------------------------------------------------------------------
+-- V4 — Covering index for the SipsaParcial article filter (TECH-124)
+--
+-- Problem: GET /api/sipsa/parcial?idArtiSemana=... (alias artiId) had no index leading with
+-- id_arti_semana. Measured on the real DANE dataset (677,061 rows, PostgreSQL 18):
+--   * the per-page count query — Hibernate emits count(id), not count(*) — ran as a
+--     Parallel Seq Scan over the whole 170 MB table (~17-28 ms on EVERY page request);
+--   * a non-existent article id also seq-scanned the whole table (~18 ms);
+--   * the natural-key index (muni_id, fuen_id, futi_id, id_arti_semana, enma_fecha) cannot
+--     serve the filter because id_arti_semana is its 4th column.
+--
+-- Index shape, driven by the measured plans (evidence in docs/diagnostics):
+--   * (id_arti_semana, enma_fecha DESC): matches the endpoint's exact access pattern —
+--     equality on article, ORDER BY enma_fecha DESC — so any article cardinality gets an
+--     ordered index walk with no sort, and article+date-range scans are contiguous.
+--   * INCLUDE (id): the count query projects only id; with id covered, count(id) becomes an
+--     Index Only Scan (~18 ms → ~0.5-2.3 ms warm, 129 buffers vs ~21,700). Without it the
+--     count keeps visiting the heap (bitmap scan measured at 7-24 ms) because each article's
+--     rows are scattered across virtually all table pages. Only id is included — the main
+--     query fetches the whole entity and covering more columns would bloat the index for
+--     no index-only opportunity.
+--   * Measured cost: 26 MB (vs 170 MB table), ~0.3 s creation at 677K rows, and ~+0.75 s
+--     of index maintenance per 677K inserted rows (~+0.55 ms per 500-row ingestion batch).
+--
+-- Execution choice — plain transactional CREATE INDEX (not CONCURRENTLY), same rigor as
+-- V2/V3 (TECH-119): no environment with live traffic exists yet (AWS deployment pending,
+-- TECH-130..132), creation takes well under a second at the current volume, and a
+-- transactional migration rolls back cleanly on failure (CONCURRENTLY cannot run inside a
+-- transaction and leaves an INVALID index on failure). If an environment with concurrent
+-- traffic ever needs this migration on a much larger table, apply it in a brief window —
+-- documented in the database changelog.
+--
+-- Deliberately NO "IF NOT EXISTS": if the index already exists the schema has drifted from
+-- the migration history and this migration must fail loudly (ADR-009).
+-- -------------------------------------------------------------------------------------------------
+
+CREATE INDEX idx_sipsa_parcial_article_date
+    ON sipsa_parcial (id_arti_semana, enma_fecha DESC) INCLUDE (id);
