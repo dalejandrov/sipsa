@@ -32,7 +32,7 @@ import java.util.List;
  * {@code infrastructure.config.security.SecurityConfig} (ADR-002, TECH-001).
  */
 @RestController
-@RequestMapping("api/internal/ingestion")
+@RequestMapping("/api/internal/ingestion")
 @Slf4j
 @RequiredArgsConstructor
 public class SipsaOpsController {

@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **TECH-020 — internal controller route mappings normalized to a leading `/`.**
+  `SipsaOpsController` and `IngestionAuditController` declared
+  `@RequestMapping("api/internal/ingestion")` and `@RequestMapping("api/internal/audit")`
+  without a leading slash, inconsistent with `SipsaRestController`'s
+  `@RequestMapping("/api/sipsa")`. Spring MVC normalizes the class-level value at startup
+  regardless of the leading slash, so the effective routes
+  (`/api/internal/ingestion/**`, `/api/internal/audit/**`) were never actually broken —
+  this is a declared-contract normalization, not a routing fix. No HTTP method, subroute,
+  DTO, security scope, or status code changed. New `InternalControllerRouteMappingTest`
+  pins the exact controller/handler method Spring resolves for each path; the
+  pre-existing `InternalEndpointSecurityTest` (15 cases: 401/403/2xx across both
+  endpoint groups) stays green unchanged. Verified in Docker (clean rebuild, both
+  endpoint groups exercised with the local mock-OIDC flow, Flyway V1→V4 unaffected).
+
 ### Changed
 
 - **TECH-136 (C-05) — async executor configuration centralized and audit executor made
