@@ -13,11 +13,10 @@ import java.time.ZoneOffset;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Behavioral coverage of {@link IngestionAuditMapper}'s entity-to-response mapping
- * (TECH-051): asserts field values, not the method's identifier. {@code
- * toAuditEventResponse} was renamed from {@code toAuditEventRequest} to match what it
- * actually returns — {@link AuditTrailResponse.AuditEventResponse}, never a
- * {@code *Request} type — with no change to the mapping behavior this test pins.
+ * Behavioral coverage of {@link IngestionAuditMapper}'s entity-to-response mapping:
+ * asserts field values, not the method's identifier. {@code toAuditEventResponse}
+ * converts an {@link IngestionAudit} entity into an
+ * {@link AuditTrailResponse.AuditEventResponse}.
  */
 @DisplayName("IngestionAuditMapper — IngestionAudit to AuditEventResponse")
 class IngestionAuditMapperTest {
