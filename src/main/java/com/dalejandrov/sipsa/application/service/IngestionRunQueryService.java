@@ -83,14 +83,12 @@ public class IngestionRunQueryService {
     @Transactional(readOnly = true)
     public IngestionRunDetailResponse getRunStatus(Long runId) {
         log.debug("Retrieving status for runId={}", runId);
-        IngestionRun run = controlService.getRun(runId);
-
-        if (run == null) {
-            log.warn("Run not found: runId={}", runId);
-            throw new SipsaBusinessException("Ingestion run not found: " + runId);
-        }
-
-        return mapper.toDetailDto(run);
+        return controlService.getRun(runId)
+                .map(mapper::toDetailDto)
+                .orElseThrow(() -> {
+                    log.warn("Run not found: runId={}", runId);
+                    return new SipsaBusinessException("Ingestion run not found: " + runId);
+                });
     }
 }
 

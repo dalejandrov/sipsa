@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-052 — `IngestionControlService.getRun()` now returns
+  `Optional<IngestionRun>`**, an explicit internal absence contract instead of a
+  nullable return. `findById` already returned `Optional`; the method was discarding it
+  with `.orElse(null)` only to force its single caller,
+  `IngestionRunQueryService.getRunStatus`, to null-check it back. That caller now uses
+  `.map(mapper::toDetailDto).orElseThrow(...)` — no unguarded `.get()`, no
+  `.orElse(null)`. **Not an HTTP contract change:** a missing run still produces
+  `SipsaBusinessException` → HTTP 422 with the same message (TECH-022's HTTP 404 story
+  is separate and untouched). Two unrelated `findById(...).orElse(null)` sites in the
+  same class (`isRunCanceled`, `cancelRun` — both return `boolean`/`void`, not
+  `IngestionRun`) were reviewed and intentionally left untouched. New tests cover both
+  services' present/absent behavior, previously uncovered (both are always mocked in
+  existing controller/security tests). No migration; V1–V4 unchanged.
+
 - **TECH-051 — `IngestionAuditMapper.toAuditEventRequest()` renamed to
   `toAuditEventResponse()`** to match its actual, unchanged return type
   (`AuditTrailResponse.AuditEventResponse` — never the unrelated `AuditEventRequest`

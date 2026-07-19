@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Service for managing ingestion run lifecycle and state.
@@ -256,11 +257,11 @@ public class IngestionControlService {
      * Retrieves an ingestion run by its ID.
      *
      * @param runId the run identifier
-     * @return the IngestionRun entity or null if not found
+     * @return the IngestionRun entity, or {@link Optional#empty()} if not found
      */
     @Transactional(readOnly = true)
-    public IngestionRun getRun(long runId) {
-        return runRepository.findById(runId).orElse(null);
+    public Optional<IngestionRun> getRun(long runId) {
+        return runRepository.findById(runId);
     }
 
     /**

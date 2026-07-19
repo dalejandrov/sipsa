@@ -36,7 +36,7 @@ When a story is implemented:
 | TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | Partially resolved — Testcontainers half settled by ADR-009 (`FlywayMigrationsTest`); WireMock half pending |
 | TECH-050 | Remove placeholder comments from handlers | Low | 1 | **Done** (2026-07-19, branch `refactor/remove-existing-code-comments`) |
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Low | 1 | **Done** (2026-07-19, branch `refactor/rename-audit-mapper-response`) |
-| TECH-052 | `getRun()` returns `Optional<IngestionRun>` | Low | 1 | Pending |
+| TECH-052 | `getRun()` returns `Optional<IngestionRun>` | Low | 1 | **Done** (2026-07-19, branch `refactor/optional-ingestion-run`) |
 | TECH-053 | Make scheduler dispatch async | Medium | 2 | Pending |
 | TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Low | 2 | Pending |
 | TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | Low | 6 | Pending |
@@ -711,23 +711,41 @@ migration; V1–V4 unchanged.
 **Type:** QA  
 **Priority:** Low  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** XS  
-**Branch:** `refactor/optional-return-types`
+**Branch:** `refactor/optional-ingestion-run` (kept its own branch; the originally-listed
+`refactor/optional-return-types` name was not reused since this story stayed
+single-purpose)
 
-**Evidence:** `IngestionControlService.java:263`: `return runRepository.findById(runId).orElse(null)`.
-Two additional `findById(runId).orElse(null)` call sites exist in the same class
-(`IngestionControlService.java:314,329`) and should be reviewed under the same criteria
-("all callers updated" already covers them).
+**Evidence (re-confirmed against `main` before changing anything):**
+`IngestionControlService.java:262`: `getRun(long)` called
+`runRepository.findById(runId).orElse(null)` — `findById` (`JpaRepository`) already
+returns `Optional<IngestionRun>`, so the method discarded that `Optional` only to force
+its single caller, `IngestionRunQueryService.getRunStatus` (line 86), to null-check it
+right back. Two more `findById(runId).orElse(null)` sites exist in the same class
+(`isRunCanceled` and `cancelRun`) but were confirmed **out of scope**: both return
+`boolean`/`void`, not `IngestionRun`, so neither is part of `getRun()`'s contract nor
+covered by this story's acceptance criteria — left untouched.
 
 **Dependencies:** None.
 
 **Acceptance Criteria:**
-- [ ] `getRun()` returns `Optional<IngestionRun>`.
-- [ ] All callers updated to use `.orElseThrow(...)` or `.orElse(null)` explicitly.
-- [ ] `./mvnw clean verify` passes.
+- [x] `getRun()` returns `Optional<IngestionRun>` — propagating the repository's own
+      `Optional` directly (no `Optional.ofNullable`/`Optional.of` needed).
+- [x] The one real caller updated: `IngestionRunQueryService.getRunStatus` now uses
+      `.map(mapper::toDetailDto).orElseThrow(() -> {...})` — no unguarded `.get()`, no
+      `.orElse(null)` reintroducing the nullable contract.
+- [x] `./mvnw clean verify` passes.
 
-**Completed:** —
+**Completed:** 2026-07-19, branch `refactor/optional-ingestion-run`. Internal contract
+change only: HTTP behavior identical (`SipsaBusinessException` → 422 on a missing run,
+same message, same `log.warn`; TECH-022's HTTP 404 story is separate and untouched). No
+`ErrorResponse`, endpoint, DTO, security, transaction, or repository query changed.
+Previously zero test coverage of either service (both are always mocked in existing
+controller/security tests) — `IngestionControlServiceGetRunTest` (present/absent) and
+`IngestionRunQueryServiceGetRunStatusTest` (mapped response / exception with
+`verifyNoInteractions(mapper)` on absence) now cover the explicit contract. No Flyway
+migration; V1–V4 unchanged.
 
 ---
 
