@@ -3,7 +3,7 @@ package com.dalejandrov.sipsa.application.ingestion.core;
 import com.dalejandrov.sipsa.application.service.IngestionAuditService;
 import com.dalejandrov.sipsa.application.service.IngestionService;
 import com.dalejandrov.sipsa.application.service.IngestionControlService;
-import org.springframework.beans.factory.annotation.Value;
+import com.dalejandrov.sipsa.infrastructure.config.IngestionProperties;
 import org.springframework.stereotype.Service;
 
 /**
@@ -36,20 +36,21 @@ public class GenericIngestionJob extends IngestionJob {
     /**
      * Creates the generic ingestion job with all required dependencies.
      * <p>
-     * All parameters are injected by Spring and configured via application properties.
+     * All parameters are injected by Spring. The reject thresholds come from
+     * {@link IngestionProperties} (TECH-135, C-04) — the single validated binding
+     * of {@code sipsa.ingestion.max-reject-rate} / {@code max-reject-count} —
+     * instead of job-local {@code @Value} defaults that could drift.
      *
      * @param ingestionService service that manages and dispatches to specific handlers
      * @param windowPolicy policy for validating execution time windows
      * @param controlService service for managing run state and lifecycle
      * @param auditService service for logging audit events
-     * @param maxRejectRate maximum allowed rejection rate (default: 0.01 = 1%)
-     * @param maxRejectCount maximum absolute number of rejections allowed (default: 5000)
+     * @param ingestionProperties centrally validated ingestion configuration
      */
     public GenericIngestionJob(IngestionService ingestionService, WindowPolicy windowPolicy,
                                IngestionControlService controlService, IngestionAuditService auditService,
-                               @Value("${sipsa.ingestion.max-reject-rate:0.01}") double maxRejectRate,
-                               @Value("${sipsa.ingestion.max-reject-count:5000}") int maxRejectCount) {
-        super(windowPolicy, controlService, auditService, maxRejectRate, maxRejectCount);
+                               IngestionProperties ingestionProperties) {
+        super(windowPolicy, controlService, auditService, ingestionProperties);
         this.ingestionService = ingestionService;
     }
 

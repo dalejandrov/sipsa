@@ -10,9 +10,9 @@ import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
 import com.dalejandrov.sipsa.domain.exception.SipsaExternalException;
 import com.dalejandrov.sipsa.domain.exception.SipsaIngestionException;
 import com.dalejandrov.sipsa.domain.exception.WindowViolationException;
+import com.dalejandrov.sipsa.infrastructure.config.IngestionProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 
 /**
  * Abstract base class for all ingestion jobs.
@@ -55,7 +55,9 @@ public abstract class IngestionJob {
     protected IngestionControlService controlService;
     protected IngestionAuditService auditService;
 
-    // Quality thresholds for rejections
+    /* Quality thresholds for rejections. Sourced from IngestionProperties (TECH-135,
+     * C-04) — the single, validated binding of sipsa.ingestion.max-reject-rate /
+     * max-reject-count; jobs no longer carry their own @Value defaults. */
     protected final double maxRejectRate;
     protected final int maxRejectCount;
 
@@ -65,18 +67,17 @@ public abstract class IngestionJob {
      * @param windowPolicy policy for validating execution windows
      * @param controlService service for managing run state
      * @param auditService service for audit event logging
-     * @param maxRejectRate maximum allowed rejection rate (0.01 = 1%)
-     * @param maxRejectCount maximum number of absolute rejections allowed
+     * @param ingestionProperties centrally validated ingestion configuration
+     *                            (reject thresholds are read from it at construction)
      */
     protected IngestionJob(WindowPolicy windowPolicy, IngestionControlService controlService,
                            IngestionAuditService auditService,
-                           @Value("${sipsa.ingestion.max-reject-rate:0.01}") double maxRejectRate,
-                           @Value("${sipsa.ingestion.max-reject-count:5000}") int maxRejectCount) {
+                           IngestionProperties ingestionProperties) {
         this.windowPolicy = windowPolicy;
         this.controlService = controlService;
         this.auditService = auditService;
-        this.maxRejectRate = maxRejectRate;
-        this.maxRejectCount = maxRejectCount;
+        this.maxRejectRate = ingestionProperties.getMaxRejectRate();
+        this.maxRejectCount = ingestionProperties.getMaxRejectCount();
     }
 
     /**
