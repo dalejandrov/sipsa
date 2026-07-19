@@ -13,7 +13,7 @@ import org.mapstruct.ReportingPolicy;
  * <ul>
  *   <li>Ingestion run summaries (IngestionRun → IngestionRunResponse)</li>
  *   <li>Ingestion run details (IngestionRun → IngestionRunDetailResponse)</li>
- *   <li>Audit events (IngestionAudit → AuditEventRequest)</li>
+ *   <li>Audit events (IngestionAudit → AuditEventResponse)</li>
  * </ul>
  * <p>
  * All mappings include timezone-aware timestamp conversion for API responses.
@@ -33,7 +33,7 @@ public interface IngestionAuditMapper {
      */
     @Mapping(target = "requestSource", expression = "java(entity.getRequestSource() != null ? entity.getRequestSource().name() : null)")
     @Mapping(target = "occurredAt", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getOccurredAt(), true))")
-    AuditTrailResponse.AuditEventResponse toAuditEventRequest(IngestionAudit entity);
+    AuditTrailResponse.AuditEventResponse toAuditEventResponse(IngestionAudit entity);
 
     /**
      * Converts IngestionRun entity to response DTO for API.

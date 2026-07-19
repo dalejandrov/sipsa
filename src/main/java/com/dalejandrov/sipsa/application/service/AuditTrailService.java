@@ -62,7 +62,7 @@ public class AuditTrailService {
                 TimezoneUtil.convertToOffsetDateTime(audits.getFirst().getOccurredAt(), true),
                 TimezoneUtil.convertToOffsetDateTime(audits.getLast().getOccurredAt(), true),
                 audits.stream()
-                        .map(mapper::toAuditEventRequest)
+                        .map(mapper::toAuditEventResponse)
                         .collect(Collectors.toList())
         );
 
@@ -89,7 +89,7 @@ public class AuditTrailService {
         }
 
         return audits.stream()
-                .map(mapper::toAuditEventRequest)
+                .map(mapper::toAuditEventResponse)
                 .collect(Collectors.toList());
     }
 
@@ -105,7 +105,7 @@ public class AuditTrailService {
         List<IngestionAudit> audits = auditService.getRecentEvents();
 
         List<AuditTrailResponse.AuditEventResponse> events = audits.stream()
-                .map(mapper::toAuditEventRequest)
+                .map(mapper::toAuditEventResponse)
                 .collect(Collectors.toList());
 
         log.debug("Retrieved {} recent audit events", events.size());
@@ -131,7 +131,7 @@ public class AuditTrailService {
 
         Page<IngestionAudit> auditPage = auditService.getAudits(request, pageable);
 
-        return auditPage.map(mapper::toAuditEventRequest);
+        return auditPage.map(mapper::toAuditEventResponse);
     }
 }
 
