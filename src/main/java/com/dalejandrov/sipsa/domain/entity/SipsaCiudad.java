@@ -70,12 +70,17 @@ public class SipsaCiudad {
     @Column(name = "fecha_creacion")
     private Instant fechaCreacion;
 
+    /* Decimal columns mirror the versioned DDL (V1: NUMERIC(19,2)) — the storage
+     * contract; DANE's XSD declares plain unbounded xs:decimal (TECH-134, same
+     * criterion as TECH-118). ddl-auto=validate does not compare precision: the
+     * annotation is documentation plus generated-schema metadata (H2 unit tests). */
+
     /** Average price for the product (in local currency per unit) */
-    @Column(name = "precio_promedio", precision = 15, scale = 2)
+    @Column(name = "precio_promedio", precision = 19, scale = 2)
     private BigDecimal precioPromedio;
 
     /** Amount sent/dispatched (specific to source system) */
-    @Column(name = "enviado", precision = 15, scale = 2)
+    @Column(name = "enviado", precision = 19, scale = 2)
     private BigDecimal enviado;
 
     /** Timestamp when the record was ingested into this system */
