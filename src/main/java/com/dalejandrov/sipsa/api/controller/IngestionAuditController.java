@@ -31,7 +31,7 @@ import java.util.List;
  * @see AuditTrailService
  */
 @RestController
-@RequestMapping("api/internal/audit")
+@RequestMapping("/api/internal/audit")
 @Slf4j
 @RequiredArgsConstructor
 public class IngestionAuditController {
