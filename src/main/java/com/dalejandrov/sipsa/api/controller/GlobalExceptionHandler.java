@@ -39,7 +39,8 @@ import java.util.stream.Collectors;
  *   <li>{@link SipsaValidationException} → 400 Bad Request</li>
  *   <li>{@link SipsaIngestionValidationException} → 400 Bad Request (with available methods)</li>
  *   <li>{@link SipsaBusinessException} → 422 Unprocessable Entity</li>
- *   <li>{@link SipsaParseException} → 400 Bad Request</li>
+ *   <li>{@link SipsaParseException} → 502 Bad Gateway (TECH-021: malformed data comes
+ *       from DANE's upstream XML response, not from the API client)</li>
  *   <li>{@link SipsaExternalException} → 502 Bad Gateway</li>
  *   <li>{@link SipsaIngestionException} → 500 Internal Server Error</li>
  *   <li>{@link SipsaConfigurationException} → 500 Internal Server Error</li>
@@ -110,14 +111,21 @@ public class GlobalExceptionHandler {
 
     /**
      * Handles parsing exceptions (malformed data).
+     * <p>
+     * TECH-021: {@code SipsaParseException} means the XML DANE's SOAP service returned
+     * could not be parsed — the client sent nothing wrong, DANE (the upstream
+     * dependency) did. {@code 502 Bad Gateway} is the correct semantics; the prior
+     * {@code 400 Bad Request} incorrectly blamed the caller. The error {@code code}
+     * ({@code "PARSE_ERROR"}) is unchanged — see ADR-003 for the broader error-code
+     * taxonomy proposal, not adopted in this story.
      *
      * @param ex the parse exception
-     * @return HTTP 400 response with error details
+     * @return HTTP 502 response with error details
      */
     @ExceptionHandler(SipsaParseException.class)
     public ResponseEntity<ErrorResponse> handleParseException(SipsaParseException ex) {
         log.warn("Parse error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(HttpStatus.BAD_REQUEST, "PARSE_ERROR", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_GATEWAY, "PARSE_ERROR", ex.getMessage());
     }
 
     /**
