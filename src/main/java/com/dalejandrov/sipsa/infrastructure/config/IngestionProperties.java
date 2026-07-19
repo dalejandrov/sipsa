@@ -1,6 +1,8 @@
 package com.dalejandrov.sipsa.infrastructure.config;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -108,6 +110,49 @@ public class IngestionProperties {
     private LocalTime monthlyWindowStart = DEFAULT_MONTHLY_WINDOW_START;
 
     /**
+     * Canonical maximum reject rate (1%), the value {@code application.yaml} has
+     * always made effective ({@code ${MAX_REJECT_RATE:0.01}}). Expressed as a
+     * fraction of {@code recordsSeen} in {@code [0..1]} — NOT a percentage.
+     */
+    public static final double DEFAULT_MAX_REJECT_RATE = 0.01;
+
+    /**
+     * Canonical maximum absolute reject count, the value {@code application.yaml}
+     * has always made effective ({@code ${MAX_REJECT_COUNT:5000}}).
+     */
+    public static final int DEFAULT_MAX_REJECT_COUNT = 5_000;
+
+    /**
+     * Quality gate (TECH-135, C-04): maximum fraction of rejected records
+     * tolerated per run, in {@code [0..1]} (e.g. {@code 0.01} = 1%). Evaluated
+     * ONCE at the end of ingestion by {@code IngestionJob.validateThresholds} —
+     * over the run's final totals, never per batch — and only when
+     * {@code recordsSeen > 0}; a run whose rate strictly exceeds this value is
+     * marked FAILED. Combined with {@link #maxRejectCount} by OR: exceeding
+     * either threshold fails the run.
+     * <p>
+     * Bound from {@code sipsa.ingestion.max-reject-rate}
+     * (env: {@code MAX_REJECT_RATE}).
+     */
+    @DecimalMin(value = "0.0", message = "sipsa.ingestion.max-reject-rate must be >= 0 (fraction of seen records)")
+    @DecimalMax(value = "1.0", message = "sipsa.ingestion.max-reject-rate must be <= 1"
+            + " (it is a fraction in [0..1], not a percentage — 0.01 means 1%)")
+    private double maxRejectRate = DEFAULT_MAX_REJECT_RATE;
+
+    /**
+     * Quality gate (TECH-135, C-04): maximum absolute number of rejected records
+     * tolerated per run. Evaluated at the end of ingestion together with
+     * {@link #maxRejectRate} (OR semantics); a run whose reject count strictly
+     * exceeds this value is marked FAILED. This is the only gate that applies
+     * when {@code recordsSeen == 0}.
+     * <p>
+     * Bound from {@code sipsa.ingestion.max-reject-count}
+     * (env: {@code MAX_REJECT_COUNT}).
+     */
+    @Min(value = 0, message = "sipsa.ingestion.max-reject-count must be >= 0")
+    private int maxRejectCount = DEFAULT_MAX_REJECT_COUNT;
+
+    /**
      * Logs the effective values once at startup so operators can confirm the
      * resolved configuration without per-batch or per-evaluation log noise.
      */
@@ -115,5 +160,6 @@ public class IngestionProperties {
     void logEffectiveConfiguration() {
         log.info("Ingestion batch size = {}", batchSize);
         log.info("Monthly ingestion window start = {}", monthlyWindowStart);
+        log.info("Ingestion reject thresholds: max rate = {}, max count = {}", maxRejectRate, maxRejectCount);
     }
 }

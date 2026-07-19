@@ -69,6 +69,12 @@ services:
       # (TECH-133). Authorization gate for monthly runs, not the cron fire time.
       # Invalid values abort startup.
       - INGESTION_MONTHLY_WINDOW_START=${INGESTION_MONTHLY_WINDOW_START:-14:00}
+      # Ingestion reject thresholds (TECH-135): a run FAILS when rejects exceed
+      # EITHER the absolute count OR the rate (fraction of seen records in [0..1],
+      # 0.01 = 1%), evaluated once at the end of the run. Out-of-range values
+      # abort startup.
+      - MAX_REJECT_COUNT=${MAX_REJECT_COUNT:-5000}
+      - MAX_REJECT_RATE=${MAX_REJECT_RATE:-0.01}
     depends_on:
       db:
         condition: service_healthy

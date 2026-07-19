@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **TECH-135 (C-04) — ingestion rejection thresholds centralized into a single source
+  of truth** (`IngestionProperties`, bound to `sipsa.ingestion.max-reject-rate` /
+  `max-reject-count`). `IngestionJob` and `GenericIngestionJob` no longer carry
+  duplicated `@Value` bindings with local defaults — the double-source antipattern
+  already removed for `batch-size` (TECH-071) and `monthly-window-start` (TECH-133).
+  **Effective values unchanged** (rate `0.01`, count `5000` — what `application.yaml`
+  always made effective) **and evaluation semantics untouched, now documented and
+  test-pinned:** the rate is a fraction of `recordsSeen` in `[0..1]` (0.01 = 1%, not a
+  percentage); both gates are evaluated once at the end of each run over its final
+  totals (never per batch); they combine by OR (strictly exceeding either fails the
+  run with `SipsaIngestionException` → status `FAILED`); values exactly at a threshold
+  pass (strict `>`); `seen=0` skips the rate check so only the count gate applies.
+  Startup now validates both values (rate outside `[0..1]`, negative count or
+  non-numeric input abort with a message naming the property) and logs the resolved
+  pair once. `docker-compose.yml` passes `MAX_REJECT_RATE` / `MAX_REJECT_COUNT`
+  through (verified in Docker: defaults `0.01/5000`, override `0.05/1234`) and
+  `.env.example` documents range, semantics and precedence
+  (env var > property > canonical default). No functional change, no migration.
+
 ### Fixed
 
 - **TECH-134 — remaining SIPSA decimal annotations aligned with the DDL.**
