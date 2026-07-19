@@ -1,7 +1,7 @@
 package com.dalejandrov.sipsa.infrastructure.config;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
@@ -20,23 +20,28 @@ import java.util.concurrent.Executor;
  * - Proper rejection policy for overload protection
  * - Thread naming for better monitoring and debugging
  * - Graceful shutdown with timeout
+ * <p>
+ * <b>Pool geometry (TECH-136, C-05):</b> sourced exclusively from the typed and
+ * validated {@link AsyncExecutorProperties} ({@code sipsa.ingestion.async.*},
+ * env {@code SIPSA_ASYNC_*}) — this class no longer carries its own
+ * {@code @Value} defaults that could drift from application.yaml.
+ * <p>
+ * <b>Executor resolution:</b> every {@code @Async} method in the codebase names
+ * this bean explicitly ({@code @Async("ingestionTaskExecutor")}). Nothing relies
+ * on Spring's default-executor lookup, which is ambiguous here by construction:
+ * the {@code taskScheduler} bean ({@code ThreadPoolTaskScheduler}) also
+ * implements {@code TaskExecutor}, so an unqualified {@code @Async} would log
+ * "More than one TaskExecutor bean found" and silently fall back to ad-hoc
+ * {@code SimpleAsyncTaskExecutor} threads (the mechanism behind the 2026-07-19
+ * CI flake investigation).
  */
 @Configuration
 @EnableAsync
 @Slf4j
+@RequiredArgsConstructor
 public class AsyncConfig {
 
-    @Value("${sipsa.ingestion.async.core-pool-size:2}")
-    private int corePoolSize;
-
-    @Value("${sipsa.ingestion.async.max-pool-size:10}")
-    private int maxPoolSize;
-
-    @Value("${sipsa.ingestion.async.queue-capacity:25}")
-    private int queueCapacity;
-
-    @Value("${sipsa.ingestion.async.keep-alive-seconds:60}")
-    private int keepAliveSeconds;
+    private final AsyncExecutorProperties asyncProperties;
 
     /**
      * Creates a thread pool executor for asynchronous ingestion operations.
@@ -56,18 +61,19 @@ public class AsyncConfig {
     public Executor ingestionTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
 
-        executor.setCorePoolSize(corePoolSize);
-        executor.setMaxPoolSize(maxPoolSize);
-        executor.setQueueCapacity(queueCapacity);
+        executor.setCorePoolSize(asyncProperties.getCorePoolSize());
+        executor.setMaxPoolSize(asyncProperties.getMaxPoolSize());
+        executor.setQueueCapacity(asyncProperties.getQueueCapacity());
         executor.setThreadNamePrefix("ingestion-async-");
         executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
         executor.setAllowCoreThreadTimeOut(true);
-        executor.setKeepAliveSeconds(keepAliveSeconds);
+        executor.setKeepAliveSeconds(asyncProperties.getKeepAliveSeconds());
 
         executor.initialize();
 
         log.info("Initialized ingestion async executor: core={}, max={}, queue={}",
-                corePoolSize, maxPoolSize, queueCapacity);
+                asyncProperties.getCorePoolSize(), asyncProperties.getMaxPoolSize(),
+                asyncProperties.getQueueCapacity());
 
         return executor;
     }
