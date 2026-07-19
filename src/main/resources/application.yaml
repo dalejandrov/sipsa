@@ -195,6 +195,16 @@ sipsa:
       queue-capacity: ${SIPSA_ASYNC_QUEUE_CAPACITY:25}
       keep-alive-seconds: ${SIPSA_ASYNC_KEEP_ALIVE_SECONDS:60}
 
+  # ----------------------------------------------------------------------------
+  # Health Indicator Staleness Thresholds (TECH-031)
+  # Maximum age of the last successful run before SipsaHealthIndicator reports
+  # a monitored method DOWN. Defaults preserve the indicator's original
+  # hardcoded behavior exactly (36h daily, 840h = 35 days monthly).
+  # ----------------------------------------------------------------------------
+  health:
+    daily-staleness-threshold: ${SIPSA_HEALTH_DAILY_STALENESS_THRESHOLD:36h}
+    monthly-staleness-threshold: ${SIPSA_HEALTH_MONTHLY_STALENESS_THRESHOLD:840h}
+
 # ==============================================================================
 # ACTUATOR & MONITORING CONFIGURATION
 # `loggers` is exposed only in the dev profile (see application-dev.yaml).

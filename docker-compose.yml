@@ -83,6 +83,12 @@ services:
       - SIPSA_ASYNC_MAX_POOL_SIZE=${SIPSA_ASYNC_MAX_POOL_SIZE:-10}
       - SIPSA_ASYNC_QUEUE_CAPACITY=${SIPSA_ASYNC_QUEUE_CAPACITY:-25}
       - SIPSA_ASYNC_KEEP_ALIVE_SECONDS=${SIPSA_ASYNC_KEEP_ALIVE_SECONDS:-60}
+      # Health indicator staleness thresholds (TECH-031): max age of the last
+      # successful run before SipsaHealthIndicator reports a monitored method
+      # DOWN. Defaults preserve the original hardcoded behavior (36h daily,
+      # 840h = 35 days monthly). Must be positive; invalid values abort startup.
+      - SIPSA_HEALTH_DAILY_STALENESS_THRESHOLD=${SIPSA_HEALTH_DAILY_STALENESS_THRESHOLD:-36h}
+      - SIPSA_HEALTH_MONTHLY_STALENESS_THRESHOLD=${SIPSA_HEALTH_MONTHLY_STALENESS_THRESHOLD:-840h}
     depends_on:
       db:
         condition: service_healthy

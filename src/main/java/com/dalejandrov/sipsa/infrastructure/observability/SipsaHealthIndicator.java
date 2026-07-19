@@ -1,12 +1,14 @@
 package com.dalejandrov.sipsa.infrastructure.observability;
 
 import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
+import com.dalejandrov.sipsa.infrastructure.config.SipsaHealthProperties;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.IngestionRunRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
@@ -23,9 +25,14 @@ import java.util.Set;
  * <p>
  * <b>Health Criteria:</b>
  * <ul>
- *   <li><b>Daily methods:</b> Data older than 36 hours (24h + 12h buffer) is considered stale</li>
- *   <li><b>Monthly methods:</b> Data older than 35 days is considered stale</li>
+ *   <li><b>Daily methods:</b> Data older than {@code sipsa.health.daily-staleness-threshold}
+ *       (default 36 hours: 24h + 12h buffer) is considered stale</li>
+ *   <li><b>Monthly methods:</b> Data older than {@code sipsa.health.monthly-staleness-threshold}
+ *       (default 840 hours = 35 days) is considered stale</li>
  * </ul>
+ * <p>
+ * Thresholds are externalized and validated in {@link SipsaHealthProperties} (TECH-031) —
+ * the defaults above preserve the indicator's original hardcoded behavior exactly.
  * <p>
  * <b>Daily Methods Monitored:</b>
  * <ul>
@@ -67,6 +74,20 @@ public class SipsaHealthIndicator implements HealthIndicator {
     );
 
     private final IngestionRunRepository runRepository;
+    private final SipsaHealthProperties healthProperties;
+
+    /**
+     * Clock used to determine "now" when computing data age.
+     * <p>
+     * Defaults to a UTC system clock, behaviorally identical to the previous
+     * {@code Instant.now()} call ({@code Instant} carries no zone, so
+     * {@code Clock.systemUTC().instant()} and {@code Instant.now()} return the same
+     * value). Package-private mutability exists solely so tests in this package can
+     * substitute a {@link Clock#fixed} instance for deterministic staleness-boundary
+     * testing without depending on wall-clock time. Production code never calls
+     * {@link #setClock}.
+     */
+    private Clock clock = Clock.systemUTC();
 
     /**
      * Performs health check by analyzing data freshness.
@@ -75,7 +96,8 @@ public class SipsaHealthIndicator implements HealthIndicator {
      * <ol>
      *   <li>Retrieves last successful run for each method</li>
      *   <li>Calculates age of data in hours</li>
-     *   <li>Compares against thresholds (36h for daily, 35 days for monthly)</li>
+     *   <li>Compares against the configured staleness thresholds
+     *       ({@link SipsaHealthProperties})</li>
      *   <li>Returns UP if all data is fresh, DOWN if any is stale</li>
      * </ol>
      * <p>
@@ -94,7 +116,9 @@ public class SipsaHealthIndicator implements HealthIndicator {
 
         Map<String, Object> details = new HashMap<>();
         boolean isUp = true;
-        Instant now = Instant.now();
+        Instant now = Instant.now(clock);
+        long dailyThresholdHours = healthProperties.getDailyStalenessThreshold().toHours();
+        long monthlyThresholdHours = healthProperties.getMonthlyStalenessThreshold().toHours();
 
         for (Object[] row : lastRuns) {
             String method = (String) row[0];
@@ -103,18 +127,10 @@ public class SipsaHealthIndicator implements HealthIndicator {
             long ageHours = Duration.between(lastSuccess, now).toHours();
             details.put(method, "Age: " + ageHours + "h");
 
-            if (DAILY_METHODS.contains(method)) {
-                // 24h + 12h buffer
-                if (ageHours > 36) {
-                    isUp = false;
-                    details.put(method + "_status", "STALE");
-                }
-            } else {
-                // 35 days
-                if (ageHours > (35 * 24)) {
-                    isUp = false;
-                    details.put(method + "_status", "STALE");
-                }
+            long thresholdHours = DAILY_METHODS.contains(method) ? dailyThresholdHours : monthlyThresholdHours;
+            if (ageHours > thresholdHours) {
+                isUp = false;
+                details.put(method + "_status", "STALE");
             }
         }
 
@@ -124,5 +140,18 @@ public class SipsaHealthIndicator implements HealthIndicator {
 
         return isUp ? Health.up().withDetails(details).build()
                 : Health.down().withDetails(details).build();
+    }
+
+    /**
+     * Test-only seam: replaces the clock used for "now" calculations.
+     * <p>
+     * Package-private by design — only test classes in
+     * {@code com.dalejandrov.sipsa.infrastructure.observability} may call this. Not part
+     * of the public API and not used by any production code path.
+     *
+     * @param clock a fixed or otherwise controlled clock for deterministic testing
+     */
+    void setClock(Clock clock) {
+        this.clock = clock;
     }
 }
