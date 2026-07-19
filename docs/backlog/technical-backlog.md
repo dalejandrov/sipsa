@@ -71,6 +71,7 @@ When a story is implemented:
 | TECH-133 | Centralize and validate monthly ingestion window configuration | Low | — | **Done** (2026-07-17 — typed `monthlyWindowStart`, divergent `06:00` fallback removed, effective 14:00 unchanged) |
 | TECH-134 | Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`) | Low | — | **Done** (2026-07-19, branch `fix/align-remaining-sipsa-decimal-precision` — all SIPSA price models now declare `19,2`, no migration) |
 | TECH-135 | Centralize ingestion rejection-threshold configuration (C-04) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-ingestion-rejection-thresholds` — thresholds bind once in `IngestionProperties`, effective 0.01/5000 unchanged) |
+| TECH-136 | Centralize async executor configuration and pin the audit executor (C-05) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-async-executor-config` — `AsyncExecutorProperties` + `@Async("ingestionTaskExecutor")` for audit; geometry 2/10/25/60s unchanged) |
 
 ---
 
@@ -2073,6 +2074,67 @@ contract phase).
 **Completed:** 2026-07-19. Tests: `SipsaDecimalPrecisionAlignmentTest` (Testcontainers,
 `ddl-auto=validate` boot, per-model boundary matrix incl. `99999999999999999.99` =
 fits only `19,2`, rounding pins, JSON exactness, real-data shapes for `enviado`).
+
+---
+
+### TECH-136
+
+**Title:** Centralize async executor configuration and pin the audit executor (C-05)
+**Type:** Config
+**Priority:** Low
+**Status:** **Done**
+**Branch:** `refactor/centralize-async-executor-config`
+**Origin:** C-05 (technical debt: `AsyncConfig` re-declared `@Value` defaults for
+`sipsa.ingestion.async.*`) plus the finding confirmed during the 2026-07-19 CI-flake
+investigation: `IngestionAuditService.logEvent` used a bare `@Async` in a context with
+TWO `TaskExecutor` beans — `ingestionTaskExecutor` and the `taskScheduler`
+(`ThreadPoolTaskScheduler` implements `TaskExecutor` too) — and none named
+`taskExecutor`, so Spring logged `More than one TaskExecutor bean found` and ran audit
+events on ad-hoc `SimpleAsyncTaskExecutor` threads.
+
+**Executor inventory (before):** 2 executor beans (`ingestionTaskExecutor`:
+`ThreadPoolTaskExecutor` 2/10/25/60s, prefix `ingestion-async-`, CallerRunsPolicy,
+`allowCoreThreadTimeOut(true)`, framework-default shutdown; `taskScheduler`:
+`ThreadPoolTaskScheduler`, pool 5, prefix `scheduled-ingestion-`, waitForTasks=true,
+awaitTermination=30s). 2 `@Async` consumers: `AsyncIngestionService`
+(already `@Async("ingestionTaskExecutor")`) and `logEvent` (unqualified → effective
+executor `SimpleAsyncTaskExecutor`). No `@Primary`, no `AsyncConfigurer`, no bean named
+`taskExecutor`, no `TaskDecorator`.
+
+**Resolution:** (1) `AsyncExecutorProperties` binds the PRE-EXISTING official prefix
+`sipsa.ingestion.async.*` / `SIPSA_ASYNC_*` env vars (deliberately not renamed to keep
+the operational contract) with validation: core ≥ 1, max ≥ 1, cross-field `max >= core`
+(`@AssertTrue`), queue ≥ 0 (0 = direct handoff, documented), keep-alive ≥ 0 s;
+`AsyncConfig` consumes it and keeps bean name, thread prefix, rejection policy and
+geometry byte-identical. (2) Audit executor made explicit —
+`@Async("ingestionTaskExecutor")` (Alternative A: smallest scope, no bean renames, no
+`@Primary`, no `AsyncConfigurer`, no change for other consumers); with no unqualified
+`@Async` left, the ambiguity warning cannot trigger. Still async, still
+`REQUIRES_NEW`, still append-only.
+
+**Evidence:** binding tests (12 cases incl. all aborts), real-bean test
+(geometry/identity/overrides), deterministic latch-based saturation
+(core=1/max=1/queue=1 → third task runs on the caller via CallerRunsPolicy),
+executor-resolution test (audit insert thread `ingestion-async-*` captured via Logback
+`ListAppender`; captured output free of the warning and of `SimpleAsyncTaskExecutor`),
+Docker (defaults 2/10/25/60s; overrides 3/6/40/90s; `core=10/max=2` →
+`APPLICATION FAILED TO START` naming the cross-field rule; runtime audit event with 0
+warning occurrences), and 50/50 green repetitions of
+`ParcialConcurrentIngestionAppTest` (2 `INGESTION_SUCCEEDED` / 0 `INGESTION_FAILED`
+filtered by `tech117-a`/`tech117-b`, Awaitility retained).
+
+**Follow-up findings (recorded, deliberately unchanged):**
+- Shutdown: `ingestionTaskExecutor` keeps framework defaults
+  (`waitForTasksToCompleteOnShutdown=false`, `awaitTerminationSeconds=0`) — queued or
+  in-flight async audit events can be dropped on context shutdown. Changing this is a
+  separate decision (contrast: the scheduler already waits 30 s).
+- Context propagation: no `TaskDecorator`; MDC/tracing context does NOT cross into
+  async threads. Audit correlation currently travels in the event payload
+  (`requestId`), so logs correlate by parameter, not by MDC — acceptable today,
+  revisit only if MDC-based tracing is adopted.
+
+**Completed:** 2026-07-19. No migration (V1–V4 untouched), no tuning, no functional
+change to audit semantics.
 
 ---
 

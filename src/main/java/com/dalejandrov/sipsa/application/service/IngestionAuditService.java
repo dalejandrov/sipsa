@@ -61,10 +61,18 @@ public class IngestionAuditService {
      * <p>
      * This method runs in a separate transaction to ensure audit logs
      * are persisted even if the main transaction fails.
+     * <p>
+     * The executor is named explicitly (TECH-136): with more than one
+     * {@code TaskExecutor} bean in the context ({@code ingestionTaskExecutor}
+     * and the scheduler), an unqualified {@code @Async} cannot resolve a
+     * default executor — Spring logged "More than one TaskExecutor bean found"
+     * and fell back to ad-hoc {@code SimpleAsyncTaskExecutor} threads. Audit
+     * events now always run on the managed {@code ingestion-async-*} pool.
+     * Still asynchronous, still {@code REQUIRES_NEW}, still append-only.
      *
      * @param request encapsulates all audit event parameters
      */
-    @Async
+    @Async("ingestionTaskExecutor")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logEvent(AuditEventRequest request) {
         try {
