@@ -71,16 +71,21 @@ public class SipsaMayoristasSemanal {
     @Column(name = "fecha_ini", nullable = false)
     private Instant fechaIni;
 
+    /* Decimal columns mirror the versioned DDL (V1: NUMERIC(19,2)) — the storage
+     * contract; DANE's XSD declares plain unbounded xs:decimal (TECH-134, same
+     * criterion as TECH-118). ddl-auto=validate does not compare precision: the
+     * annotation is documentation plus generated-schema metadata (H2 unit tests). */
+
     /** Minimum price per kilogram for the week */
-    @Column(name = "minimo_kg", precision = 15, scale = 2)
+    @Column(name = "minimo_kg", precision = 19, scale = 2)
     private BigDecimal minimoKg;
 
     /** Maximum price per kilogram for the week */
-    @Column(name = "maximo_kg", precision = 15, scale = 2)
+    @Column(name = "maximo_kg", precision = 19, scale = 2)
     private BigDecimal maximoKg;
 
     /** Average price per kilogram for the week */
-    @Column(name = "promedio_kg", precision = 15, scale = 2)
+    @Column(name = "promedio_kg", precision = 19, scale = 2)
     private BigDecimal promedioKg;
 
     /** Timestamp when record was created in source system */
@@ -88,7 +93,7 @@ public class SipsaMayoristasSemanal {
     private Instant fechaCreacion;
 
     /** Amount sent/dispatched (specific to source system) */
-    @Column(name = "enviado", precision = 15, scale = 2)
+    @Column(name = "enviado", precision = 19, scale = 2)
     private BigDecimal enviado;
 
     /** Timestamp when the record was last updated in this system */
