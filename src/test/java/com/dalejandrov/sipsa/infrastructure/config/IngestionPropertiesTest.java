@@ -212,6 +212,112 @@ class IngestionPropertiesTest {
                         .isEqualTo(LocalTime.of(23, 59)));
     }
 
+    // -------------------------------------------------------------------
+    // Rejection thresholds (TECH-135, C-04)
+    // -------------------------------------------------------------------
+
+    @Test
+    @DisplayName("without any override the canonical reject thresholds apply: rate 0.01, count 5000")
+    void defaultRejectThresholds() {
+        runner.run(context -> {
+            IngestionProperties props = context.getBean(IngestionProperties.class);
+            assertThat(props.getMaxRejectRate())
+                    .isEqualTo(IngestionProperties.DEFAULT_MAX_REJECT_RATE)
+                    .isEqualTo(0.01);
+            assertThat(props.getMaxRejectCount())
+                    .isEqualTo(IngestionProperties.DEFAULT_MAX_REJECT_COUNT)
+                    .isEqualTo(5000);
+        });
+    }
+
+    @Test
+    @DisplayName("property overrides win for both thresholds")
+    void rejectThresholdPropertyOverridesWin() {
+        runner.withPropertyValues(
+                        "sipsa.ingestion.max-reject-rate=0.05",
+                        "sipsa.ingestion.max-reject-count=100")
+                .run(context -> {
+                    IngestionProperties props = context.getBean(IngestionProperties.class);
+                    assertThat(props.getMaxRejectRate()).isEqualTo(0.05);
+                    assertThat(props.getMaxRejectCount()).isEqualTo(100);
+                });
+    }
+
+    @Test
+    @DisplayName("the yaml placeholder chains fall back to the canonical values when the env vars are unset")
+    void rejectThresholdPlaceholderChainsFallBack() {
+        runner.withPropertyValues(
+                        "sipsa.ingestion.max-reject-rate=${MAX_REJECT_RATE:0.01}",
+                        "sipsa.ingestion.max-reject-count=${MAX_REJECT_COUNT:5000}")
+                .run(context -> {
+                    IngestionProperties props = context.getBean(IngestionProperties.class);
+                    assertThat(props.getMaxRejectRate()).isEqualTo(0.01);
+                    assertThat(props.getMaxRejectCount()).isEqualTo(5000);
+                });
+    }
+
+    @Test
+    @DisplayName("MAX_REJECT_RATE / MAX_REJECT_COUNT win over the placeholder defaults")
+    void rejectThresholdEnvironmentVariablesWin() {
+        runner.withSystemProperties("MAX_REJECT_RATE=0.10", "MAX_REJECT_COUNT=250")
+                .withPropertyValues(
+                        "sipsa.ingestion.max-reject-rate=${MAX_REJECT_RATE:0.01}",
+                        "sipsa.ingestion.max-reject-count=${MAX_REJECT_COUNT:5000}")
+                .run(context -> {
+                    IngestionProperties props = context.getBean(IngestionProperties.class);
+                    assertThat(props.getMaxRejectRate()).isEqualTo(0.10);
+                    assertThat(props.getMaxRejectCount()).isEqualTo(250);
+                });
+    }
+
+    @Test
+    @DisplayName("boundary values are accepted: rate 0 and 1, count 0")
+    void rejectThresholdBoundariesAccepted() {
+        runner.withPropertyValues(
+                        "sipsa.ingestion.max-reject-rate=0",
+                        "sipsa.ingestion.max-reject-count=0")
+                .run(context -> {
+                    IngestionProperties props = context.getBean(IngestionProperties.class);
+                    assertThat(props.getMaxRejectRate()).isZero();
+                    assertThat(props.getMaxRejectCount()).isZero();
+                });
+        runner.withPropertyValues("sipsa.ingestion.max-reject-rate=1.0")
+                .run(context -> assertThat(context.getBean(IngestionProperties.class).getMaxRejectRate())
+                        .isEqualTo(1.0));
+    }
+
+    @Test
+    @DisplayName("a negative max-reject-rate aborts startup naming the property")
+    void negativeRejectRateFailsStartup() {
+        runner.withPropertyValues("sipsa.ingestion.max-reject-rate=-0.01")
+                .run(context -> assertThat(failureMessages(context))
+                        .contains("sipsa.ingestion.max-reject-rate must be >= 0"));
+    }
+
+    @Test
+    @DisplayName("a max-reject-rate above 1 aborts startup explaining fraction semantics")
+    void rejectRateAboveOneFailsStartup() {
+        runner.withPropertyValues("sipsa.ingestion.max-reject-rate=1.5")
+                .run(context -> assertThat(failureMessages(context))
+                        .contains("fraction in [0..1], not a percentage"));
+    }
+
+    @Test
+    @DisplayName("a negative max-reject-count aborts startup naming the property")
+    void negativeRejectCountFailsStartup() {
+        runner.withPropertyValues("sipsa.ingestion.max-reject-count=-1")
+                .run(context -> assertThat(failureMessages(context))
+                        .contains("sipsa.ingestion.max-reject-count must be >= 0"));
+    }
+
+    @Test
+    @DisplayName("a non-numeric max-reject-rate aborts startup as a binding failure")
+    void nonNumericRejectRateFailsStartup() {
+        runner.withPropertyValues("sipsa.ingestion.max-reject-rate=lots")
+                .run(context -> assertThat(failureMessages(context))
+                        .contains("sipsa.ingestion"));
+    }
+
     /**
      * Asserts the context failed to start and returns every message in the
      * startup-failure cause chain, so assertions can match the validation text
