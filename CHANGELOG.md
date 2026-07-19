@@ -10,6 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-021 — `SipsaParseException` now maps to `502 Bad Gateway`, not
+  `400 Bad Request`** — a contractual (breaking) HTTP status change for any client that
+  depended on the previous `400`. This exception fires when DANE's upstream SOAP/XML
+  response can't be parsed (`AbstractStaxParser`); the API caller sent nothing wrong, so
+  `400` (client error) was the wrong semantics — `502` (this server, acting as a
+  gateway, got an invalid response from an upstream server) is correct. Only the status
+  argument in `GlobalExceptionHandler.handleParseException` changed
+  (`HttpStatus.BAD_REQUEST` → `HttpStatus.BAD_GATEWAY`); the error `code`
+  (`"PARSE_ERROR"`), `message`, `timestamp`, and body shape are all unchanged —
+  `ErrorResponse` itself was not touched, and the new `SIPSA_UPSTREAM_PARSE_ERROR`
+  code ADR-003 proposes was deliberately not adopted (that ADR is still `Proposed`, not
+  `Accepted`; it explicitly authorizes this status-code fix to proceed independently).
+  New focused `GlobalExceptionHandlerParseExceptionTest` (`@WebMvcTest`, real MVC
+  dispatch) covers status, code, message, timestamp, and content type, plus a
+  regression check that `SipsaBusinessException` → `422` is untouched. No Flyway
+  migration; V1–V4 unchanged.
+
 - **TECH-070 (C-01) — `SoapProperties` now validates all 9 fields at startup**,
   early configuration validation only — no functional change to the SOAP client.
   Previously only 4 fields were checked, imperatively, inside
