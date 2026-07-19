@@ -37,7 +37,8 @@ import java.util.Set;
  */
 @Repository
 public interface SipsaParcialRepository
-        extends JpaRepository<SipsaParcial, Long>, JpaSpecificationExecutor<SipsaParcial> {
+        extends JpaRepository<SipsaParcial, Long>, JpaSpecificationExecutor<SipsaParcial>,
+        SipsaParcialBatchInsertRepository {
 
     /**
      * Record to track insert/skip metrics from upsert operations.
@@ -74,14 +75,23 @@ public interface SipsaParcialRepository
      *       with the new format.</li>
      *   <li>Bulk lookup by survey date — one query — recomputes the natural-key hash of
      *       each candidate (covers legacy UUID rows) and skips matches.</li>
-     *   <li>Inserts the remainder via {@code saveAll + flush}.</li>
+     *   <li>Inserts the remainder atomically via
+     *       {@code INSERT … ON CONFLICT (key_hash) DO NOTHING} in a single JDBC batch
+     *       ({@link SipsaParcialBatchInsertRepository}).</li>
      * </ol>
-     * The {@code key_hash UNIQUE} constraint remains the concurrency backstop: if a
-     * concurrent writer wins the race between lookup and insert, the constraint —
-     * not this method — rejects the duplicate.
+     * <b>Concurrency (TECH-117):</b> the lookups are an optimization, not a guarantee —
+     * under READ COMMITTED a concurrent run can insert the same key after the lookup and
+     * before the insert. The {@code UNIQUE (key_hash)} constraint
+     * ({@code sipsa_parcial_key_hash_key}) remains the final barrier, and the conflict
+     * clause turns a lost race into a per-row "not inserted" outcome counted as
+     * {@code skipped}: no exception, no rollback-only transaction, no failed run, and
+     * non-conflicting rows of the same batch persist normally. The legacy-UUID dedup
+     * (step 3) is untouched: {@code ON CONFLICT} targets only {@code key_hash} — never
+     * the natural key, which has no unique constraint yet.
      *
      * @param items batch of entities with deterministic {@code keyHash} already set
-     * @return metrics with counts of inserted and skipped records
+     * @return metrics with counts of inserted and skipped records; for every batch
+     *         {@code items.size() == inserted + skipped} holds
      */
     @Transactional
     default UpsertMetrics batchUpsert(List<SipsaParcial> items) {
@@ -131,11 +141,20 @@ public interface SipsaParcialRepository
             }
         }
 
+        /* Atomic insert: a key that a concurrent run committed after our lookup resolves
+         * to update-count 0 inside PostgreSQL and is counted as skipped — the transaction
+         * stays valid and the rest of the batch is unaffected. */
+        int inserted = 0;
         if (!toInsert.isEmpty()) {
-            saveAll(toInsert);
-            flush();
+            for (int outcome : insertIgnoringConflicts(toInsert)) {
+                if (outcome > 0) {
+                    inserted++;
+                } else {
+                    skipped++;
+                }
+            }
         }
-        return new UpsertMetrics(toInsert.size(), skipped);
+        return new UpsertMetrics(inserted, skipped);
     }
 
     /**

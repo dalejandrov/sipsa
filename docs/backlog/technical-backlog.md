@@ -61,7 +61,7 @@ When a story is implemented:
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
 | TECH-116 | Disable `baseline-on-migrate` after per-environment Flyway history inventory | Low | — | Pending |
-| TECH-117 | Handle concurrent `SipsaParcial` duplicate insertion safely | Medium | — | Pending |
+| TECH-117 | Handle concurrent `SipsaParcial` duplicate insertion safely | Medium | — | **Done** (2026-07-19, branch `fix/sipsa-parcial-concurrent-dedup` — atomic `ON CONFLICT (key_hash) DO NOTHING`, collisions counted as skipped) |
 | TECH-118 | Align `SipsaParcial` decimal precision (JPA 15,2 vs DDL 19,2) | Low | — | Pending |
 | TECH-119 | Remove redundant `idx_sipsa_parcial_key_hash` index | Low | — | **Done** (2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`, migration V3) |
 | TECH-122 | Harden `SipsaParcial` natural-key constraints (NOT NULL / natural unique) | Low | — | Pending (contract phase; gated on TECH-012 external half) |
@@ -1939,13 +1939,37 @@ practice — this is a prerequisite for any multi-instance rollout (with ShedLoc
 equivalent also to be evaluated then).
 
 **Acceptance Criteria:**
-- [ ] Two concurrent executions of the same publication → one inserts, the other records
+- [x] Two concurrent executions of the same publication → one inserts, the other records
       `skipped`, neither run fails.
-- [ ] Constraint-violation fallback re-checks existence and reclassifies instead of
-      failing the batch; metrics stay coherent.
-- [ ] A concurrency test (Testcontainers, two parallel writers) proves it.
+- [x] The collision path never throws: instead of a constraint-violation fallback, the
+      insert itself is atomic — `INSERT … ON CONFLICT (key_hash) DO NOTHING` in a single
+      JDBC batch (repository fragment `SipsaParcialBatchInsertRepository`/`…Impl`); the
+      per-row JDBC update count (1/0) feeds `inserted`/`skipped`, so metrics stay
+      coherent (`items == inserted + skipped` per batch) and the transaction never goes
+      rollback-only. Alternative A (catch-after-`saveAll`) was demonstrated unusable by
+      the reproduction test: the flush violation marks the transaction rollback-only and
+      discards the batch's non-conflicting rows. Advisory/table locks were discarded
+      (cost, lost concurrency, no need — the constraint plus `ON CONFLICT` already
+      serialize per-key inside PostgreSQL).
+- [x] Concurrency tests (Testcontainers, real PostgreSQL 18, deterministic interleaving
+      via an uncommitted-insert hold plus `pg_stat_activity` lock observation):
+      single-key race (1+1), identical batches (5+5), partial overlap ({A,B,C} vs
+      {B,C,D} — D preserved), intra-batch duplicate counted once, legacy-UUID row
+      deduplicated with the stored row untouched, retry all-skip, post-collision batch
+      proving the transaction survives; plus two real overlapping `GenericIngestionJob`
+      executions (the endpoint's code path) — audit shows 2× `INGESTION_SUCCEEDED`,
+      0× `INGESTION_FAILED`, one copy per key. Note: two byte-simultaneous triggers are
+      serialized earlier by `uq_ingestion_runs_window` at run creation; TECH-117 covers
+      the overlapping-execution window that force-restart opens.
 
-**Completed:** —
+**Completed:** 2026-07-19, branch `fix/sipsa-parcial-concurrent-dedup`. No migration
+(V1–V4 untouched; the existing `sipsa_parcial_key_hash_key` constraint is the conflict
+target). 16 parameters per single-row statement in one JDBC batch — every batch size
+stays far below the 32,767-per-statement driver limit, no sub-batching needed. IDs are
+deliberately not returned (entities discarded after flush); conflicting rows keep the
+`ingestion_run_id` of the first inserter. TECH-011 idempotence, TECH-113 filters and
+TECH-124 index untouched. Multi-instance scheduling coordination (ShedLock or
+equivalent) remains a separate prerequisite for horizontal scaling.
 
 ---
 
