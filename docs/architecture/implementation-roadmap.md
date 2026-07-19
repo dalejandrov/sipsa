@@ -22,26 +22,27 @@ Before starting any phase:
 
 ---
 
-## ► Next Step: finish Phase 1
+## ► Next Step: start Phase 2
 
-**Phase 1 is partially done and still the active phase.** Status (reconciled 2026-07-19
-against `main` — see the [backlog reconciliation](../backlog/technical-backlog.md) for
-full evidence):
+**Phase 1 is complete** as of 2026-07-19 (see the
+[technical backlog](../backlog/technical-backlog.md) for full per-story evidence):
 - The Spring Boot 4 / Java 25 migration is merged to `main`.
-- `./mvnw clean verify` passes (225+ tests as of 2026-07-19, 0 failures, 0 skips) and
+- `./mvnw clean verify` passes (264 tests as of 2026-07-19, 0 failures, 0 skips) and
   runs in CI on every PR and push to `main` (TECH-120, merged via PR #16).
-- The Phase 1 security stories are **done**: TECH-001/TECH-002 merged via PR #17
-  (2026-07-15, ADR-002 Accepted) and e2e-validated against the mock OIDC issuer.
-- TECH-071 (`batch-size` defaults) is **done** (2026-07-16, PR #24).
-- TECH-030 (named `@Async` executor for audit logging) is **resolved by TECH-136**
-  (2026-07-19, PR #32) — TECH-136 was scoped to C-05 plus this exact finding, confirmed
+- Security: TECH-001/TECH-002 merged via PR #17 (2026-07-15, ADR-002 Accepted) and
+  e2e-validated against the mock OIDC issuer.
+- TECH-071 (`batch-size` defaults) — done 2026-07-16.
+- TECH-030 (named `@Async` executor for audit logging) — resolved by TECH-136
+  (2026-07-19), which was scoped to C-05 plus this exact finding, confirmed
   independently during a CI-flake investigation.
-- The remaining Phase 1 stories — **TECH-020, TECH-031, TECH-050, TECH-051, TECH-052,
-  TECH-070** — are pending and unblocked. Code-verified as still open on `main`
-  (2026-07-19): two controllers still missing the leading `/`, `SipsaHealthIndicator`
-  thresholds still hardcoded, `// ...existing code...` still present in the 4 handlers,
-  `toAuditEventRequest()` still misnamed, `IngestionControlService.getRun()` still
-  returns nullable, `SoapProperties` still lacks Bean Validation.
+- TECH-020 (`@RequestMapping` leading slash), TECH-031 (health-indicator thresholds
+  externalized), TECH-050 (placeholder comments removed), TECH-051
+  (`toAuditEventResponse` rename), TECH-052 (`getRun()` → `Optional`), and TECH-070
+  (`SoapProperties` Bean Validation) — all done 2026-07-19, merged directly to `main`
+  one story per branch (`--no-ff`, no squash).
+
+All Phase 1 acceptance criteria below are met. **Phase 2 (Contract and Correctness) is
+now unblocked.**
 
 Note: parts of Phase 3 (TECH-040 via TECH-110, and TECH-111) were completed ahead of
 sequence as independently approved tracks. This does not change the phase order for the
@@ -93,7 +94,7 @@ Also outside the phase sequence (see the backlog for full stories):
 
 ---
 
-## Phase 1 — Foundation Cleanup
+## Phase 1 — Foundation Cleanup [**Done**, 2026-07-19]
 
 **Objective:** Fix bugs, enforce minimum security, and remove low-risk debt.
 No behavioral changes to the public API. No new dependencies (except Spring Security).
@@ -104,24 +105,25 @@ No behavioral changes to the public API. No new dependencies (except Spring Secu
 |---|---|---|---|
 | TECH-001 | Protect `/api/internal/**` with authentication — **Done** (2026-07-15, PR #17, ADR-002) | Security | `fix/internal-endpoint-security` |
 | TECH-002 | Restrict Actuator `loggers` endpoint — **Done** (2026-07-15, PR #17) | Security | `fix/internal-endpoint-security` |
-| TECH-020 | Fix `@RequestMapping` without leading `/` | Bug | `fix/request-mapping-leading-slash` |
+| TECH-020 | Fix `@RequestMapping` without leading `/` — **Done** (2026-07-19) | Bug | `fix/request-mapping-leading-slash` |
 | TECH-030 | Named executor in `@Async` for audit logging — **Resolved by TECH-136** (2026-07-19) | Bug | `fix/async-executor-audit` (superseded — see TECH-136) |
-| TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Config | `refactor/health-indicator-config` |
-| TECH-050 | Remove placeholder comments from 4 handlers | QA | `fix/cleanup-placeholder-comments` |
-| TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | QA | `fix/cleanup-placeholder-comments` |
-| TECH-052 | `IngestionControlService.getRun()` → `Optional` | QA | `refactor/optional-return-types` |
-| TECH-070 | Bean Validation constraints on `SoapProperties` | Config | `refactor/config-validation` |
+| TECH-031 | Externalize `SipsaHealthIndicator` thresholds — **Done** (2026-07-19) | Config | `refactor/externalize-health-thresholds` |
+| TECH-050 | Remove placeholder comments from 4 handlers — **Done** (2026-07-19) | QA | `refactor/remove-existing-code-comments` |
+| TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` — **Done** (2026-07-19) | QA | `refactor/rename-audit-mapper-response` |
+| TECH-052 | `IngestionControlService.getRun()` → `Optional` — **Done** (2026-07-19) | QA | `refactor/optional-ingestion-run` |
+| TECH-070 | Bean Validation constraints on `SoapProperties` — **Done** (2026-07-19) | Config | `refactor/validate-soap-properties` |
 | TECH-071 | Align `batch-size` defaults — **Done** (2026-07-16) | Config | `fix/unify-ingestion-batch-size-config` |
 
 **Acceptance criteria for phase exit:**
-- `./mvnw clean verify` passes.
-- `POST /api/internal/ingestion/run` returns `401` without credentials.
-- `GET /api/sipsa/ciudad` returns `200` without credentials.
-- `GET /actuator/health` returns `200` without credentials.
-- Zero `// ...existing code...` comments in `src/main/`.
-- No breaking changes to the public API contract.
+- `./mvnw clean verify` passes. ✅
+- `POST /api/internal/ingestion/run` returns `401` without credentials. ✅
+- `GET /api/sipsa/ciudad` returns `200` without credentials. ✅
+- `GET /actuator/health` returns `200` without credentials. ✅
+- Zero `// ...existing code...` comments in `src/main/`. ✅ (TECH-050)
+- No breaking changes to the public API contract. ✅
 
-**Criterion to start Phase 2:** Phase 1 merge to `main` is complete and green.
+**Criterion to start Phase 2:** Phase 1 merge to `main` is complete and green. ✅ **Met
+2026-07-19** — Phase 2 is now unblocked.
 
 ---
 
@@ -261,12 +263,13 @@ This phase can run in parallel with any of the above phases.
 ```
 main (post-migration)
 │
-├── Phase 1 — Foundation Cleanup          [Active; security + 2 stories done]
-│   Security (TECH-001/002 done, PR #17); TECH-071 done; TECH-030 resolved by
-│   TECH-136; TECH-020/031/050/051/052/070 remain (code-verified open 2026-07-19)
-│   Duration estimate: 2–3 days
+├── Phase 1 — Foundation Cleanup          [Done, 2026-07-19]
+│   Security (TECH-001/002, PR #17) + all 8 remaining stories done — TECH-071
+│   (2026-07-16), TECH-030 (resolved by TECH-136), TECH-020/031/050/051/052/070
+│   (all 2026-07-19, one story per branch, merged directly to main)
+│   Duration: complete
 │
-├── Phase 2 — Contract and Correctness    [After Phase 1; not started]
+├── Phase 2 — Contract and Correctness    [Unblocked — Phase 1 complete; not started]
 │   Error semantics + Scheduler + Pagination
 │   Duration estimate: 3–4 days
 │
