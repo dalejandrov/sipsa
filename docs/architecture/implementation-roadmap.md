@@ -1,7 +1,9 @@
 # Implementation Roadmap — SIPSA Integration Service
 
 **Version:** 1.0  
-**Date:** 2026-07-13
+**Date:** 2026-07-13  
+**Last reconciled against `main`:** 2026-07-19 (see
+[technical backlog](../backlog/technical-backlog.md) for full per-story evidence)
 
 This document defines the phased implementation plan for all technical backlog items.
 Each phase is designed to be self-contained: the system remains consistent and deployable
@@ -22,18 +24,35 @@ Before starting any phase:
 
 ## ► Next Step: finish Phase 1
 
-**Phase 1 is partially done and still the active phase.** Status:
+**Phase 1 is partially done and still the active phase.** Status (reconciled 2026-07-19
+against `main` — see the [backlog reconciliation](../backlog/technical-backlog.md) for
+full evidence):
 - The Spring Boot 4 / Java 25 migration is merged to `main`.
-- `./mvnw clean verify` passes (104 tests, 0 failures, 0 skips as of 2026-07-15) and runs
-  in CI on every PR and push to `main` (TECH-120, merged via PR #16).
+- `./mvnw clean verify` passes (225+ tests as of 2026-07-19, 0 failures, 0 skips) and
+  runs in CI on every PR and push to `main` (TECH-120, merged via PR #16).
 - The Phase 1 security stories are **done**: TECH-001/TECH-002 merged via PR #17
   (2026-07-15, ADR-002 Accepted) and e2e-validated against the mock OIDC issuer.
-- The remaining Phase 1 stories (TECH-020/030/031/050/051/052/070/071) are pending and
-  unblocked.
+- TECH-071 (`batch-size` defaults) is **done** (2026-07-16, PR #24).
+- TECH-030 (named `@Async` executor for audit logging) is **resolved by TECH-136**
+  (2026-07-19, PR #32) — TECH-136 was scoped to C-05 plus this exact finding, confirmed
+  independently during a CI-flake investigation.
+- The remaining Phase 1 stories — **TECH-020, TECH-031, TECH-050, TECH-051, TECH-052,
+  TECH-070** — are pending and unblocked. Code-verified as still open on `main`
+  (2026-07-19): two controllers still missing the leading `/`, `SipsaHealthIndicator`
+  thresholds still hardcoded, `// ...existing code...` still present in the 4 handlers,
+  `toAuditEventRequest()` still misnamed, `IngestionControlService.getRun()` still
+  returns nullable, `SoapProperties` still lacks Bean Validation.
 
 Note: parts of Phase 3 (TECH-040 via TECH-110, and TECH-111) were completed ahead of
 sequence as independently approved tracks. This does not change the phase order for the
 remaining stories.
+
+Also outside the original phase sequence: a substantial `SipsaParcial` data-integrity
+and performance track (TECH-113/114/117/118/119/124/133/134/135/136, plus config
+centralization stories TECH-135/136 closing C-04/C-05) emerged from TECH-011's final
+review and from operating the ingestion pipeline, and is **complete** as of 2026-07-19.
+See Phase 5 below and the backlog for full detail — these are not part of the Phase 1–6
+count and do not change what remains open in Phase 1.
 
 ---
 
@@ -86,7 +105,7 @@ No behavioral changes to the public API. No new dependencies (except Spring Secu
 | TECH-001 | Protect `/api/internal/**` with authentication — **Done** (2026-07-15, PR #17, ADR-002) | Security | `fix/internal-endpoint-security` |
 | TECH-002 | Restrict Actuator `loggers` endpoint — **Done** (2026-07-15, PR #17) | Security | `fix/internal-endpoint-security` |
 | TECH-020 | Fix `@RequestMapping` without leading `/` | Bug | `fix/request-mapping-leading-slash` |
-| TECH-030 | Named executor in `@Async` for audit logging | Bug | `fix/async-executor-audit` |
+| TECH-030 | Named executor in `@Async` for audit logging — **Resolved by TECH-136** (2026-07-19) | Bug | `fix/async-executor-audit` (superseded — see TECH-136) |
 | TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Config | `refactor/health-indicator-config` |
 | TECH-050 | Remove placeholder comments from 4 handlers | QA | `fix/cleanup-placeholder-comments` |
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | QA | `fix/cleanup-placeholder-comments` |
@@ -209,6 +228,18 @@ exists (if so, TECH-115 activates).
 - `./mvnw clean verify` passes.
 - If production data contained duplicates: migration plan documented and applied.
 
+**Follow-on track (outside the original phase count, complete as of 2026-07-19):**
+TECH-011's final review and subsequent operation of the ingestion pipeline surfaced a
+cluster of related stories, all **Done** and tracked in the backlog rather than as new
+roadmap phases: TECH-113 (`artiId`/`muniId` filter fix), TECH-114 (strict `enmaFecha`
+parsing, folded into TECH-011), TECH-117 (concurrent-insertion safety via
+`ON CONFLICT DO NOTHING`), TECH-118/TECH-134 (decimal precision alignment across all
+five SIPSA price models), TECH-119 (redundant index removal), TECH-124 (article-filter
+covering index), TECH-133 (monthly window config centralization), and TECH-135/TECH-136
+(rejection-threshold and async-executor config centralization, closing C-04/C-05). None
+of these required a schema rollback; the only new migrations were V2 (TECH-011), V3
+(TECH-119) and V4 (TECH-124) — V1 was never modified.
+
 ---
 
 ## Phase 6 — Documentation
@@ -230,11 +261,12 @@ This phase can run in parallel with any of the above phases.
 ```
 main (post-migration)
 │
-├── Phase 1 — Foundation Cleanup          [Active; security half done]
-│   Security (TECH-001/002 done, PR #17) + Bugs + QA + Config (pending)
+├── Phase 1 — Foundation Cleanup          [Active; security + 2 stories done]
+│   Security (TECH-001/002 done, PR #17); TECH-071 done; TECH-030 resolved by
+│   TECH-136; TECH-020/031/050/051/052/070 remain (code-verified open 2026-07-19)
 │   Duration estimate: 2–3 days
 │
-├── Phase 2 — Contract and Correctness    [After Phase 1]
+├── Phase 2 — Contract and Correctness    [After Phase 1; not started]
 │   Error semantics + Scheduler + Pagination
 │   Duration estimate: 3–4 days
 │
@@ -244,16 +276,17 @@ main (post-migration)
 │   TECH-041/042/043 remain
 │   Duration estimate: 3–5 days
 │
-├── Phase 4 — Observability + Performance [After Phase 3]
-│   Metrics + N+1 fix
+├── Phase 4 — Observability + Performance [After Phase 3; not started]
+│   Metrics (TECH-032) + N+1 fix (TECH-060) — both code-verified open 2026-07-19
 │   Duration estimate: 2–3 days
 │
-└── Phase 5 — Data Integrity              [Blocked: needs SPIKE]
-    Parcial deduplication
-    Duration estimate: 1–2 days (after decision)
+└── Phase 5 — Data Integrity              [Done, 2026-07-16; follow-on track done 2026-07-19]
+    Parcial deduplication (TECH-010/011/012 local half) plus the TECH-113..136
+    follow-on track (filters, concurrency, precision, indexing, config)
+    Duration estimate: — (complete)
 
 Phase 6 — Documentation [Parallel]
-ADRs + SPIKE evaluations
+ADRs + SPIKE evaluations — TECH-080/081 done; TECH-044/055 remain
 Duration estimate: ongoing
 ```
 
