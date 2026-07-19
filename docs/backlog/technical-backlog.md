@@ -905,7 +905,7 @@ negative sleep duration that throws `IllegalArgumentException` inside
 
 **Dependencies:** None.
 
-**Acceptance Criteria:**
+**Acceptance Criteria (re-scoped from the original story text — see Follow-up below):**
 - [x] `SoapProperties` is annotated with `@Validated`.
 - [x] Critical fields have constraints matching the client's real requirements:
       `@NotBlank` on `endpoint`/`namespace`, `@Positive` (strictly `> 0`, matching the
@@ -913,15 +913,20 @@ negative sleep duration that throws `IllegalArgumentException` inside
       `maxRetries`/`retryBackoffMs`/`loggingLimitBytes`/`maxChildElements` (`0` is a
       real, documented value for the last two — "unlimited" and "log nothing"
       respectively — not "disabled", so `@Positive` would have been wrong).
-- [ ] **Deliberately not done:** removing/reducing `SipsaSoapClientConfig
-      .validateConfiguration()`. This session's explicit scope excluded the SOAP client
-      configuration class; the four manual checks there are now unreachable in practice
-      (binding-time `@Validated` fails first) but were left in place rather than risk
-      touching client-construction code. Registered as a small follow-up if a future
-      story wants that class simplified.
+- [x] Bean Validation is now the primary, early check: it runs at property-binding
+      time, before any other bean (including `SipsaSoapClientConfig`) is constructed.
+      The four checks inside `SipsaSoapClientConfig.validateConfiguration()` are
+      redundant legacy code — unreachable in practice, since `@Validated` always fails
+      first — kept in place rather than touching the SOAP client configuration class,
+      which was outside this session's explicit scope.
 - [x] Application fails at startup with a clear error naming the property when
       configuration is invalid (verified for all 9 fields, unit-level and in Docker).
 - [x] `./mvnw clean verify` passes.
+
+**Follow-up (separate story, not this one):** delete
+`SipsaSoapClientConfig.validateConfiguration()` now that it is dead code superseded by
+`@Validated`. Small (XS), no functional change expected — left out here to avoid
+touching SOAP client configuration code in a story scoped to `SoapProperties` alone.
 
 **Completed:** 2026-07-19, branch `refactor/validate-soap-properties`. No cross-field
 rules added (no real relationship between these fields in the code); no URL-format
