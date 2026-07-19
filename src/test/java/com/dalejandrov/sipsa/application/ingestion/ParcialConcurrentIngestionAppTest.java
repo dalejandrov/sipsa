@@ -17,6 +17,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -26,6 +27,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.when;
 
 /**
@@ -45,6 +47,15 @@ import static org.mockito.Mockito.when;
  * {@code INGESTION_SUCCEEDED} events and zero {@code INGESTION_FAILED}, every key ends
  * up stored exactly once, and the run row closes SUCCEEDED with coherent metrics and no
  * unique-violation error message.
+ * <p>
+ * <b>Audit synchronization:</b> {@code IngestionAuditService.logEvent} is
+ * {@code @Async} + {@code REQUIRES_NEW} — audit rows commit on another thread AFTER the
+ * job futures complete (measured lag 1–2 ms locally; wider on constrained CI runners,
+ * which is exactly how the 2026-07-19 CI failure surfaced). Audit assertions therefore
+ * use a bounded condition-based wait (Awaitility, ships with spring-boot-starter-test),
+ * never a fixed sleep. Run-status and data assertions stay immediate: {@code
+ * updateStatus}/{@code updateMetrics} and the batch inserts are synchronous inside the
+ * job thread, so they are committed by the time each future completes.
  */
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(properties = {
@@ -121,14 +132,32 @@ class ParcialConcurrentIngestionAppTest {
                 "SELECT COUNT(*) FROM (SELECT key_hash FROM sipsa_parcial GROUP BY key_hash HAVING COUNT(*) > 1) dup",
                 Long.class)).isZero();
 
-        // Both executions completed successfully; none failed.
-        Map<String, Object> events = Map.of(
-                "succeeded", jdbc.queryForObject(
-                        "SELECT COUNT(*) FROM ingestion_audit WHERE event_type = 'INGESTION_SUCCEEDED'", Long.class),
-                "failed", jdbc.queryForObject(
-                        "SELECT COUNT(*) FROM ingestion_audit WHERE event_type = 'INGESTION_FAILED'", Long.class));
-        assertThat(events.get("succeeded")).as("both executions audited as succeeded").isEqualTo(2L);
-        assertThat(events.get("failed")).as("no execution failed").isEqualTo(0L);
+        // Both executions must leave success evidence — one INGESTION_SUCCEEDED per
+        // execution (filtered by its own requestId, immune to unrelated events) and
+        // zero INGESTION_FAILED. The expectation stays EXACTLY two events: audit rows
+        // are append-only inserts (BIGSERIAL PK, no unique constraint), so the
+        // architecture guarantees one row per execution.
+        //
+        // The wait is condition-based, not a fixed sleep: IngestionAuditService.logEvent
+        // is @Async + REQUIRES_NEW, so the events commit on another thread AFTER the job
+        // futures complete. Measured visibility lag is 1-2 ms locally; on constrained CI
+        // runners the window stretched enough for the previous immediate query to catch
+        // only one of the two events (CI failure of 2026-07-19). Bounded at 10 s.
+        await().atMost(Duration.ofSeconds(10))
+                .pollInterval(Duration.ofMillis(50))
+                .untilAsserted(() -> {
+                    assertThat(succeededEventsFor("tech117-a"))
+                            .as("execution A audited as succeeded; audit state: " + auditDump())
+                            .isEqualTo(1L);
+                    assertThat(succeededEventsFor("tech117-b"))
+                            .as("execution B audited as succeeded; audit state: " + auditDump())
+                            .isEqualTo(1L);
+                    assertThat(jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM ingestion_audit WHERE event_type = 'INGESTION_FAILED'",
+                            Long.class))
+                            .as("no execution failed; audit state: " + auditDump())
+                            .isEqualTo(0L);
+                });
 
         // Shared run row (force=true restart semantics): SUCCEEDED, coherent metrics,
         // no unique-violation error recorded.
@@ -146,6 +175,29 @@ class ParcialConcurrentIngestionAppTest {
         int inserted = ((Number) run.get("records_inserted")).intValue();
         assertThat(inserted).as("whichever execution reported last: 0 <= inserted <= seen")
                 .isBetween(0, RECORDS);
+    }
+
+    private Long succeededEventsFor(String requestId) {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ingestion_audit "
+                        + "WHERE event_type = 'INGESTION_SUCCEEDED' AND request_id = ?",
+                Long.class, requestId);
+    }
+
+    /**
+     * Diagnostic snapshot for await-timeout failures: every audit event (type,
+     * request correlation, run, timestamp) plus the run row's final state, so a
+     * future CI failure is diagnosable from the assertion message alone.
+     * No payloads or secrets — metadata only.
+     */
+    private String auditDump() {
+        List<Map<String, Object>> events = jdbc.queryForList("""
+                SELECT event_type, request_id, run_id, occurred_at
+                FROM ingestion_audit ORDER BY occurred_at""");
+        List<Map<String, Object>> runs = jdbc.queryForList("""
+                SELECT run_id, status, records_seen, records_inserted, reject_count, last_error_message
+                FROM ingestion_runs WHERE method_name = 'promediosSipsaParcial'""");
+        return "audit events=" + events + "; runs=" + runs;
     }
 
     private static String fixture(int records) {
