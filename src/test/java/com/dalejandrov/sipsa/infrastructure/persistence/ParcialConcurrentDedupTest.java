@@ -179,18 +179,18 @@ class ParcialConcurrentDedupTest {
         assertThat(winnerMetrics.inserted()).as("winner inserted its whole batch").isEqualTo(3);
         assertThat(winnerMetrics.skipped()).isZero();
 
-        // CURRENT behavior (defect under test, TECH-117): the losing batchUpsert dies on
-        // the unique violation raised at flush — the exception escapes to the caller
-        // (which marks the whole run FAILED) and the rollback also discards the loser's
-        // non-conflicting row D.
+        // TECH-117: the losing run does NOT fail — the collision resolves atomically in
+        // PostgreSQL (ON CONFLICT DO NOTHING), colliding rows count as skipped, and the
+        // loser's non-conflicting row D is preserved instead of rolling back with the batch.
         assertThat(loserOutcome)
-                .as("loser currently fails with a unique violation")
-                .isInstanceOf(DataIntegrityViolationException.class);
-        assertThat(rootMessage((Throwable) loserOutcome)).contains("sipsa_parcial_key_hash_key");
+                .as("loser completes without exception; got: " + loserOutcome)
+                .isInstanceOf(SipsaParcialRepository.UpsertMetrics.class);
+        var loserMetrics = (SipsaParcialRepository.UpsertMetrics) loserOutcome;
+        assertThat(loserMetrics.inserted()).as("loser inserted only its new row D").isEqualTo(1);
+        assertThat(loserMetrics.skipped()).as("collisions counted as skipped, not rejected").isEqualTo(2);
 
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sipsa_parcial", Long.class))
-                .as("only the winner's rows persisted — the loser's batch rolled back entirely, D lost")
-                .isEqualTo(3L);
+                .as("A, B, C, D — one copy each, D not lost").isEqualTo(4L);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM (SELECT key_hash FROM sipsa_parcial GROUP BY key_hash HAVING COUNT(*) > 1) dup",
                 Long.class)).as("no duplicated key_hash").isZero();

@@ -18,9 +18,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -114,17 +116,25 @@ class ParcialIngestionHandlerTest {
             }
             return found;
         });
-        when(repository.saveAll(any())).thenAnswer(inv -> {
-            Iterable<SipsaParcial> rows = inv.getArgument(0);
-            List<SipsaParcial> saved = new ArrayList<>();
-            for (SipsaParcial row : rows) {
-                row.setId(++idSequence);
-                store.put(row.getId(), row);
-                saved.add(row);
+        // Emulates INSERT … ON CONFLICT (key_hash) DO NOTHING: per-row outcome 1 when the
+        // hash is new to the store, 0 when it collides (TECH-117 atomic insert path).
+        when(repository.insertIgnoringConflicts(any())).thenAnswer(inv -> {
+            List<SipsaParcial> rows = inv.getArgument(0);
+            Set<String> storedHashes = new HashSet<>();
+            for (SipsaParcial row : store.values()) {
+                storedHashes.add(row.getKeyHash());
             }
-            return saved;
+            int[] outcomes = new int[rows.size()];
+            for (int i = 0; i < rows.size(); i++) {
+                SipsaParcial row = rows.get(i);
+                if (storedHashes.add(row.getKeyHash())) {
+                    row.setId(++idSequence);
+                    store.put(row.getId(), row);
+                    outcomes[i] = 1;
+                }
+            }
+            return outcomes;
         });
-        // flush() is void: the Mockito mock is a no-op by default, which is what we want.
 
         // Plain POJO with the canonical default (500) — no Spring context needed.
         properties = new IngestionProperties();
