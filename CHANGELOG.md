@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **TECH-050 — removed residual `// ...existing code...` placeholder comments** from
+  the `catch` blocks of `CiudadIngestionHandler`, `SemanaIngestionHandler`,
+  `AbasIngestionHandler` and `MesIngestionHandler`. Non-functional cleanup only: each
+  comment documented nothing and sat directly before a `log.warn(...)` that already
+  describes the partial-progress-save behavior. Zero logic, signature, import, or test
+  changes — one line removed per file. No Flyway migration; V1–V4 unchanged.
+
 ### Fixed
 
 - **TECH-020 — internal controller route mappings normalized to a leading `/`.**

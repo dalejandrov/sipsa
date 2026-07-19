@@ -34,7 +34,7 @@ When a story is implemented:
 | TECH-042 | Unit tests for `IngestionJob` | High | 3 | Pending |
 | TECH-043 | Tests for `GlobalExceptionHandler` | Medium | 3 | Pending |
 | TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | Partially resolved — Testcontainers half settled by ADR-009 (`FlywayMigrationsTest`); WireMock half pending |
-| TECH-050 | Remove placeholder comments from handlers | Low | 1 | Pending |
+| TECH-050 | Remove placeholder comments from handlers | Low | 1 | **Done** (2026-07-19, branch `refactor/remove-existing-code-comments`) |
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Low | 1 | Pending |
 | TECH-052 | `getRun()` returns `Optional<IngestionRun>` | Low | 1 | Pending |
 | TECH-053 | Make scheduler dispatch async | Medium | 2 | Pending |
@@ -628,24 +628,37 @@ WireMock half (SOAP mocking strategy and the `CiudadIngestionHandler` proof of c
 **Type:** QA  
 **Priority:** Low  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** XS  
-**Branch:** `fix/cleanup-placeholder-comments`
+**Branch:** `refactor/remove-existing-code-comments` (superseded from the originally
+listed `fix/cleanup-placeholder-comments`, which also bundled TECH-051; the two were
+split into separate branches — this story stayed single-purpose)
 
-**Evidence:**
-- `CiudadIngestionHandler.java:115`
-- `SemanaIngestionHandler.java:103`
-- `AbasIngestionHandler.java:123`
-- `MesIngestionHandler.java:109`
+**Evidence (re-confirmed against `main` before removal):**
+- `CiudadIngestionHandler.java:114`
+- `SemanaIngestionHandler.java:102`
+- `AbasIngestionHandler.java:122`
+- `MesIngestionHandler.java:108`
+
+All four identical in form and position: the first line of a `catch (Exception e)`
+block, immediately before a `log.warn(...)` that already documents the
+partial-progress-save behavior. `ParcialIngestionHandler` had no such marker (already
+cleaned during TECH-011) — confirming exactly 4, not 5.
 
 **Dependencies:** None.
 
 **Acceptance Criteria:**
-- [ ] Zero occurrences of `// ...existing code...` in `src/main/`.
-- [ ] The surrounding catch blocks are reviewed for completeness.
-- [ ] `./mvnw clean verify` passes.
+- [x] Zero occurrences of `// ...existing code...` in `src/main/`.
+- [x] The surrounding catch blocks are reviewed for completeness — each comment
+      documented nothing (no decision, no generated-code marker, no tooling
+      requirement); the four `catch` blocks themselves are otherwise correct and
+      untouched.
+- [x] `./mvnw clean verify` passes.
 
-**Completed:** —
+**Completed:** 2026-07-19, branch `refactor/remove-existing-code-comments`. Pure
+comment deletion — one line removed per file, zero logic/signature/import/test
+changes (`git diff --word-diff` shows exactly the four `// ...existing code...`
+lines removed). No Flyway migration; V1–V4 unchanged.
 
 ---
 
