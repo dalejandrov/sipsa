@@ -35,7 +35,7 @@ When a story is implemented:
 | TECH-043 | Tests for `GlobalExceptionHandler` | Medium | 3 | Pending |
 | TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | Partially resolved — Testcontainers half settled by ADR-009 (`FlywayMigrationsTest`); WireMock half pending |
 | TECH-050 | Remove placeholder comments from handlers | Low | 1 | **Done** (2026-07-19, branch `refactor/remove-existing-code-comments`) |
-| TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Low | 1 | Pending |
+| TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Low | 1 | **Done** (2026-07-19, branch `refactor/rename-audit-mapper-response`) |
 | TECH-052 | `getRun()` returns `Optional<IngestionRun>` | Low | 1 | Pending |
 | TECH-053 | Make scheduler dispatch async | Medium | 2 | Pending |
 | TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Low | 2 | Pending |
@@ -668,20 +668,40 @@ lines removed). No Flyway migration; V1–V4 unchanged.
 **Type:** QA  
 **Priority:** Low  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** XS  
-**Branch:** `fix/cleanup-placeholder-comments` (same branch as TECH-050)
+**Branch:** `refactor/rename-audit-mapper-response` (kept separate from TECH-050 per
+explicit scope instructions, rather than the originally-listed shared
+`fix/cleanup-placeholder-comments` branch)
 
-**Evidence:** `IngestionAuditMapper.java:36`: method named `toAuditEventRequest` returns `AuditEventResponse`.
-
-**Dependencies:** None. Can be in the same branch as TECH-050.
+**Evidence (re-confirmed against `main` before renaming):**
+`IngestionAuditMapper.java:36`: `AuditTrailResponse.AuditEventResponse
+toAuditEventRequest(IngestionAudit entity)` — a MapStruct interface method whose input
+is the `IngestionAudit` entity and whose declared return type is
+`AuditTrailResponse.AuditEventResponse` (a record: `auditId`, `runId`, `requestSource`,
+`eventType`, `message`, `occurredAt`) — confirmed **not** equivalent to, and never
+returning, `AuditEventRequest` (an unrelated class in `application/command`, used only
+for logging audit events, never for reading them back). 4 internal callers, all method
+references in `AuditTrailService` (lines 65, 92, 108, 134) — no reflection, no
+string-based lookup, no external consumer (the interface lives in `api/mapper`, is
+Spring-managed via `@Mapper(componentModel = "spring")`, and MapStruct resolves its
+generated implementation by type signature, not by method name, so the rename does not
+affect code generation).
 
 **Acceptance Criteria:**
-- [ ] Method renamed to `toAuditEventResponse`.
-- [ ] All call sites updated.
-- [ ] `./mvnw clean verify` passes.
+- [x] Method renamed to `toAuditEventResponse`.
+- [x] All call sites updated (4 in `AuditTrailService`; class-level Javadoc corrected
+      too — it said "IngestionAudit → AuditEventRequest", meant `AuditEventResponse`).
+- [x] `./mvnw clean verify` passes.
 
-**Completed:** —
+**Completed:** 2026-07-19, branch `refactor/rename-audit-mapper-response`. No
+deprecated alias kept (internal mapper, no external consumer). Mapping behavior
+unchanged and now covered by `IngestionAuditMapperTest` (previously zero coverage —
+`AuditTrailService`, the mapper's only consumer, is always mocked in existing tests),
+written and first run against the pre-rename method name to pin the contract before
+renaming: all fields map correctly, `requestSource` converts to its enum name
+(null-safely), `occurredAt` converts to `OffsetDateTime` via `TimezoneUtil`. No Flyway
+migration; V1–V4 unchanged.
 
 ---
 

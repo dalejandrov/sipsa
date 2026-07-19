@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-051 — `IngestionAuditMapper.toAuditEventRequest()` renamed to
+  `toAuditEventResponse()`** to match its actual, unchanged return type
+  (`AuditTrailResponse.AuditEventResponse` — never the unrelated `AuditEventRequest`
+  class). Internal contract clarity only: the 4 call sites in `AuditTrailService` were
+  updated (method references, no reflection), MapStruct resolves its generated
+  implementation by type signature so the rename doesn't affect code generation, and no
+  deprecated alias was kept (internal `api/mapper` interface, no external consumer).
+  Field mapping is unchanged and now covered by a new `IngestionAuditMapperTest`
+  (previously zero coverage, since the mapper's only consumer is always mocked in
+  existing tests). Not a public API change; no Flyway migration; V1–V4 unchanged.
+
 - **TECH-050 — removed residual `// ...existing code...` placeholder comments** from
   the `catch` blocks of `CiudadIngestionHandler`, `SemanaIngestionHandler`,
   `AbasIngestionHandler` and `MesIngestionHandler`. Non-functional cleanup only: each
