@@ -10,6 +10,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-070 (C-01) — `SoapProperties` now validates all 9 fields at startup**,
+  early configuration validation only — no functional change to the SOAP client.
+  Previously only 4 fields were checked, imperatively, inside
+  `SipsaSoapClientConfig`'s `@Bean` factory method (after the property had already
+  bound); `maxRetries` and `retryBackoffMs` were never validated anywhere (a negative
+  retry count silently no-ops the retry loop, a negative backoff throws
+  `IllegalArgumentException` mid-retry), and neither was `namespace`, despite
+  `SoapGatewayImpl` using it verbatim to build every SOAP operation's `QName`. Now
+  `@Validated` + Jakarta constraints match exactly what the client already required:
+  `@NotBlank` on `endpoint`/`namespace`, `@Positive` on the two timeouts, `@Min(0)` on
+  `maxRetries`/`retryBackoffMs`/`loggingLimitBytes`/`maxChildElements` — the last two
+  deliberately not `@Positive`, since `0` is a real, documented value for both
+  ("unlimited" and "log nothing" respectively). No cross-field rules, no URL-format
+  regex (`@NotBlank` is what the client actually needs; a fragile validator risks
+  rejecting valid non-standard endpoints like the test suite's
+  `http://localhost:9999/mock`). `endpoint` stays unconditionally required — no real
+  "SOAP disabled" flag exists in this repository. Found and fixed along the way:
+  `docker-compose.yml` passed through **zero** `SOAP_*` variables, so shell overrides
+  silently had no effect in Docker; added passthrough for the six properties with an
+  established env var name. 16 new binding tests, previously zero coverage. Verified
+  in Docker: defaults, valid overrides (confirmed present inside the container), and
+  three invalid-value cases each produced `APPLICATION FAILED TO START` naming the
+  property. No Flyway migration; V1–V4 unchanged.
+
 - **TECH-031 — `SipsaHealthIndicator` staleness thresholds externalized**, no effective
   value changed. The indicator hardcoded `36` (hours, for the daily-window method
   group) and `35 * 24` (also compared in hours, for every other monitored method) —

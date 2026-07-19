@@ -46,18 +46,21 @@ Full architecture description: [`docs/adr/ADR-000-current-architecture.md`](docs
 
 ## Current Phase
 
-**Phase 1 — Foundation Cleanup** is the next phase to implement.
+**Phase 1 — Foundation Cleanup is done** (2026-07-19). **Phase 2 — Contract and
+Correctness** is next: TECH-021, TECH-022, TECH-023 close the HTTP error contract;
+TECH-053/TECH-054 remain unblocked but are not part of that immediate group. See the
+[implementation roadmap](docs/architecture/implementation-roadmap.md) for current
+phase status and the [technical backlog](docs/backlog/technical-backlog.md) for
+per-story evidence.
 
-All Phase 1 stories are ready: no blocked ADRs, no external decisions required.
-
-Start with the first unblocked story in Phase 1 from the backlog.
+Start with the first unblocked story in the current phase from the backlog.
 
 ---
 
 ## How to Pick a Story
 
 1. Open [`docs/backlog/technical-backlog.md`](docs/backlog/technical-backlog.md).
-2. Find the first story with `**Status:** Pending` in Phase 1.
+2. Find the first story with `**Status:** Pending` in the current phase (see [Current Phase](#current-phase) above).
 3. Check its `**Dependencies:**` — if None, it can start immediately.
 4. Check if there is a linked ADR — if `Proposed`, the ADR must be `Accepted` before implementation (not all stories require this; check the story).
 5. Confirm the branch name from `**Branch:**`.

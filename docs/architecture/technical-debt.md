@@ -39,7 +39,7 @@ Each item references a backlog story for implementation planning.
 | ID | Item | Priority | Impact | Complexity | Risk | Backlog |
 |---|---|---|---|---|---|---|
 | O-01 | No custom Micrometer metrics for ingestion | **Medium** | Cannot alert on duration, rejects, SOAP failures | M | Low | [TECH-032](../backlog/technical-backlog.md#tech-032) |
-| O-02 | `SipsaHealthIndicator` thresholds hardcoded | **Low** | Not configurable per environment | XS | Low | [TECH-031](../backlog/technical-backlog.md#tech-031) |
+| O-02 | ~~`SipsaHealthIndicator` thresholds hardcoded~~ **Resolved** (2026-07-19, TECH-031 — externalized to validated `SipsaHealthProperties`, canonical defaults `36h`/`840h` unchanged) | **Low** | Not configurable per environment | XS | Low | [TECH-031](../backlog/technical-backlog.md#tech-031) (Done) |
 | O-03 | No `requestId`/`instance` in error responses | **Low** | Difficult to correlate client errors with server logs | S | Low | [TECH-023](../backlog/technical-backlog.md#tech-023) |
 | O-04 | `GET /api/internal/ingestion/runs` unbounded | **Low** | Memory/performance issue at scale | S | Low | [TECH-054](../backlog/technical-backlog.md#tech-054) |
 
@@ -69,7 +69,7 @@ Each item references a backlog story for implementation planning.
 
 | ID | Item | Priority | Impact | Complexity | Risk | Backlog |
 |---|---|---|---|---|---|---|
-| C-01 | `SoapProperties` lacks Bean Validation constraints | **Low** | Configuration errors discovered at runtime | XS | Low | [TECH-070](../backlog/technical-backlog.md#tech-070) |
+| C-01 | ~~`SoapProperties` lacks Bean Validation constraints~~ **Resolved** (2026-07-19, TECH-070 — `@Validated` + Jakarta constraints on all 9 fields matching the SOAP client's real requirements; two previously-unchecked-anywhere fields closed, `maxRetries` and `retryBackoffMs`; startup aborts naming the property; `docker-compose.yml` `SOAP_*` passthrough added, previously absent) | **Low** | Configuration errors discovered at runtime | XS | Low | [TECH-070](../backlog/technical-backlog.md#tech-070) (Done) |
 | C-02 | ~~`batch-size` default mismatch: `@Value` (2000) vs `application.yaml` (500)~~ **Resolved** (2026-07-16, TECH-071 — all 5 handlers now inject the typed `IngestionProperties`; canonical default 500, startup validation 1..10,000, `INGESTION_BATCH_SIZE` override verified in Docker) | **Low** | Confusing to read; may surprise on fresh deploy without yaml | XS | Low | [TECH-071](../backlog/technical-backlog.md#tech-071) (Done) |
 | C-03 | ~~`monthly-window-start` default mismatch: `WindowPolicy` `@Value` fallback (06:00) vs `application.yaml` (14:00)~~ **Resolved** (2026-07-17, TECH-133 — typed `LocalTime` in `IngestionProperties`, canonical 14:00, HH:mm validated at startup, `INGESTION_MONTHLY_WINDOW_START` override verified in Docker; effective behavior unchanged) | **Low** | Misleading fallback promised a different window on yaml-less deploys | XS | Low | [TECH-133](../backlog/technical-backlog.md#tech-133) (Done) |
 | C-04 | ~~Reject-threshold binding duplicated: `IngestionJob` and `GenericIngestionJob` each re-declare `@Value` defaults for `sipsa.ingestion.max-reject-rate` / `max-reject-count`~~ **Resolved** (2026-07-19, TECH-135 — both thresholds bind once in `IngestionProperties` (rate validated as a fraction in [0..1], count ≥ 0, startup aborts on invalid values), jobs inject the typed properties, `MAX_REJECT_RATE`/`MAX_REJECT_COUNT` passthrough added to docker-compose and overrides verified in Docker; effective values 0.01/5000 and evaluation semantics unchanged) | **Low** | Same double-source antipattern fixed by TECH-071/TECH-133; a future edit can silently de-synchronize them | XS | Low | [TECH-135](../backlog/technical-backlog.md#tech-135) (Done) |
@@ -90,10 +90,10 @@ Each item references a backlog story for implementation planning.
 
 | ID | Item | Priority | Impact | Complexity | Risk | Backlog |
 |---|---|---|---|---|---|---|
-| Q-01 | `// ...existing code...` placeholder comments in 4 production files | **Low** | Misleading; indicates unfinished work | XS | Low | [TECH-050](../backlog/technical-backlog.md#tech-050) |
-| Q-02 | `toAuditEventRequest()` returns response type (naming error) | **Low** | Misleading; forces double-reading to understand intent | XS | Low | [TECH-051](../backlog/technical-backlog.md#tech-051) |
-| Q-03 | `IngestionControlService.getRun()` returns nullable `IngestionRun` | **Low** | Breaks Optional contract; callers do null checks | XS | Low | [TECH-052](../backlog/technical-backlog.md#tech-052) |
-| Q-04 | `@RequestMapping` without leading `/` on 2 controllers | **Bug** | Inconsistent; potentially broken with strict proxies | XS | Low | [TECH-020](../backlog/technical-backlog.md#tech-020) |
+| Q-01 | ~~`// ...existing code...` placeholder comments in 4 production files~~ **Resolved** (2026-07-19, TECH-050 — one line removed per file, zero logic changes) | **Low** | Misleading; indicates unfinished work | XS | Low | [TECH-050](../backlog/technical-backlog.md#tech-050) (Done) |
+| Q-02 | ~~`toAuditEventRequest()` returns response type (naming error)~~ **Resolved** (2026-07-19, TECH-051 — renamed to `toAuditEventResponse()`, 4 callers updated) | **Low** | Misleading; forces double-reading to understand intent | XS | Low | [TECH-051](../backlog/technical-backlog.md#tech-051) (Done) |
+| Q-03 | ~~`IngestionControlService.getRun()` returns nullable `IngestionRun`~~ **Resolved** (2026-07-19, TECH-052 — returns `Optional<IngestionRun>`, propagating the repository's own `Optional`) | **Low** | Breaks Optional contract; callers do null checks | XS | Low | [TECH-052](../backlog/technical-backlog.md#tech-052) (Done) |
+| Q-04 | ~~`@RequestMapping` without leading `/` on 2 controllers~~ **Resolved** (2026-07-19, TECH-020 — declared-contract normalization; effective routes were unaffected by Spring MVC's own normalization) | **Bug** | Inconsistent; potentially broken with strict proxies | XS | Low | [TECH-020](../backlog/technical-backlog.md#tech-020) (Done) |
 | Q-05 | ~~`@Async` in `IngestionAuditService.logEvent()` uses default executor~~ **Resolved** (2026-07-19, TECH-136 — `@Async("ingestionTaskExecutor")`, verified free of `SimpleAsyncTaskExecutor` and the ambiguous-resolution warning; TECH-030 was the original story for this finding, closed by the same implementation) | **Low** | Unmanaged threads (SimpleAsyncTaskExecutor) instead of pool | XS | Low | [TECH-030](../backlog/technical-backlog.md#tech-030) / [TECH-136](../backlog/technical-backlog.md#tech-136) (Done) |
 | Q-06 | `AuditTrailService.queryAuditEvents()` builds its own `Pageable` | **Low** | Ignores `PaginationConfig`; inconsistent with all other services | XS | Low | Not in active backlog; natural companion of [TECH-054](../backlog/technical-backlog.md#tech-054) (pagination) when that story runs |
 
@@ -113,31 +113,28 @@ Each item references a backlog story for implementation planning.
 | Code Quality | — | — | — | 6 | 6 |
 | **Total** | **2** | **4** | **7** | **15** | **28** |
 
-**Status note (reconciled 2026-07-19 against `main`):** of the 28 registered items,
-**10 are resolved**: T-01, T-06 (closed by TECH-110/TECH-040); S-01, S-02 (closed by
+**Status note (updated 2026-07-19 against `main`):** of the 28 registered items,
+**16 are resolved**: T-01, T-06 (closed by TECH-110/TECH-040); S-01, S-02 (closed by
 TECH-001/TECH-002/ADR-002 on 2026-07-15, application layer merged via PR #17 and
 e2e-validated against the mock OIDC issuer; the AWS gateway/network layers remain
 tracked as TECH-130..132); PS-01 (closed by TECH-010/TECH-011/ADR-001 on 2026-07-16);
-C-02, C-03, C-04, C-05 (closed by TECH-071/TECH-133/TECH-135/TECH-136, all 2026-07-16
-through 2026-07-19 — see [technical backlog](../backlog/technical-backlog.md) for each);
-Q-05 (closed by TECH-136 on 2026-07-19, resolving the original TECH-030 finding).
-**1 is partially resolved / re-scoped** (A-01 — closed for the 3 internal commands by
-TECH-090; the residual imports are accepted by ADR-007). Items are annotated in place
-rather than deleted, so the registry remains the full historical record.
+C-01, C-02, C-03, C-04, C-05 (closed by TECH-070/TECH-071/TECH-133/TECH-135/TECH-136,
+2026-07-16 through 2026-07-19 — see [technical backlog](../backlog/technical-backlog.md)
+for each); O-02 (closed by TECH-031, 2026-07-19); Q-01, Q-02, Q-03, Q-04, Q-05 (closed
+by TECH-050, TECH-051, TECH-052, TECH-020, and TECH-136 respectively — the last one
+resolving the original TECH-030 finding — all 2026-07-19). **1 is partially resolved /
+re-scoped** (A-01 — closed for the 3 internal commands by TECH-090; the residual
+imports are accepted by ADR-007). Items are annotated in place rather than deleted, so
+the registry remains the full historical record.
 
 Of the remaining items, the following were **code-verified still open against `main`**
-on 2026-07-19 (exact code citations in the corresponding backlog story): C-01/TECH-070
-(`SoapProperties` still has no `@Validated`/constraint annotations), O-01/TECH-032 (zero
-Micrometer/`MeterRegistry` usage in `src/main/java`), O-02/TECH-031
-(`SipsaHealthIndicator` thresholds still hardcoded literals), O-03/TECH-023
+on 2026-07-19 (exact code citations in the corresponding backlog story): O-01/TECH-032
+(zero Micrometer/`MeterRegistry` usage in `src/main/java`), O-03/TECH-023
 (`ErrorResponse` still 5 fields, no `requestId`/`instance`), A-03/TECH-021
 (`SipsaParseException` still maps to 400), A-04/TECH-022 (not-found still throws
 `SipsaBusinessException` → 422, no `SipsaNotFoundException` class exists), P-01/TECH-060
 (`upsertFallbackBatch` still one query per item — same pattern also present in the
-Mensual and Abastecimientos repositories), Q-01/TECH-050 (`// ...existing code...` still
-present in exactly 4 handler files), Q-02/TECH-051 (`toAuditEventRequest` still named
-that, still returns a response DTO), Q-03/TECH-052 (`getRun()` still returns nullable),
-Q-04/TECH-020 (both controllers still missing the leading `/`), and T-04/TECH-043 (no
+Mensual and Abastecimientos repositories), and T-04/TECH-043 (no
 `GlobalExceptionHandler` test file exists). O-04/TECH-054, P-02/TECH-053, A-02/TECH-055
 and T-02/T-03 (TECH-041/042) were **not re-verified this cycle** — no evidence
 contradicts their existing "pending" classification, but no fresh code citation was

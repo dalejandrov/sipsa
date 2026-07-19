@@ -41,7 +41,7 @@ When a story is implemented:
 | TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Low | 2 | Pending |
 | TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | Low | 6 | Pending |
 | TECH-060 | Fix N+1 in `upsertFallbackBatch` | Medium | 4 | Pending |
-| TECH-070 | Bean Validation on `SoapProperties` | Low | 1 | Pending |
+| TECH-070 | Bean Validation on `SoapProperties` | Low | 1 | **Done** (2026-07-19, branch `refactor/validate-soap-properties`) |
 | TECH-071 | Align `batch-size` defaults | Low | 1 | **Done** (2026-07-16 — single typed source of truth, canonical 500) |
 | TECH-080 | Write ADR-002 (security) | Low | 6 | **Done** |
 | TECH-081 | Write ADR-001 (deduplication) | Low | 6 | **Done** (2026-07-16 — ADR-001 Accepted with empirical evidence) |
@@ -887,20 +887,66 @@ each record in the batch, producing N database queries for N records.
 **Type:** Config  
 **Priority:** Low  
 **Phase:** 1  
-**Status:** Pending  
+**Status:** **Done**  
 **Complexity:** XS  
-**Branch:** `refactor/config-validation`
+**Branch:** `refactor/validate-soap-properties` (the originally-listed
+`refactor/config-validation` name was not reused)
 
-**Evidence:** `SoapProperties.java`: no `@Validated`, no field-level constraints.
+**Evidence (re-confirmed against `main` before changing anything):** `SoapProperties.java`
+had no `@Validated`, no field-level constraints on any of its 9 fields. Only 4 were
+checked at all — imperatively, inside `SipsaSoapClientConfig`'s `@Bean` factory method,
+i.e. *after* the property had already bound: `endpoint` non-null, `connectTimeoutMs`/
+`readTimeoutMs >= 1`, `loggingLimitBytes`/`maxChildElements >= 0`. `maxRetries` and
+`retryBackoffMs` were never validated anywhere — a negative retry count silently
+degrades the retry loop into a no-op, and a negative backoff multiplies out to a
+negative sleep duration that throws `IllegalArgumentException` inside
+`SoapStreamingClient`'s retry loop. `namespace` was never validated either, despite
+`SoapGatewayImpl` using it verbatim to build every SOAP operation's `QName`.
 
 **Dependencies:** None.
 
 **Acceptance Criteria:**
-- [ ] `SoapProperties` is annotated with `@Validated`.
-- [ ] Critical fields (`endpoint`, `connectTimeoutMs`, `readTimeoutMs`) have `@NotBlank` / `@Min(1)`.
-- [ ] The manual validation in `SipsaSoapClientConfig.validateConfiguration()` is removed or reduced.
-- [ ] Application fails at startup with a clear error when configuration is invalid.
-- [ ] `./mvnw clean verify` passes.
+- [x] `SoapProperties` is annotated with `@Validated`.
+- [x] Critical fields have constraints matching the client's real requirements:
+      `@NotBlank` on `endpoint`/`namespace`, `@Positive` (strictly `> 0`, matching the
+      prior manual check) on `connectTimeoutMs`/`readTimeoutMs`, `@Min(0)` on
+      `maxRetries`/`retryBackoffMs`/`loggingLimitBytes`/`maxChildElements` (`0` is a
+      real, documented value for the last two — "unlimited" and "log nothing"
+      respectively — not "disabled", so `@Positive` would have been wrong).
+- [ ] **Deliberately not done:** removing/reducing `SipsaSoapClientConfig
+      .validateConfiguration()`. This session's explicit scope excluded the SOAP client
+      configuration class; the four manual checks there are now unreachable in practice
+      (binding-time `@Validated` fails first) but were left in place rather than risk
+      touching client-construction code. Registered as a small follow-up if a future
+      story wants that class simplified.
+- [x] Application fails at startup with a clear error naming the property when
+      configuration is invalid (verified for all 9 fields, unit-level and in Docker).
+- [x] `./mvnw clean verify` passes.
+
+**Completed:** 2026-07-19, branch `refactor/validate-soap-properties`. No cross-field
+rules added (no real relationship between these fields in the code); no URL-format
+regex on `endpoint` (`@NotBlank` is what the client actually requires — a fragile
+format validator risks rejecting valid non-standard endpoints, e.g. the
+`http://localhost:9999/mock` test fixture); `endpoint` stays unconditionally required
+(no real "SOAP disabled" flag exists in this repository to gate it on). 16 new binding
+tests (`SoapPropertiesTest`) — previously zero coverage. `./mvnw test` run before any
+change confirmed every existing test fixture (`src/test/resources/application.yaml`)
+already had valid values for all 9 fields; no fixture needed correcting. Found and
+fixed along the way: `docker-compose.yml` passed through **zero** `SOAP_*` variables,
+so shell overrides silently had no effect in Docker — added passthrough for the six
+properties with an established env var name (`namespace` stays a fixed WSDL-contract
+literal; `logging-limit-bytes` has no established env var and stays out of scope).
+Verified in Docker: default startup, valid overrides (env vars confirmed present
+inside the container), and three invalid-value cases (`connect-timeout-ms=0` →
+`must be > 0`, `max-retries=-1` → `must be >= 0`, `read-timeout-ms=not-a-number` →
+binding failure naming the property) each produced `APPLICATION FAILED TO START`;
+defaults restored after. A genuinely blank `SOAP_ENDPOINT` could not be exercised
+through Docker Compose specifically — its `${VAR:-default}` substitution treats an
+empty override as unset and falls back to the default, the same behavior every other
+env var in this file already has — so the blank-string constraint is proven at the
+Spring-binding unit level (`SoapPropertiesTest.blankEndpointFails`) instead. Presented
+as early configuration validation only — no functional change to the SOAP client
+itself. No Flyway migration; V1–V4 unchanged.
 
 **Completed:** —
 

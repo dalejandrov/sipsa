@@ -89,6 +89,21 @@ services:
       # 840h = 35 days monthly). Must be positive; invalid values abort startup.
       - SIPSA_HEALTH_DAILY_STALENESS_THRESHOLD=${SIPSA_HEALTH_DAILY_STALENESS_THRESHOLD:-36h}
       - SIPSA_HEALTH_MONTHLY_STALENESS_THRESHOLD=${SIPSA_HEALTH_MONTHLY_STALENESS_THRESHOLD:-840h}
+      # SOAP client configuration (TECH-070): SoapProperties now validates every
+      # value below at startup (endpoint/namespace non-blank, timeouts > 0,
+      # retry/logging/XML-limit counters >= 0 — 0 is a real value for
+      # max-child-elements [unlimited] and logging-limit-bytes [nothing
+      # logged], not "disabled"). namespace and logging-limit-bytes have no
+      # env var here: namespace is a fixed WSDL-contract literal that never
+      # varies per environment, and logging-limit-bytes only matters when
+      # logging-enabled=true (dev/debug only).
+      - SOAP_ENDPOINT=${SOAP_ENDPOINT:-https://appweb.dane.gov.co/sipsaWS/SrvSipsaUpraBeanService}
+      - SOAP_CONNECT_TIMEOUT_MS=${SOAP_CONNECT_TIMEOUT_MS:-30000}
+      - SOAP_READ_TIMEOUT_MS=${SOAP_READ_TIMEOUT_MS:-3600000}
+      - SOAP_MAX_RETRIES=${SOAP_MAX_RETRIES:-3}
+      - SOAP_RETRY_BACKOFF_MS=${SOAP_RETRY_BACKOFF_MS:-2000}
+      - SOAP_MAX_CHILD_ELEMENTS=${SOAP_MAX_CHILD_ELEMENTS:-0}
+      - SOAP_LOGGING_ENABLED=${SOAP_LOGGING_ENABLED:-false}
     depends_on:
       db:
         condition: service_healthy
