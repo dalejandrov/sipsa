@@ -19,6 +19,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -139,6 +140,41 @@ class ParcialConcurrentDedupTest {
         }
     }
 
+    /** Outcome of a deterministic winner-vs-loser race between two {@code batchUpsert} calls. */
+    private record RaceOutcome(SipsaParcialRepository.UpsertMetrics winner, Object loser) {}
+
+    /**
+     * Runs the deterministic race: the winner inserts its batch and holds the transaction
+     * open; the loser starts only once the winner's rows are in-flight (so its dedup
+     * lookup cannot see them) and blocks inside PostgreSQL on the unique index; the
+     * winner commits once it observes the blocked backend. The loser's outcome is its
+     * metrics, or the {@link Throwable} it died with.
+     */
+    private RaceOutcome race(List<SipsaParcial> winnerBatch, List<SipsaParcial> loserBatch)
+            throws Exception {
+        CountDownLatch winnerInsertedUncommitted = new CountDownLatch(1);
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+
+        Future<SipsaParcialRepository.UpsertMetrics> winner = executor.submit(() ->
+                tx.execute(status -> {
+                    var metrics = repository.batchUpsert(winnerBatch);
+                    winnerInsertedUncommitted.countDown();
+                    waitUntilABackendBlocksOnALock();
+                    return metrics;
+                }));
+
+        Future<Object> loser = executor.submit(() -> {
+            assertThat(winnerInsertedUncommitted.await(20, TimeUnit.SECONDS)).isTrue();
+            try {
+                return repository.batchUpsert(loserBatch);
+            } catch (Throwable t) {
+                return t;
+            }
+        });
+
+        return new RaceOutcome(winner.get(30, TimeUnit.SECONDS), loser.get(30, TimeUnit.SECONDS));
+    }
+
     @Test
     @DisplayName("batchUpsert race with partial overlap: loser must not fail and must keep its non-conflicting rows")
     void batchUpsertRace_overlappingBatches() throws Exception {
@@ -149,32 +185,11 @@ class ParcialConcurrentDedupTest {
         SipsaParcial c = named("76001", fecha);
         SipsaParcial d = named("08001", fecha);
 
-        CountDownLatch winnerInsertedUncommitted = new CountDownLatch(1);
-        TransactionTemplate tx = new TransactionTemplate(txManager);
-
-        // Winner: insert {A,B,C}, hold the transaction open until the loser is observed
-        // blocked on the in-flight unique index entry, then commit.
-        Future<SipsaParcialRepository.UpsertMetrics> winner = executor.submit(() ->
-                tx.execute(status -> {
-                    var metrics = repository.batchUpsert(List.of(copy(a), copy(b), copy(c)));
-                    winnerInsertedUncommitted.countDown();
-                    waitUntilABackendBlocksOnALock();
-                    return metrics;
-                }));
-
-        // Loser: waits until the winner's rows are in-flight (inserted, uncommitted), so its
-        // dedup lookup cannot see them; its insert then blocks until the winner commits.
-        Future<Object> loser = executor.submit(() -> {
-            assertThat(winnerInsertedUncommitted.await(20, TimeUnit.SECONDS)).isTrue();
-            try {
-                return repository.batchUpsert(List.of(copy(b), copy(c), copy(d)));
-            } catch (Throwable t) {
-                return t;
-            }
-        });
-
-        var winnerMetrics = winner.get(30, TimeUnit.SECONDS);
-        Object loserOutcome = loser.get(30, TimeUnit.SECONDS);
+        RaceOutcome outcome = race(
+                List.of(copy(a), copy(b), copy(c)),
+                List.of(copy(b), copy(c), copy(d)));
+        var winnerMetrics = outcome.winner();
+        Object loserOutcome = outcome.loser();
 
         assertThat(winnerMetrics.inserted()).as("winner inserted its whole batch").isEqualTo(3);
         assertThat(winnerMetrics.skipped()).isZero();
@@ -200,6 +215,102 @@ class ParcialConcurrentDedupTest {
         var after = repository.batchUpsert(List.of(named("13001", fecha)));
         assertThat(after.inserted()).isEqualTo(1);
         assertThat(after.skipped()).isZero();
+    }
+
+    @Test
+    @DisplayName("single-key race: winner inserted=1/skipped=0, loser inserted=0/skipped=1, one row, no failure")
+    void singleKeyRace() throws Exception {
+        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        SipsaParcial k = named("05001", fecha);
+
+        RaceOutcome outcome = race(List.of(copy(k)), List.of(copy(k)));
+
+        assertThat(outcome.winner().inserted()).isEqualTo(1);
+        assertThat(outcome.winner().skipped()).isZero();
+        assertThat(outcome.loser()).isInstanceOf(SipsaParcialRepository.UpsertMetrics.class);
+        var loserMetrics = (SipsaParcialRepository.UpsertMetrics) outcome.loser();
+        assertThat(loserMetrics.inserted()).isZero();
+        assertThat(loserMetrics.skipped()).isEqualTo(1);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sipsa_parcial WHERE key_hash = ?", Long.class, k.getKeyHash()))
+                .as("exactly one copy of the racing key").isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("identical-batch race: N rows, N inserted + N skipped in total, both sides complete")
+    void identicalBatchRace() throws Exception {
+        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        List<String> munis = List.of("05001", "08001", "11001", "76001", "13001");
+        List<SipsaParcial> winnerBatch = munis.stream().map(m -> named(m, fecha)).toList();
+        List<SipsaParcial> loserBatch = munis.stream().map(m -> named(m, fecha)).toList();
+
+        RaceOutcome outcome = race(winnerBatch, loserBatch);
+
+        assertThat(outcome.winner().inserted()).isEqualTo(5);
+        assertThat(outcome.winner().skipped()).isZero();
+        assertThat(outcome.loser()).isInstanceOf(SipsaParcialRepository.UpsertMetrics.class);
+        var loserMetrics = (SipsaParcialRepository.UpsertMetrics) outcome.loser();
+        assertThat(loserMetrics.inserted()).as("every key already taken by the winner").isZero();
+        assertThat(loserMetrics.skipped()).isEqualTo(5);
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sipsa_parcial", Long.class))
+                .isEqualTo(5L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM (SELECT key_hash FROM sipsa_parcial GROUP BY key_hash HAVING COUNT(*) > 1) dup",
+                Long.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("retry after the race: re-running the same batch skips everything and succeeds")
+    void retryAfterRace_allSkip() throws Exception {
+        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        SipsaParcial k = named("05001", fecha);
+        race(List.of(copy(k)), List.of(copy(k)));
+
+        // The retry sees the committed row through the normal dedup lookup — no conflict,
+        // no exception, pure skip.
+        var retry = repository.batchUpsert(List.of(copy(k)));
+        assertThat(retry.inserted()).isZero();
+        assertThat(retry.skipped()).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sipsa_parcial WHERE key_hash = ?", Long.class, k.getKeyHash()))
+                .isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("intra-batch duplicate is not double-counted: inserted + skipped == batch size")
+    void intraBatchDuplicateNotDoubleCounted() {
+        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        SipsaParcial k = named("05001", fecha);
+
+        var metrics = repository.batchUpsert(List.of(copy(k), copy(k), named("08001", fecha)));
+
+        assertThat(metrics.inserted()).isEqualTo(2);
+        assertThat(metrics.skipped()).as("the intra-batch duplicate counts once as skipped").isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sipsa_parcial", Long.class)).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("legacy UUID row on real PostgreSQL: equivalent new record skips without touching the stored row")
+    void legacyUuidRowStillDeduplicates() {
+        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        long legacyRunId = runId;
+        jdbc.update("""
+                INSERT INTO sipsa_parcial
+                    (key_hash, muni_id, fuen_id, futi_id, id_arti_semana, enma_fecha, ingestion_run_id)
+                VALUES ('7d0e8400-e29b-41d4-a716-446655440000', '05001', 10, 2, 101, ?, ?)""",
+                Timestamp.from(fecha), legacyRunId);
+
+        var metrics = repository.batchUpsert(List.of(named("05001", fecha)));
+
+        assertThat(metrics.inserted()).as("legacy natural key detected by recomputed hash").isZero();
+        assertThat(metrics.skipped()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sipsa_parcial", Long.class)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT key_hash FROM sipsa_parcial", String.class))
+                .as("stored legacy row untouched — UUID hash and original run preserved")
+                .isEqualTo("7d0e8400-e29b-41d4-a716-446655440000");
     }
 
     /**
