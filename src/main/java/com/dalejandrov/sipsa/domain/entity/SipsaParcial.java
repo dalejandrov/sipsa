@@ -90,16 +90,22 @@ public class SipsaParcial {
     private Instant enmaFecha;
 
 
+    /* Price columns: precision/scale mirror the versioned DDL (V1: NUMERIC(19,2)),
+     * which is the storage contract — DANE's XSD declares plain xs:decimal with no
+     * bound (TECH-118). Hibernate's ddl-auto=validate does not compare precision, so
+     * the annotation is documentation plus generated-schema metadata (H2 unit tests);
+     * it must never drift from the DDL again. */
+
     /** Average price per kilogram */
-    @Column(name = "promedio_kg", precision = 15, scale = 2)
+    @Column(name = "promedio_kg", precision = 19, scale = 2)
     private BigDecimal promedioKg;
 
     /** Maximum price per kilogram */
-    @Column(name = "maximo_kg", precision = 15, scale = 2)
+    @Column(name = "maximo_kg", precision = 19, scale = 2)
     private BigDecimal maximoKg;
 
     /** Minimum price per kilogram */
-    @Column(name = "minimo_kg", precision = 15, scale = 2)
+    @Column(name = "minimo_kg", precision = 19, scale = 2)
     private BigDecimal minimoKg;
 
     /** Timestamp of last update in this system */

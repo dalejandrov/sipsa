@@ -62,13 +62,14 @@ When a story is implemented:
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
 | TECH-116 | Disable `baseline-on-migrate` after per-environment Flyway history inventory | Low | — | Pending |
 | TECH-117 | Handle concurrent `SipsaParcial` duplicate insertion safely | Medium | — | **Done** (2026-07-19, branch `fix/sipsa-parcial-concurrent-dedup` — atomic `ON CONFLICT (key_hash) DO NOTHING`, collisions counted as skipped) |
-| TECH-118 | Align `SipsaParcial` decimal precision (JPA 15,2 vs DDL 19,2) | Low | — | Pending |
+| TECH-118 | Align `SipsaParcial` decimal precision (JPA 15,2 vs DDL 19,2) | Low | — | **Done** (2026-07-19, branch `fix/align-sipsa-parcial-decimal-precision` — annotation aligned to `19,2`, no migration) |
 | TECH-119 | Remove redundant `idx_sipsa_parcial_key_hash` index | Low | — | **Done** (2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`, migration V3) |
 | TECH-122 | Harden `SipsaParcial` natural-key constraints (NOT NULL / natural unique) | Low | — | Pending (contract phase; gated on TECH-012 external half) |
 | TECH-123 | Add `first_seen_at`/`last_seen_at` republication traceability | Low | — | Optional — not recommended now (write cost; see story) |
 | TECH-124 | Optimize `SipsaParcial` article-filter queries | Low | — | **Done** (2026-07-18, branch `perf/sipsa-parcial-article-filter-index`, migration V4 — covering index; count 18 ms → ~2 ms) |
 | TECH-125 | Define `SipsaParcial`/ingestion data retention policy | Low | — | Pending decision |
 | TECH-133 | Centralize and validate monthly ingestion window configuration | Low | — | **Done** (2026-07-17 — typed `monthlyWindowStart`, divergent `06:00` fallback removed, effective 14:00 unchanged) |
+| TECH-134 | Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`) | Low | — | Proposed (origin: TECH-118 comparative analysis) |
 
 ---
 
@@ -1978,12 +1979,62 @@ equivalent) remains a separate prerequisite for horizontal scaling.
 **Title:** Align `SipsaParcial` decimal precision (JPA `precision=15,2` vs DDL `NUMERIC(19,2)`)
 **Type:** Config
 **Priority:** Low
-**Status:** Pending
+**Status:** **Done**
+**Branch:** `fix/align-sipsa-parcial-decimal-precision`
 **Origin:** TECH-011 schema review. Hibernate `validate` does not compare precision, so
 nothing fails; real data observed (676,210 rows) ranges 230.00–22,000.00 with ≤2 decimals
 — both definitions are far above the real range, no truncation risk. Cosmetic drift only:
 pick one source of truth (recommend annotating the entity to match the DDL, `19,2`) for
 all three price columns. XSD declares plain `xs:decimal` (no bound).
+
+**Diagnosis (2026-07-19, full pipeline):** XSD `xs:decimal` unbounded + `minOccurs=0`
+→ parser `XmlParsingUtil.parseDecimal` = `new BigDecimal(String)` (exact, no `double`
+anywhere) → `SipsaParcialRecord`/`SipsaParcialResponse` are `BigDecimal` → DDL
+`NUMERIC(19,2)` (V1, versioned, carrying data). Source-of-truth ranking: XSD sets no
+bound → the versioned DDL is the storage contract; the JPA annotation was the odd one
+out. Real data (677,061 rows): 0.00–22,000.00, stored scale always 2 (the column typmod
+coerces), 10,427 zeros, no negatives, no nulls. Note the observed range does NOT prove
+future values stay small — that is exactly why the entity was raised to the DDL's 19,2
+instead of shrinking the column to 15,2.
+
+**Resolution:** entity annotation aligned to `precision=19, scale=2` (matching
+`MayoristasMensual`/`Abastecimientos`); **no Flyway migration — V1/V2/V3/V4 unchanged**.
+No `@Digits` added: values come exclusively from DANE ingestion (no write API), the
+parser is the validation point, and a cap could reject contract-valid `xs:decimal`
+input. Scale > 2 at the DB boundary is *defined* behavior now: `NUMERIC(19,2)` rounds
+half-away-from-zero on insert, pinned by `ParcialDecimalPrecisionTest`
+(`123.456 → 123.46`, `-123.455 → -123.46`) with the parser preserving the raw value
+exactly until that point (`XmlParsingUtilDecimalTest`). JSON contract unchanged:
+Jackson serializes the stored `BigDecimal` exactly (`22000.00`, unquoted) — scale is a
+data property, not monetary formatting.
+
+**Out-of-scope findings (recorded, not fixed here):**
+- Same `15,2`-vs-`NUMERIC(19,2)` drift in `SipsaCiudad` (`precioPromedio`, `enviado`)
+  and `SipsaMayoristasSemanal` (`minimoKg`, `maximoKg`, `promedioKg`, `enviado`) —
+  follow-up story below (TECH-134 proposal).
+- No non-negativity CHECK on any price column; DANE has never sent negatives (677K
+  rows), the parser passes signs through. Constraint decision belongs with TECH-122's
+  contract phase if ever needed.
+
+**Completed:** 2026-07-19. Tests: parser exactness (6 unit cases) + real-PostgreSQL
+boundary matrix (observed min/max, zero, null, `9999999999999.99` = DECIMAL(15,2) edge,
+`99999999999999999.99` = fits only 19,2, rounding pins, JSON exactness), with
+`ddl-auto=validate` booting against the untouched V1→V4 schema.
+
+---
+
+### TECH-134
+
+**Title:** Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`)
+**Type:** Config
+**Priority:** Low
+**Status:** Proposed (origin: TECH-118 comparative analysis, 2026-07-19)
+**Scope:** `SipsaCiudad.precioPromedio/enviado` and
+`SipsaMayoristasSemanal.minimoKg/maximoKg/promedioKg/enviado` declare
+`precision=15, scale=2` against `NUMERIC(19,2)` columns — the exact drift TECH-118
+closed for Parcial. Same expected resolution (annotation → `19,2`, no migration), plus
+a boundary test per dataset. Kept out of TECH-118 deliberately (its scope was Parcial;
+these entities had no story-driven test coverage to piggyback on).
 
 **Completed:** —
 

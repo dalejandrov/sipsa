@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **TECH-118 — `SipsaParcial` decimal precision aligned with PostgreSQL.** The three
+  price columns (`promedioKg`, `maximoKg`, `minimoKg`) declared `precision=15, scale=2`
+  in JPA while the versioned DDL has been `NUMERIC(19,2)` since V1. Source of truth:
+  the DDL — DANE's XSD declares the fields as unbounded `xs:decimal` (`minOccurs=0`),
+  so no external contract backs 15 digits, and real data (677,061 rows: 0.00–22,000.00,
+  scale ≤ 2, no negatives, no nulls) fits either bound. The annotation now mirrors the
+  DDL (`19,2`), as `MayoristasMensual`/`Abastecimientos` already did. **Declarative
+  drift only — no migration (V1–V4 unchanged), no behavior change:** Hibernate's
+  `ddl-auto=validate` never compared precision, the parser is exact
+  (`new BigDecimal(String)`, no `double` anywhere in the pipeline), and Jackson keeps
+  serializing stored values exactly (`22000.00` — JSON stays a number; scale is data,
+  not monetary formatting). Newly pinned by tests: values that fit `NUMERIC(19,2)` but
+  not `DECIMAL(15,2)` round-trip exactly, and scale > 2 input is coerced by the column
+  with **explicit, documented half-away-from-zero rounding** (`123.456 → 123.46`) —
+  previously this coercion existed but was undocumented. No `@Digits` added: values
+  come exclusively from DANE ingestion (no write API) and the XSD is unbounded, so a
+  bean-validation cap could reject contract-valid data. Out-of-scope findings recorded:
+  the same `15,2` drift exists in `SipsaCiudad` and `SipsaMayoristasSemanal` (follow-up
+  story), and price columns carry no non-negativity CHECK constraint.
+
 - **TECH-117 — concurrent `SipsaParcial` ingestions no longer fail on duplicate keys.**
   Two executions processing the same publication could both pass the dedup lookup
   (READ COMMITTED) and both insert the same `key_hash`; the loser died on the
