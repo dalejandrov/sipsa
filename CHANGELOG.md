@@ -10,6 +10,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-136 (C-05) — async executor configuration centralized and audit executor made
+  explicit.** `AsyncConfig` no longer re-declares `@Value` defaults for
+  `sipsa.ingestion.async.*` — the pool geometry binds once in the new validated
+  `AsyncExecutorProperties` (core ≥ 1, max ≥ 1 **and ≥ core** via cross-field check,
+  queue ≥ 0 — `0` documented as direct handoff, keep-alive ≥ 0 s; invalid values abort
+  startup naming the property; resolved geometry logged once). The operational contract
+  is unchanged: same prefix, same `SIPSA_ASYNC_*` env vars (now passed through by
+  `docker-compose.yml`), same bean (`ingestionTaskExecutor`), thread prefix
+  (`ingestion-async-`), `CallerRunsPolicy`, core-thread timeout and canonical
+  `2/10/25/60s` — no tuning. **Fixed alongside:** `IngestionAuditService.logEvent`
+  carried a bare `@Async` in a context with two `TaskExecutor` beans (the scheduler
+  also implements `TaskExecutor`), so Spring logged `More than one TaskExecutor bean
+  found` and ran audit events on ad-hoc `SimpleAsyncTaskExecutor` threads (finding from
+  the 2026-07-19 CI investigation). The executor is now explicit —
+  `@Async("ingestionTaskExecutor")` — so audit events always run on the managed pool;
+  still asynchronous, still `REQUIRES_NEW`, still append-only. Evidence-backed: a
+  resolution test pins the `ingestion-async-*` insert thread and the absence of the
+  warning and of `SimpleAsyncTaskExecutor` from captured output; a deterministic
+  latch-based saturation test preserves the CallerRunsPolicy behavior; 12 binding
+  cases cover defaults/overrides/boundaries/aborts; the TECH-117 concurrent ingestion
+  test stayed green across 50 repetitions. Findings recorded for follow-up (not
+  changed here): the executor keeps framework-default shutdown behavior
+  (`waitForTasksToCompleteOnShutdown=false` — in-flight audit tasks may be dropped at
+  shutdown) and no `TaskDecorator`/MDC propagation exists (audit correlation travels in
+  the event payload, not the logging context).
+
 - **TECH-135 (C-04) — ingestion rejection thresholds centralized into a single source
   of truth** (`IngestionProperties`, bound to `sipsa.ingestion.max-reject-rate` /
   `max-reject-count`). `IngestionJob` and `GenericIngestionJob` no longer carry
