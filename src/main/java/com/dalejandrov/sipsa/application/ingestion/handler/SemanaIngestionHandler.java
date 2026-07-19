@@ -99,7 +99,6 @@ public class SemanaIngestionHandler implements IngestionHandler {
             log.info("SOAP method '{}' completed successfully. Total records obtained: {}, Rejected: {}",
                      getMethodName(), context.getRecordsSeen(), context.getRejectCount());
         } catch (Exception e) {
-            // ...existing code...
             log.warn("Error during ingestion, attempting to save partial progress. Processed {} records so far",
                     context.getRecordsSeen());
             try {
