@@ -8,6 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **TECH-117 — concurrent `SipsaParcial` ingestions no longer fail on duplicate keys.**
+  Two executions processing the same publication could both pass the dedup lookup
+  (READ COMMITTED) and both insert the same `key_hash`; the loser died on the
+  unique-violation at flush, its whole batch rolled back (losing even non-conflicting
+  rows) and the run ended `FAILED`. The insert step of `batchUpsert` is now an atomic
+  `INSERT … ON CONFLICT (key_hash) DO NOTHING` executed as a single JDBC batch in a
+  dedicated repository fragment (`SipsaParcialBatchInsertRepositoryImpl` — no SQL in
+  handlers or the application layer): a lost race resolves inside PostgreSQL to a
+  per-row "not inserted" outcome counted as **skipped**, the transaction stays valid,
+  non-conflicting rows persist, and both runs end `SUCCEEDED` with coherent metrics
+  (`seen = inserted + skipped + rejected` per execution). The dedup lookups (hash +
+  legacy-UUID recompute) are preserved as the read-avoidance optimization, the
+  `UNIQUE (key_hash)` constraint remains the integrity barrier, and generated IDs are
+  deliberately not fetched (ingestion discards entities after each flush). No schema
+  change, no new migration; `ON CONFLICT` targets only `key_hash`, never the natural
+  key (TECH-122 pending). Deterministic Testcontainers races (uncommitted-insert hold +
+  `pg_stat_activity` lock observation) cover single-key, identical-batch,
+  partial-overlap, intra-batch-duplicate, legacy-UUID, post-collision and retry
+  scenarios, plus two real overlapping `GenericIngestionJob` executions. ADR-001's
+  insert-only + skip decision is unchanged — the implementation note records that the
+  strategy simply became atomic.
+
 ### Added
 
 - **TECH-124 — covering index for the `SipsaParcial` article filter** (migration

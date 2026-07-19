@@ -148,6 +148,18 @@ SHA-256 lowercase hex — see `ParcialKeyHash`. Legacy UUID rows deduplicate at 
 time via a natural-key candidate lookup (no backfill required); a backfill/consolidation
 of any pre-existing external database remains conditional and out of scope here.
 
+**Implementation note (TECH-117, 2026-07-19) — the accepted strategy made atomic, not
+changed:** the insert step of `batchUpsert` executes as
+`INSERT … ON CONFLICT (key_hash) DO NOTHING` (single JDBC batch in a dedicated
+repository fragment). The dedup lookups remain the read-avoidance optimization and the
+`key_hash UNIQUE` constraint remains the integrity barrier; the conflict clause only
+changes *how a lost race surfaces*: as a per-row "not inserted" outcome counted as
+`skipped`, instead of a unique-violation exception that failed the losing run and rolled
+back its whole batch. Insert-only/skip semantics, the hash definition, the legacy-UUID
+lookup and the schema are all untouched — this is Option A, race-safe. (`ON CONFLICT`
+targets only `key_hash`; the natural key still has no unique constraint — that remains
+TECH-122's contract phase.)
+
 ---
 
 ## Consequences
