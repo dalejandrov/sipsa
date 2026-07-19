@@ -70,6 +70,7 @@ When a story is implemented:
 | TECH-125 | Define `SipsaParcial`/ingestion data retention policy | Low | — | Pending decision |
 | TECH-133 | Centralize and validate monthly ingestion window configuration | Low | — | **Done** (2026-07-17 — typed `monthlyWindowStart`, divergent `06:00` fallback removed, effective 14:00 unchanged) |
 | TECH-134 | Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`) | Low | — | **Done** (2026-07-19, branch `fix/align-remaining-sipsa-decimal-precision` — all SIPSA price models now declare `19,2`, no migration) |
+| TECH-135 | Centralize ingestion rejection-threshold configuration (C-04) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-ingestion-rejection-thresholds` — thresholds bind once in `IngestionProperties`, effective 0.01/5000 unchanged) |
 
 ---
 
@@ -2072,6 +2073,47 @@ contract phase).
 **Completed:** 2026-07-19. Tests: `SipsaDecimalPrecisionAlignmentTest` (Testcontainers,
 `ddl-auto=validate` boot, per-model boundary matrix incl. `99999999999999999.99` =
 fits only `19,2`, rounding pins, JSON exactness, real-data shapes for `enviado`).
+
+---
+
+### TECH-135
+
+**Title:** Centralize ingestion rejection-threshold configuration (C-04)
+**Type:** Config
+**Priority:** Low
+**Status:** **Done**
+**Branch:** `refactor/centralize-ingestion-rejection-thresholds`
+**Origin:** C-04 (technical debt, found during the TECH-071/TECH-133 config
+inventories): `IngestionJob` and `GenericIngestionJob` each re-declared
+`@Value("${sipsa.ingestion.max-reject-rate:0.01}")` /
+`@Value("${sipsa.ingestion.max-reject-count:5000}")` — values that agreed with
+`application.yaml` but could silently drift on a future edit, the same double-source
+antipattern removed for `batch-size` and `monthly-window-start`.
+
+**Inventory (before):** bindings in both job classes (defaults 0.01/5000);
+`application.yaml` `${MAX_REJECT_RATE:0.01}` / `${MAX_REJECT_COUNT:5000}`;
+`.env.example` listed both env vars without documentation; `docker-compose.yml` did
+NOT pass them through; no tests covered binding or threshold behavior.
+
+**Resolution:** both properties bind once in `IngestionProperties` with startup
+validation — `maxRejectRate` constrained to `[0..1]` (it is a **fraction** of
+`recordsSeen`, 0.01 = 1%; the >1 error message spells out fraction-vs-percentage),
+`maxRejectCount >= 0`; invalid or non-numeric values abort startup naming the
+property; the resolved pair is logged once. Jobs inject the typed properties
+(constructor), duplicated `@Value`s deleted. Compose passthrough added
+(`MAX_REJECT_RATE`/`MAX_REJECT_COUNT`, same pattern as `INGESTION_BATCH_SIZE`);
+`.env.example` documents range/semantics/precedence. **Effective values and semantics
+unchanged**, now test-pinned: evaluated once at end of run over final totals,
+OR-combined, strict `>`, rate check skipped when `seen=0` (count gate still applies),
+`count=0` = zero tolerance; exceeding a gate throws `SipsaIngestionException` → run
+`FAILED`.
+
+**Completed:** 2026-07-19. Tests: 9 new binding cases in `IngestionPropertiesTest`
+(defaults, property/env precedence, boundaries 0/1/0, negative and >1 and non-numeric
+startup aborts) + `IngestionJobRejectThresholdTest` (7 behavior cases, both jobs
+sharing the central values). Docker verified: defaults `0.01/5000`, env override
+`0.05/1234`, defaults restored. No migration, no functional change; C-05
+(`AsyncConfig`) deliberately untouched.
 
 ---
 
