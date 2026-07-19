@@ -69,7 +69,7 @@ When a story is implemented:
 | TECH-124 | Optimize `SipsaParcial` article-filter queries | Low | — | **Done** (2026-07-18, branch `perf/sipsa-parcial-article-filter-index`, migration V4 — covering index; count 18 ms → ~2 ms) |
 | TECH-125 | Define `SipsaParcial`/ingestion data retention policy | Low | — | Pending decision |
 | TECH-133 | Centralize and validate monthly ingestion window configuration | Low | — | **Done** (2026-07-17 — typed `monthlyWindowStart`, divergent `06:00` fallback removed, effective 14:00 unchanged) |
-| TECH-134 | Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`) | Low | — | Proposed (origin: TECH-118 comparative analysis) |
+| TECH-134 | Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`) | Low | — | **Done** (2026-07-19, branch `fix/align-remaining-sipsa-decimal-precision` — all SIPSA price models now declare `19,2`, no migration) |
 
 ---
 
@@ -2028,7 +2028,8 @@ boundary matrix (observed min/max, zero, null, `9999999999999.99` = DECIMAL(15,2
 **Title:** Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`)
 **Type:** Config
 **Priority:** Low
-**Status:** Proposed (origin: TECH-118 comparative analysis, 2026-07-19)
+**Status:** **Done**
+**Branch:** `fix/align-remaining-sipsa-decimal-precision`
 **Scope:** `SipsaCiudad.precioPromedio/enviado` and
 `SipsaMayoristasSemanal.minimoKg/maximoKg/promedioKg/enviado` declare
 `precision=15, scale=2` against `NUMERIC(19,2)` columns — the exact drift TECH-118
@@ -2036,7 +2037,41 @@ closed for Parcial. Same expected resolution (annotation → `19,2`, no migratio
 a boundary test per dataset. Kept out of TECH-118 deliberately (its scope was Parcial;
 these entities had no story-driven test coverage to piggyback on).
 
-**Completed:** —
+**Diagnosis (2026-07-19):** XSD declares every one of the six fields as unbounded
+`xs:decimal` with `minOccurs=0` (no `xs:double`/`xs:float` anywhere in the WSDL);
+parsers use `XmlParsingUtil.parseDecimal` (`new BigDecimal(String)` — exact); records,
+responses and entities are `BigDecimal` end to end; the V1 DDL is `NUMERIC(19,2)` for
+all six columns. Same source-of-truth ranking as TECH-118: DDL wins, annotations were
+the odd ones out. Real data (fresh full DANE loads, 2026-07-19): Ciudad 373,038 rows,
+`precio_promedio` 270.00–15,500.00, `enviado` **always 0.00**; Semanal 233,866 rows,
+prices 182.00–280,000.00 (widest observed range in the schema), `enviado` **always
+NULL**. No negatives, nothing beyond `DECIMAL(15,2)` — and, as in TECH-118, the
+observed range is evidence for safety, never a license to shrink the columns.
+
+**Resolution:** six annotations aligned to `precision=19, scale=2`. **No Flyway
+migration — V1/V2/V3/V4 unchanged, no V5.** Rounding semantics unchanged and shared
+with TECH-118 (`NUMERIC(19,2)` coerces scale > 2 half-away-from-zero at insert; pinned
+per model). No `@Digits`, no CHECK constraints, no API/DTO changes — JSON stays exact
+unquoted numbers (verified per model).
+
+**Final state of decimal declarations:**
+
+| Modelo | Estado previo | Estado final |
+| --- | --- | --- |
+| SipsaParcial | 19,2 (TECH-118) | 19,2 |
+| SipsaCiudad | 15,2 | **19,2** |
+| SipsaMayoristasSemanal | 15,2 | **19,2** |
+| SipsaMayoristasMensual | 19,2 | 19,2 |
+| SipsaAbastecimientosMensual | 19,2 | 19,2 |
+
+**Findings (documented, unchanged):** Ciudad `enviado` = 0.00 and Semanal `enviado` =
+NULL on every real row — both look vestigial in the upstream feed; any pruning decision
+is product-level, not TECH-134. Non-negativity CHECK remains deferred (TECH-122
+contract phase).
+
+**Completed:** 2026-07-19. Tests: `SipsaDecimalPrecisionAlignmentTest` (Testcontainers,
+`ddl-auto=validate` boot, per-model boundary matrix incl. `99999999999999999.99` =
+fits only `19,2`, rounding pins, JSON exactness, real-data shapes for `enviado`).
 
 ---
 

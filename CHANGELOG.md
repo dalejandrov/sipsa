@@ -10,6 +10,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **TECH-134 — remaining SIPSA decimal annotations aligned with the DDL.**
+  `SipsaCiudad.precioPromedio/enviado` and
+  `SipsaMayoristasSemanal.minimoKg/maximoKg/promedioKg/enviado` declared
+  `precision=15, scale=2` against `NUMERIC(19,2)` columns — the drift TECH-118 closed
+  for `SipsaParcial`, resolved with the same criterion: DANE's XSD is unbounded
+  `xs:decimal` (`minOccurs=0`) for every field, so the versioned V1 DDL is the storage
+  truth and the annotations now mirror it. **Every SIPSA price model now declares
+  `19,2`; no migration (V1–V4 unchanged), no behavior change** (`ddl-auto=validate`
+  never compared precision; the pipeline is `BigDecimal` end to end with zero
+  `double`/`float`). Verified against real PostgreSQL with fresh real DANE loads
+  (Ciudad 373,038 rows: 270.00–15,500.00; Semanal 233,866 rows: 182.00–280,000.00 —
+  the widest range in the schema, still far inside either bound): boundary matrix
+  including the `19,2`-only value `99999999999999999.99` round-trips exactly, scale > 2
+  keeps the TECH-118 half-away-from-zero semantics, JSON stays exact unquoted numbers.
+  Real-data shapes recorded: Ciudad `enviado` is `0.00` on every observed row and
+  Semanal `enviado` is always `NULL` — both fields look vestigial upstream; documented,
+  not changed.
+
 - **TECH-118 — `SipsaParcial` decimal precision aligned with PostgreSQL.** The three
   price columns (`promedioKg`, `maximoKg`, `minimoKg`) declared `precision=15, scale=2`
   in JPA while the versioned DDL has been `NUMERIC(19,2)` since V1. Source of truth:
