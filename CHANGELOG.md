@@ -8,6 +8,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **TECH-060 — removed the N+1 query pattern from
+  `SipsaMayoristasSemanalRepository.upsertFallbackBatch()`.** Previously issued one
+  `findByBusinessKeys(artiId, fuenId, fechaIni)` SELECT per (deduplicated) record in the
+  batch — N round trips for N records. Replaced with a single atomic `INSERT … ON
+  CONFLICT (arti_id, fuen_id, fecha_ini) DO NOTHING` JDBC batch (new
+  `SipsaMayoristasSemanalBatchInsertRepository`/`...Impl`), mirroring
+  `SipsaParcialRepository.batchUpsert`'s TECH-117 technique and backed by the existing
+  `ux_semana_fallback` unique constraint (V1) — **0 SELECTs, not 1**, since the
+  existence check and the insert are now the same statement. This also closes, rather
+  than merely narrows, the pre-existing concurrency gap: a lost race between the old
+  SELECT and `saveAll` surfaced as an uncaught `DataIntegrityViolationException` that
+  discarded the whole batch; the new atomic conflict clause resolves a lost race to a
+  per-row "skipped" outcome with no exception, matching TECH-117's guarantee exactly.
+  In-batch deduplication and its exact prior counting semantics are unchanged (a
+  duplicate key within one batch collapses to its last occurrence and is not separately
+  counted as `inserted` or `skipped`); a `null` business-key component still always
+  inserts, matching the removed lookup's behavior for an incomplete key exactly. Skip
+  is still never an update — an existing row's stored values are untouched. The
+  now-dead `findByBusinessKeys` query method was removed (no remaining callers); the
+  separate `tmpMayoSemId`-based upsert path (`upsertTmpBatch`/`findByTmpId`) is
+  completely untouched. New tests: `SipsaMayoristasSemanalFallbackUpsertTest` (12
+  cases, real PostgreSQL via Testcontainers — `ON CONFLICT` and the constraint are
+  PostgreSQL-specific — covering empty/new/existing/mixed batches, intra-batch
+  duplicates, `null`-key handling, skip-never-updates, rollback, a structural
+  zero-Hibernate-query assertion at batch sizes 1/10/100, and a real two-transaction
+  concurrency race). Verified in Docker with a real `promediosSipsaSemanaMadr`
+  ingestion (229,369 records, 0 rejected, 0 SQL errors) followed by an identical
+  re-run that inserted 0 and skipped all 229,369 with the stored row count unchanged
+  and zero duplicate business keys. **Follow-up, not modified here:** the identical
+  N+1 pattern exists in `SipsaMayoristasMensualRepository` and
+  `SipsaAbastecimientosMensualRepository`'s own `upsertFallbackBatch()` methods. No
+  scheduler, API, pagination, metrics, audit, SOAP, security, or `SipsaParcial`
+  deduplication change. No Flyway migration; V1–V4 unchanged.
+
 ### Changed
 
 - **TECH-054 — `GET /api/internal/ingestion/runs` is now paginated; it no longer loads
