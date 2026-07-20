@@ -6,6 +6,7 @@ import com.dalejandrov.sipsa.application.service.IngestionService;
 import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import com.dalejandrov.sipsa.domain.exception.SipsaIngestionException;
 import com.dalejandrov.sipsa.infrastructure.config.IngestionProperties;
+import com.dalejandrov.sipsa.infrastructure.observability.IngestionMetrics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -43,7 +44,7 @@ class IngestionJobRejectThresholdTest {
         return new GenericIngestionJob(
                 mock(IngestionService.class), mock(WindowPolicy.class),
                 mock(IngestionControlService.class), mock(IngestionAuditService.class),
-                properties);
+                properties, mock(IngestionMetrics.class));
     }
 
     private static IngestionContext contextWith(int seen, int rejected) {
