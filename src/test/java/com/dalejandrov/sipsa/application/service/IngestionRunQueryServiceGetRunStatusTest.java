@@ -3,7 +3,7 @@ package com.dalejandrov.sipsa.application.service;
 import com.dalejandrov.sipsa.api.dto.response.IngestionRunDetailResponse;
 import com.dalejandrov.sipsa.api.mapper.IngestionAuditMapper;
 import com.dalejandrov.sipsa.domain.entity.IngestionRun;
-import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
+import com.dalejandrov.sipsa.domain.exception.SipsaNotFoundException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -18,11 +18,12 @@ import static org.mockito.Mockito.when;
 /**
  * TECH-052: {@link IngestionRunQueryService#getRunStatus(Long)} is the sole caller of
  * {@link IngestionControlService#getRun(long)}. It must handle the now-explicit
- * {@code Optional<IngestionRun>} without ever calling {@code .get()} unguarded, and its
- * observable behavior — a mapped response when the run exists, the same
- * {@link SipsaBusinessException} (unchanged message and type — the HTTP 404 story,
- * TECH-022, is out of scope here) when it doesn't — must stay exactly as it was before
- * the rename.
+ * {@code Optional<IngestionRun>} without ever calling {@code .get()} unguarded.
+ * <p>
+ * TECH-022: the missing-run case now throws {@link SipsaNotFoundException} (→ HTTP 404),
+ * not {@code SipsaBusinessException} (→ 422) — a run ID that doesn't exist is a not-found
+ * case, not a business-rule violation. Updated from the previous pinned assertion, which
+ * predates this story.
  */
 @DisplayName("IngestionRunQueryService.getRunStatus — Optional-based absence handling")
 class IngestionRunQueryServiceGetRunStatusTest {
@@ -49,11 +50,11 @@ class IngestionRunQueryServiceGetRunStatusTest {
     }
 
     @Test
-    @DisplayName("a non-existent run throws SipsaBusinessException with the unchanged message — no NPE, no unguarded .get()")
-    void missingRun_throwsSipsaBusinessException() {
+    @DisplayName("a non-existent run throws SipsaNotFoundException (404) with the unchanged message — no NPE, no unguarded .get()")
+    void missingRun_throwsSipsaNotFoundException() {
         when(controlService.getRun(999L)).thenReturn(Optional.empty());
 
-        assertThatExceptionOfType(SipsaBusinessException.class)
+        assertThatExceptionOfType(SipsaNotFoundException.class)
                 .isThrownBy(() -> service.getRunStatus(999L))
                 .withMessage("Ingestion run not found: 999");
 
