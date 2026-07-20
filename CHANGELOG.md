@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-022 — a missing ingestion run now returns `404 Not Found`, not
+  `422 Unprocessable Entity`.** New `SipsaNotFoundException` (mapped by
+  `GlobalExceptionHandler` to HTTP 404, error code `NOT_FOUND`) replaces
+  `SipsaBusinessException` (422) in exactly two places that were conflating "the
+  resource doesn't exist" with "the resource exists but this operation on it is
+  invalid": `IngestionRunQueryService.getRunStatus` (a run ID that was never created),
+  and `IngestionControlService.cancelRun`'s `run == null` branch only — its sibling
+  check ("run exists but isn't `STARTED`/`RUNNING`") stays `SipsaBusinessException` →
+  422, since that's a genuine business-rule violation on an existing run, not an
+  absent resource. `AuditTrailService`'s two analogous `SipsaBusinessException`
+  sites were deliberately left untouched (separate follow-up story). `ErrorResponse`,
+  `requestId`, and `instance` were not touched. New tests:
+  `IngestionControlServiceCancelRunTest` (service-level), updated
+  `IngestionRunQueryServiceGetRunStatusTest` (now expects `SipsaNotFoundException`,
+  previously pinned `SipsaBusinessException`), and `SipsaOpsControllerNotFoundTest`
+  (real MVC dispatch — missing run → 404, existing run → 200, inactive-run cancel →
+  422, active-run cancel → 200, plus a regression check that a downstream
+  `SipsaParseException` through the same controller still returns 502, TECH-021
+  untouched). No Flyway migration; V1–V4 unchanged.
+
 - **TECH-021 — `SipsaParseException` now maps to `502 Bad Gateway`, not
   `400 Bad Request`** — a contractual (breaking) HTTP status change for any client that
   depended on the previous `400`. This exception fires when DANE's upstream SOAP/XML

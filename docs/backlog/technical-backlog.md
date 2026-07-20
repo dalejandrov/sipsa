@@ -24,7 +24,7 @@ When a story is implemented:
 | TECH-012 | SPIKE: Verify `sipsa_parcial` growth in production | High | 5 | **Pending external verification** — local real-data diagnosis completed 2026-07-16 (see story); the external check applies only if a historical external database is confirmed to exist |
 | TECH-020 | Fix `@RequestMapping` without leading `/` | High | 1 | **Done** (2026-07-19, branch `fix/request-mapping-leading-slash`) |
 | TECH-021 | `SipsaParseException` → HTTP 502 | Medium | 2 | Done |
-| TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Medium | 2 | Pending |
+| TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Medium | 2 | Done |
 | TECH-023 | Add `requestId` and `instance` to error responses | Low | 2 | Pending |
 | TECH-030 | Named executor in `@Async` for audit logging | Low | 1 | **Resolved by TECH-136** (2026-07-19 — `@Async("ingestionTaskExecutor")` on `logEvent`) |
 | TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Low | 1 | **Done** (2026-07-19, branch `refactor/externalize-health-thresholds`) |
@@ -391,29 +391,62 @@ in this story.
 **Type:** Correctiva  
 **Priority:** Medium  
 **Phase:** 2  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** S  
-**Branch:** `fix/notfound-exception-404` (TECH-021 shipped on its own branch,
-`fix/parse-exception-bad-gateway`, already pushed — not shared)
-**Dependencies:** None.
+**Branch:** `fix/notfound-exception-404`
+**Dependencies:** None. (TECH-021 was merged to `main` first, but this story doesn't
+technically depend on it — the two exceptions are handled independently.)
 
 **Problem:**
 `SipsaBusinessException` is used for both business rule violations (correct → 422) and
 resource not-found cases (incorrect → should be 404).
 
-**Evidence:**
+**Evidence (before):**
 - `IngestionRunQueryService.java:90`: `throw new SipsaBusinessException("Ingestion run not found: " + runId)`
-- `AuditTrailService.java:57`: same pattern for unknown `requestId`
+- `IngestionControlService.java:332` (`cancelRun`): `throw new SipsaBusinessException("Run not found: " + runId)`
+- `AuditTrailService.java:57,88`: same pattern for unknown `requestId`/`runId`
 
 **Acceptance Criteria:**
-- [ ] `SipsaNotFoundException extends RuntimeException` created.
-- [ ] `GlobalExceptionHandler` maps `SipsaNotFoundException` to HTTP `404`.
-- [ ] `GET /api/internal/ingestion/runs/99999` returns `404`.
-- [ ] `GET /api/internal/audit/request/unknown-uuid` returns `404`.
-- [ ] `SipsaBusinessException` still returns `422` for rule violations.
-- [ ] `./mvnw clean verify` passes.
+- [x] `SipsaNotFoundException extends RuntimeException` created
+      (`domain/exception/SipsaNotFoundException.java`).
+- [x] `GlobalExceptionHandler` maps `SipsaNotFoundException` to HTTP `404`
+      (`handleNotFoundException`, error code `NOT_FOUND` — reuses the code
+      `handleNotFound` already returns for routing-level 404s, since both are the same
+      HTTP concept; `message` differs).
+- [x] `GET /api/internal/ingestion/runs/{missingId}` returns `404`.
+- [ ] `GET /api/internal/audit/request/unknown-uuid` returns `404` — **deliberately not
+      done in this story.** The operator's instructions for this story scoped it to
+      `IngestionRunQueryService.getRunStatus` (minimum) and a review of
+      `IngestionControlService.cancelRun`; `AuditTrailService`'s two
+      `SipsaBusinessException` sites (`logEvent`-adjacent lookups by `requestId` and by
+      `runId`) were intentionally left untouched — same shape of bug, separate
+      follow-up story, not silently forgotten.
+- [x] `SipsaBusinessException` still returns `422` for rule violations — verified by
+      regression tests at both the service and MVC layers (e.g. `cancelRun` on an
+      existing-but-inactive run).
+- [x] `./mvnw clean verify` passes (279 tests, up from 270 — 9 new).
 
-**Completed:** —
+**Completed:** `SipsaNotFoundException` (new, `domain/exception`) is now thrown, and
+mapped by `GlobalExceptionHandler` to HTTP `404` (code `NOT_FOUND`), in exactly two
+places where the previous `SipsaBusinessException` (422) conflated "resource doesn't
+exist" with "resource exists but the operation is invalid":
+- `IngestionRunQueryService.getRunStatus` — a run ID that doesn't exist at all.
+- `IngestionControlService.cancelRun` — **only** its "run not found" branch (the
+  `run == null` check). Its sibling check — "run exists but isn't STARTED/RUNNING" —
+  **stays** `SipsaBusinessException` → 422, unchanged: that's a genuine business-rule
+  violation on an existing resource, not an absent one.
+`ErrorResponse`, `requestId`, and `instance` were not touched (TECH-023 scope). `code`
+values already in use (`NOT_FOUND`, `BUSINESS_ERROR`, `PARSE_ERROR`) are unchanged.
+New tests: `IngestionControlServiceCancelRunTest` (service-level, not-found vs.
+not-active split), updated `IngestionRunQueryServiceGetRunStatusTest` (now asserts
+`SipsaNotFoundException`, not `SipsaBusinessException`), and
+`SipsaOpsControllerNotFoundTest` (real MVC dispatch via `@SpringBootTest` +
+`@AutoConfigureMockMvc`, same pattern as `InternalControllerRouteMappingTest`: missing
+run → 404, existing run → 200 unchanged, inactive-run cancel → 422 unchanged, active-run
+cancel → 200 unchanged, and a regression check that a downstream `SipsaParseException`
+through this same controller still returns 502 — TECH-021 untouched). No Flyway
+migration; V1–V4 unchanged. **Follow-up (separate story, not this one):** apply the same
+not-found split to `AuditTrailService`'s two lookup methods.
 
 ---
 
