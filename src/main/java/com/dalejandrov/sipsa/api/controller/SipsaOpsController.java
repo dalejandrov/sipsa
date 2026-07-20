@@ -1,16 +1,20 @@
 package com.dalejandrov.sipsa.api.controller;
 
+import com.dalejandrov.sipsa.api.dto.request.IngestionRunQueryRequest;
 import com.dalejandrov.sipsa.api.dto.request.IngestionTriggerRequest;
+import com.dalejandrov.sipsa.api.dto.response.ApiResponse;
 import com.dalejandrov.sipsa.api.dto.response.IngestionCancelResponse;
 import com.dalejandrov.sipsa.api.dto.response.IngestionMethodsResponse;
 import com.dalejandrov.sipsa.api.dto.response.IngestionRunDetailResponse;
 import com.dalejandrov.sipsa.api.dto.response.IngestionRunResponse;
 import com.dalejandrov.sipsa.api.dto.response.IngestionTriggerResponse;
+import com.dalejandrov.sipsa.api.util.PaginationUtils;
 import com.dalejandrov.sipsa.application.service.IngestionControlService;
 import com.dalejandrov.sipsa.application.service.IngestionRunQueryService;
 import com.dalejandrov.sipsa.application.service.IngestionTriggerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -109,16 +113,25 @@ public class SipsaOpsController {
     }
 
     /**
-     * Lists all ingestion runs.
+     * Lists ingestion runs, paginated (TECH-054).
      * <p>
      * <b>Controller Role:</b> Receive HTTP request, delegate to service, return HTTP response.
+     * <p>
+     * <b>Contract change:</b> previously returned a bare JSON array of every run, with
+     * no size bound. Now returns the same {@link ApiResponse} pagination envelope
+     * already used by every other paginated endpoint in this API
+     * ({@code GET /api/sipsa/**}, {@code GET /api/internal/audit/all}) — a client
+     * expecting a bare array must update to read {@code results} instead. Most recent
+     * runs first ({@code startTime DESC, runId DESC}), default {@code size=20}, max
+     * {@code size=100}.
      *
-     * @return list of all runs with full details
+     * @param request page/size query parameters (defaults: page=1, size=20; max size=100)
+     * @return HTTP 200 with a page of run details wrapped in the standard pagination envelope
      */
     @GetMapping("/runs")
-    public ResponseEntity<List<IngestionRunDetailResponse>> getAllRuns() {
-        List<IngestionRunDetailResponse> response = runQueryService.getAllRuns();
-        return ResponseEntity.ok(response);
+    public ResponseEntity<ApiResponse<IngestionRunDetailResponse>> getAllRuns(IngestionRunQueryRequest request) {
+        Page<IngestionRunDetailResponse> page = runQueryService.getAllRuns(request);
+        return ResponseEntity.ok(PaginationUtils.toApiResponse(page));
     }
 
     /**

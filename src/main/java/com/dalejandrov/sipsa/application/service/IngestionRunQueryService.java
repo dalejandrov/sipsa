@@ -1,13 +1,19 @@
 package com.dalejandrov.sipsa.application.service;
 
+import com.dalejandrov.sipsa.api.dto.request.IngestionRunQueryRequest;
 import com.dalejandrov.sipsa.api.dto.response.IngestionMethodsResponse;
 import com.dalejandrov.sipsa.api.dto.response.IngestionRunDetailResponse;
 import com.dalejandrov.sipsa.api.dto.response.IngestionRunResponse;
 import com.dalejandrov.sipsa.api.mapper.IngestionAuditMapper;
 import com.dalejandrov.sipsa.domain.entity.IngestionRun;
 import com.dalejandrov.sipsa.domain.exception.SipsaNotFoundException;
+import com.dalejandrov.sipsa.infrastructure.config.PaginationConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +38,7 @@ public class IngestionRunQueryService {
     private final IngestionControlService controlService;
     private final IngestionService ingestionService;
     private final IngestionAuditMapper mapper;
+    private final PaginationConfig paginationConfig;
 
     /**
      * Retrieves all available ingestion method names.
@@ -60,17 +67,34 @@ public class IngestionRunQueryService {
     }
 
     /**
-     * Retrieves all ingestion runs with full details.
+     * Retrieves ingestion runs with full details, paginated (TECH-054).
+     * <p>
+     * {@code page}/{@code size} follow the same {@link PaginationConfig} convention as
+     * every other paginated endpoint (1-based page, size clamped to {@code [1, 100]} by
+     * {@link IngestionRunQueryRequest} itself, matching {@code maxUserPageSize}). The
+     * sort order is fixed —
+     * {@code startTime DESC, runId DESC} — not client-configurable: {@code runId} is
+     * the deterministic tie-breaker for runs whose {@code startTime} collides (e.g. the
+     * daily window's three sequential-but-fast dispatches), which a single-column sort
+     * cannot guarantee. {@link PaginationConfig#buildPageable} only supports a single
+     * sort field, so it is used here just for its existing page/size defaulting and
+     * validation — the actual {@link Pageable} passed to the repository is rebuilt with
+     * the two-column {@link Sort} on top of that same page/size.
      *
-     * @return list of detailed run responses
+     * @param request page/size parameters (already defaulted/clamped by the DTO itself)
+     * @return a page of detailed run responses
      */
     @Transactional(readOnly = true)
-    public List<IngestionRunDetailResponse> getAllRuns() {
-        log.debug("Retrieving all ingestion runs");
-        List<IngestionRun> runs = controlService.findAllRuns();
-        return runs.stream()
-                .map(mapper::toDetailDto)
-                .toList();
+    public Page<IngestionRunDetailResponse> getAllRuns(IngestionRunQueryRequest request) {
+        log.debug("Retrieving ingestion runs: page={}, size={}", request.page(), request.size());
+
+        Pageable unsorted = paginationConfig.buildPageable(request.page(), request.size(), null);
+        paginationConfig.validatePageable(unsorted);
+        Pageable pageable = PageRequest.of(unsorted.getPageNumber(), unsorted.getPageSize(),
+                Sort.by(Sort.Order.desc("startTime"), Sort.Order.desc("runId")));
+
+        Page<IngestionRun> runs = controlService.findAllRuns(pageable);
+        return runs.map(mapper::toDetailDto);
     }
 
     /**
