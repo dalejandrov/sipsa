@@ -4,6 +4,7 @@ import com.dalejandrov.sipsa.api.dto.response.IngestionRunDetailResponse;
 import com.dalejandrov.sipsa.api.mapper.IngestionAuditMapper;
 import com.dalejandrov.sipsa.domain.entity.IngestionRun;
 import com.dalejandrov.sipsa.domain.exception.SipsaNotFoundException;
+import com.dalejandrov.sipsa.infrastructure.config.PaginationConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -31,8 +32,9 @@ class IngestionRunQueryServiceGetRunStatusTest {
     private final IngestionControlService controlService = mock(IngestionControlService.class);
     private final IngestionService ingestionService = mock(IngestionService.class);
     private final IngestionAuditMapper mapper = mock(IngestionAuditMapper.class);
+    private final PaginationConfig paginationConfig = new PaginationConfig();
     private final IngestionRunQueryService service =
-            new IngestionRunQueryService(controlService, ingestionService, mapper);
+            new IngestionRunQueryService(controlService, ingestionService, mapper, paginationConfig);
 
     @Test
     @DisplayName("an existing run is mapped to its detail response")
