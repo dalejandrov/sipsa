@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Testing
+
+- **TECH-043 — full `GlobalExceptionHandler` contract coverage.** New
+  `GlobalExceptionHandlerContractTest` exercises all 15 `@ExceptionHandler` cases
+  through real MVC dispatch, asserting HTTP status, `Content-Type`, `code`, `message`,
+  `requestId`, `instance`, a present `timestamp`, no leaked stack trace, and each
+  response type's extra fields (`fieldErrors`, `availableMethods`) where applicable.
+  Test-and-documentation only: no status code, error code, message, `ErrorResponse`
+  shape, or `RequestIdFilter` behavior changed — every handler already behaved exactly
+  as documented, no defects found. `RequestContextThrowingTestController` (TECH-023's
+  fixture) was extended with 8 new endpoints rather than adding a second, near-duplicate
+  controller. `HttpRequestMethodNotSupportedException` (405) and
+  `HttpMediaTypeNotSupportedException` (415) are confirmed out of scope — no handler for
+  either exists in `GlobalExceptionHandler`. No Flyway migration; V1–V4 unchanged.
+
 ### Added
 
 - **TECH-023 — HTTP error responses now include `requestId` and `instance`.**
