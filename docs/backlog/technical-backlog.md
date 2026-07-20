@@ -40,7 +40,7 @@ When a story is implemented:
 | TECH-053 | Make scheduler dispatch async | Medium | 2 | Done |
 | TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Low | 2 | Done |
 | TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | Low | 6 | Pending |
-| TECH-060 | Fix N+1 in `upsertFallbackBatch` | Medium | 4 | Pending |
+| TECH-060 | Fix N+1 in `upsertFallbackBatch` | Medium | 4 | Done |
 | TECH-070 | Bean Validation on `SoapProperties` | Low | 1 | **Done** (2026-07-19, branch `refactor/validate-soap-properties`) |
 | TECH-071 | Align `batch-size` defaults | Low | 1 | **Done** (2026-07-16 — single typed source of truth, canonical 500) |
 | TECH-080 | Write ADR-002 (security) | Low | 6 | **Done** |
@@ -1274,25 +1274,142 @@ New monthly handlers with different naming patterns will silently use daily sche
 **Type:** Performance  
 **Priority:** Medium  
 **Phase:** 4  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** M  
-**Branch:** `fix/batch-upsert-n-plus-one`
+**Branch:** `perf/remove-mayoristas-fallback-n-plus-one` (the originally-listed
+`fix/batch-upsert-n-plus-one` name was not reused)
+
 **Dependencies:** None.
 
-**Problem:**
-`upsertFallbackBatch()` calls `findByBusinessKeys(artiId, fuenId, fechaIni)` individually for
-each record in the batch, producing N database queries for N records.
+**Problem (before):**
+`upsertFallbackBatch()` called `findByBusinessKeys(artiId, fuenId, fechaIni)` individually
+for each (deduplicated) record in the batch, producing N database queries for N records.
 
-**Evidence:** `SipsaMayoristasSemanalRepository.java:148`: `findByBusinessKeys()` called inside a for-loop.
+**Evidence (before):** `SipsaMayoristasSemanalRepository.java:148` (pre-TECH-060):
+`findByBusinessKeys()` called inside a `for` loop over the deduplicated batch.
 
-**Objective:** Refactor to bulk-fetch all existing records in one query (similar to `SipsaCiudadRepository.batchUpsert()`).
+**Diagnosis (before implementing):**
+
+| Step | Current query | Times per batch | Semantics | Replacement |
+|---|---|---:|---|---|
+| Intra-batch dedup | none (in-memory `LinkedHashMap`, string-concat key) | 0 | last occurrence wins, dropped duplicates uncounted | unchanged, keyed by a `record BusinessKey(artiId, fuenId, fechaIni)` instead of string concatenation |
+| Existence check | `findByBusinessKeys(artiId, fuenId, fechaIni)` (JPQL) | 1 per unique item (N) | `WHERE a=:a AND b=:b AND c=:c` — a `null` param never matches (always "not found") | removed entirely |
+| Insert | `saveAll(toInsert)` + `flush()` (JPA) | 1 (batched by Hibernate) | plain insert of the non-existing subset | replaced together with the existence check by one `INSERT … ON CONFLICT (arti_id, fuen_id, fecha_ini) DO NOTHING` JDBC batch |
+
+- **Fallback trigger:** `SemanaIngestionHandler.flushNoTmp()` — records from
+  `promediosSipsaSemanaMadr` whose `tmpMayoSemId` is null (in practice, per the SOAP
+  contract, this is the common case — the real Docker verification run below shows
+  100% of records went through this exact path).
+- **Real batch size:** `ingestionProperties.getBatchSize()` (`INGESTION_BATCH_SIZE`,
+  default 500, TECH-071) — the handler already rejects (never queues) any record
+  missing `artiId`/`fuenId`/`fechaIni` before it reaches the repository, so in
+  production every candidate has a complete key; the repository's own `null`-key
+  handling is still real, tested, general-purpose behavior (a public method, not
+  gated by the one current caller).
+- **Natural key:** `(artiId, fuenId, fechaIni)`, backed by
+  `CONSTRAINT ux_semana_fallback UNIQUE (arti_id, fuen_id, fecha_ini)` (V1) — none of the
+  three columns is `NOT NULL` at the database level (the JPA `@Column(nullable = false)`
+  annotations are aspirational/unenforced, a pre-existing, unrelated mismatch — `ddl-auto
+  =validate` does not reject it, confirmed unchanged, out of scope).
+- **Queries executed per record (before):** 1 SELECT (`findByBusinessKeys`), unless it was
+  an intra-batch duplicate of an already-seen key (0).
+- **Inserts:** via `saveAll`, one JPA `INSERT` per new row (Hibernate-batched, already
+  bounded — untouched by this story).
+- **Updates:** none — existing rows are always skipped, never updated (unchanged).
+- **Skips:** existing rows (`findByBusinessKeys` returns a row) or, for the batch-internal
+  case, discarded silently during dedup (see below).
+- **Intra-batch duplicates:** collapsed to the *last* occurrence via a
+  `LinkedHashMap`-style dedup **before** the existence check — collapsed entries are not
+  counted as `inserted` or `skipped` at all (`inserted + skipped` equals the number of
+  *unique* keys in the batch, not `items.size()`). Confirmed as existing, deliberate
+  behavior — preserved exactly, not "fixed" to match `SipsaParcialRepository.batchUpsert`'s
+  own (different) convention of counting intra-batch duplicates as `skipped`.
+- **Duplicates already in the database:** skipped (never updated), via the existence
+  check.
+- **Concurrent collisions:** unprotected before this story beyond the `ux_semana_fallback`
+  constraint itself — a lost race between the SELECT and `saveAll` surfaced as an
+  uncaught `DataIntegrityViolationException` that discarded the whole batch (the same
+  gap `SipsaParcialRepository.batchUpsert` had before TECH-117).
+- **Transaction:** `@Transactional` on the default method, unchanged.
+- **Counts returned:** `UpsertMetrics(inserted, skipped)`, semantics preserved exactly
+  (see intra-batch note above).
+- **Existing tests:** none dedicated to `upsertFallbackBatch()` before this story (only an
+  incidental reference in `SipsaDecimalPrecisionAlignmentTest`, unrelated).
+- **Indexes/constraints:** `ux_semana_fallback UNIQUE (arti_id, fuen_id, fecha_ini)` and
+  `ux_semana_tmp UNIQUE (tmp_mayo_sem_id)` (both V1) — the former is exactly the
+  conflict target `ON CONFLICT` needs; the latter backs the separate, untouched
+  `upsertTmpBatch` path.
+
+**Deviation from the original Objective (documented, not silent):** the Objective said
+"similar to `SipsaCiudadRepository.batchUpsert()`" — a bulk `SELECT … WHERE CONCAT(...) IN
+:keys` existence-check query, still O(1) round trips but still followed by a plain
+`saveAll` (still exposed to the same lost-race exception `SipsaParcialRepository
+.batchUpsert` had before TECH-117). Since `ux_semana_fallback` already exists as a real,
+compatible unique constraint, this story instead mirrors **`SipsaParcialRepository
+.batchUpsert()`** (TECH-117): a single `INSERT … ON CONFLICT (arti_id, fuen_id, fecha_ini)
+DO NOTHING` JDBC batch, via a new `SipsaMayoristasSemanalBatchInsertRepository` fragment
+(same shape as `SipsaParcialBatchInsertRepository`). This removes the existence-check
+query entirely (0 SELECTs, not 1) and closes the concurrency gap atomically instead of
+merely "reducing" it — a strictly stronger fix than the literal suggestion, using a
+technique already established and tested in this exact codebase.
+
+**Objective:** Refactor to bulk-fetch all existing records in one query (as achieved:
+folded into a single atomic insert, zero separate existence-check queries).
 
 **Acceptance Criteria:**
-- [ ] `upsertFallbackBatch()` executes 1 SELECT and 1 INSERT for any batch size.
-- [ ] Behavior (skip existing, insert new) is unchanged.
-- [ ] `./mvnw clean verify` passes.
+- [x] `upsertFallbackBatch()` executes **0 SELECTs** and **1 INSERT (JDBC batch)** for any
+      batch size — stronger than the literal "1 SELECT and 1 INSERT", since the existence
+      check and the insert are the same statement.
+- [x] Behavior (skip existing, insert new) is unchanged — verified by 12 dedicated tests
+      (functional, structural, concurrency) plus a real 229,369-record Docker ingestion
+      run followed by an identical re-run that inserted 0 and skipped all 229,369 with no
+      duplicate rows.
+- [x] `./mvnw clean verify` passes (374 tests, up from 362 — 12 net new).
 
-**Completed:** —
+**Follow-up (documented, not modified in this branch):** the identical N+1 pattern exists
+in `SipsaMayoristasMensualRepository.upsertFallbackBatch()` and
+`SipsaAbastecimientosMensualRepository.upsertFallbackBatch()` (both call their own
+per-item `findByBusinessKeys` in a loop, same shape as the code this story replaced).
+Out of scope here per explicit instruction; a future story should apply the identical
+`ON CONFLICT` technique to both, contingent on each table having a compatible unique
+constraint on its own business key (not verified here — out of scope).
+
+**Completed:** New `SipsaMayoristasSemanalBatchInsertRepository` fragment interface +
+`SipsaMayoristasSemanalBatchInsertRepositoryImpl` (raw `JdbcTemplate.batchUpdate`,
+`INSERT … ON CONFLICT (arti_id, fuen_id, fecha_ini) DO NOTHING`, mirroring
+`SipsaParcialBatchInsertRepositoryImpl` exactly — same parameter-limit reasoning,
+`reWriteBatchedInserts` left disabled so the driver still returns exact per-row update
+counts). `SipsaMayoristasSemanalRepository.upsertFallbackBatch()` rewritten: unchanged
+in-memory dedup (now keyed by a `BusinessKey(artiId, fuenId, fechaIni)` record instead of
+string concatenation — same collapsing behavior, `null`-safe by construction), then one
+call to `insertIgnoringConflicts` in place of the per-item `findByBusinessKeys` loop and
+the separate `saveAll`/`flush`. The now-dead `findByBusinessKeys` query method (no
+remaining callers) was deleted. `upsertTmpBatch`/`findByTmpId` (the *other* upsert
+strategy, tmpId-based) are completely untouched. Tests (all in
+`SipsaMayoristasSemanalFallbackUpsertTest`, real PostgreSQL via Testcontainers — `ON
+CONFLICT` and the constraint are PostgreSQL-specific, no H2): empty batch; one new
+record; several new records; all-existing batch; mixed new/existing; intra-batch
+duplicates (asserts the *silently-uncounted* semantics, not Parcial's counted-as-skipped
+convention); `null` business-key components (always insert, both across two separate
+calls and collapsed correctly within one batch); skip-never-updates (an existing row's
+stored price and `fecha_sincronizacion` are provably untouched by a "skip"); rollback
+(no row survives a rolled-back transaction); a structural test asserting **zero**
+Hibernate-tracked query executions at batch sizes 1, 10, and 100 (the old
+`findByBusinessKeys` path was Hibernate/JPQL, so this is a direct, concrete refutation of
+the N+1 — the new path never touches Hibernate for this operation at all); two
+concurrency tests — a real two-transaction race (loser reports `skipped`, never throws,
+exactly one row survives) and a direct proof that `ux_semana_fallback` is real and backs
+the conflict target. Verified in Docker: clean startup, V1–V4 only, no `V5`; a real
+`promediosSipsaSemanaMadr` ingestion run (229,369 records seen, 229,369 inserted, 0
+rejected, 0 SQL errors, `sipsa.ingestion.runs` metric incremented,
+`/actuator/health` UP); an immediate identical re-run (`force=true`, reusing the same
+window per existing `IngestionControlService` "restart" behavior — unrelated to this
+story) inserted 0 and correctly reported 0 rows changed, with the stored row count
+unchanged at 229,369 and zero duplicate `(arti_id, fuen_id, fecha_ini)` combinations —
+direct, real-data proof the atomic skip-existing path works correctly at production
+scale. No scheduler, TECH-053, TECH-054, API, pagination, metrics, audit, SOAP, security,
+threshold, `SipsaParcial` deduplication, or AWS infrastructure change. No Flyway
+migration; V1–V4 unchanged; no `V5`.
 
 ---
 
