@@ -28,7 +28,7 @@ When a story is implemented:
 | TECH-023 | Add `requestId` and `instance` to error responses | Low | 2 | Done |
 | TECH-030 | Named executor in `@Async` for audit logging | Low | 1 | **Resolved by TECH-136** (2026-07-19 — `@Async("ingestionTaskExecutor")` on `logEvent`) |
 | TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Low | 1 | **Done** (2026-07-19, branch `refactor/externalize-health-thresholds`) |
-| TECH-032 | Add Micrometer metrics for ingestion | Medium | 4 | Pending |
+| TECH-032 | Add Micrometer metrics for ingestion | Medium | 4 | Done |
 | TECH-040 | Unit tests for `WindowPolicy` | High | 3 | **Done** (implemented by TECH-110) |
 | TECH-041 | Unit tests for `SpecificationBuilder` | High | 3 | Pending |
 | TECH-042 | Unit tests for `IngestionJob` | High | 3 | Pending |
@@ -619,29 +619,118 @@ detail contract unaffected. No Flyway migration; V1–V4 unchanged.
 **Type:** Observability  
 **Priority:** Medium  
 **Phase:** 4  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** M  
-**Branch:** `feat/ingestion-metrics`
+**Branch:** `feat/ingestion-micrometer-metrics` (the originally-listed `feat/ingestion-metrics`
+name was not reused)
 **Dependencies:** None.
 
 **Problem:**
 No custom metrics exist. It is not possible to alert on ingestion duration, record reject rate, or SOAP failures using Prometheus.
 
-**Evidence:** `grep -rn "MeterRegistry\|@Timed\|Counter\|Timer" src/` → zero results.
+**Evidence (before):** `grep -rn "MeterRegistry\|@Timed\|Counter\|Timer" src/` → zero results.
+`spring-boot-starter-actuator` and `micrometer-registry-prometheus` were already
+dependencies — no new dependency was needed, only actual usage.
 
-**Objective:** Add at minimum:
-- `sipsa.ingestion.duration` (Timer, tag: `method`)
-- `sipsa.ingestion.records.seen` (Counter, tag: `method`)
-- `sipsa.ingestion.records.inserted` (Counter, tag: `method`)
-- `sipsa.ingestion.records.rejected` (Counter, tag: `method`)
-- `sipsa.soap.calls` (Counter, tags: `method`, `result=[success,error]`)
+**Diagnosis (before implementing):**
+- **Ingestion flow boundary:** `IngestionJob.execute(IngestionRequest)` (the abstract
+  base class every job runs through — `GenericIngestionJob` is the sole concrete
+  subclass) is the single central place every ingestion run passes through, regardless
+  of method. Three early-return "skip" paths (window violation, already-succeeded
+  duplicate, business-exception duplicate) exit *before* a run/`IngestionContext` is
+  ever created — these are not timed as runs, since there's nothing to time yet.
+- **Result object:** no separate `IngestionResult` type exists — `IngestionContext`
+  (mutable, one per run) accumulates the final counts (`recordsSeen`, `recordsInserted`,
+  `recordsUpdated`, `recordsSkipped`, `rejectCount`) already read once, in `execute`'s
+  `finally` block, by `controlService.updateMetrics(...)`. Metrics reuse that same
+  already-existing aggregate — never recalculated from a repository query, never
+  incremented per-record.
+- **SOAP call boundary:** `SoapGatewayImpl` (5 methods, one per SOAP action) always
+  delegates to `SoapStreamingClient.stream(soapAction, payload)` exactly once per data
+  fetch — `stream(...)` itself owns the retry loop (exponential backoff, configurable
+  `sipsa.soap.max-retries`). Instrumenting `stream(...)` (not the gateway, and not
+  per-HTTP-attempt) is the one point that counts a "call" the way a caller means it,
+  with no risk of double-counting.
+- **Existing Micrometer/Actuator state:** zero prior usage anywhere in `src/main`;
+  `management.endpoints.web.exposure.include: health,info,metrics,prometheus` was
+  already configured; `/actuator/**` (beyond `/actuator/health/**`) already requires
+  authentication (unchanged by this story, not required to change per the operator's
+  explicit instruction).
+- **Defect found and fixed:** `micrometer-registry-prometheus` was declared
+  `<optional>true</optional>` in `pom.xml`. Spring Boot Maven Plugin's `repackage` goal
+  excludes `optional`/`provided` dependencies from the runnable fat jar **by default** —
+  so the Prometheus registry compiled fine and appeared in `mvn dependency:tree`, but
+  was never actually bundled into `BOOT-INF/lib`, and `/actuator/prometheus` 404'd
+  despite being in the exposure list. Invisible until now because nothing had ever
+  exercised that endpoint. Fixed by removing the `optional` flag (one line); verified
+  the Prometheus jars are now present in the built jar and the endpoint returns `200`.
+
+**Metrics implemented** (`infrastructure/observability/IngestionMetrics`, one dedicated
+`@Component`, mirrors the existing `SipsaHealthIndicator`'s package/style):
+
+| Metric | Type | Tags | Point |
+|---|---|---|---|
+| `sipsa.ingestion.duration` | Timer | `method`, `outcome`, `source` | `IngestionJob.execute`'s `finally` |
+| `sipsa.ingestion.runs` | Counter | `method`, `outcome`, `source` | same |
+| `sipsa.ingestion.records.seen/inserted/skipped/rejected` | DistributionSummary | `method`, `outcome` | same, one value per run from `IngestionContext`'s final counters |
+| `sipsa.soap.calls` | Counter | `method`, `outcome` | `SoapStreamingClient.stream`'s `finally` |
+| `sipsa.soap.failures` | Counter | `method` | same, only on failure |
+| `sipsa.soap.retries` | Counter | `method` | same, once per retry attempt |
+| `sipsa.soap.duration` | Timer | `method`, `outcome` | same, spans all retries/backoff |
+
+`outcome` is `success`/`failure`/`canceled` for ingestion (mapping
+`IngestionRunStatus.SUCCEEDED`/`FAILED`/`CANCELED`) and `success`/`failure` for SOAP.
+`source` is the lowercased `RequestSource` (`manual`/`scheduled`/`system`). `method` is
+always a value from a closed, small catalog (`IngestionService`'s ~5 registered
+handlers; the 5 SOAP actions `SoapGatewayImpl` calls) — never `requestId`, `runId`, a
+raw exception message, or any other unbounded value. Record counts use
+`DistributionSummary`, not `Counter`, since each is a single aggregate value recorded
+once per run (the preferred design per the operator's own instruction), not an
+incremental per-record tally. Every public method on `IngestionMetrics` catches and logs
+any registry exception rather than propagating it — instrumentation must never break an
+ingestion run or a SOAP call. Negative record counts are refused (logged, not recorded),
+never silently passed through.
+
+**Deviations from the original spec above** (superseded by the operator's more detailed
+instructions for this story): record-count metrics are `DistributionSummary`, not
+`Counter`; `records.skipped` was added (the original 3-metric list omitted it, but the
+domain already tracks it); the SOAP outcome tag is named `outcome` (not `result`) for
+naming consistency with the ingestion metrics; `sipsa.soap.failures`/`sipsa.soap.retries`/
+`sipsa.soap.duration` and `sipsa.ingestion.runs` were added beyond the original minimum
+list, all explicitly requested in the newer instructions.
+
+**Wiring:** `IngestionJob`, `GenericIngestionJob`, and `SoapStreamingClient` each gained
+one new constructor parameter (`IngestionMetrics`) — Spring autowires it automatically;
+`IngestionJobRejectThresholdTest`'s manual `GenericIngestionJob` construction was updated
+with a mock.
 
 **Acceptance Criteria:**
-- [ ] After running any ingestion method, `GET /actuator/metrics/sipsa.ingestion.duration` returns data.
-- [ ] All metrics have a `method` tag with the SOAP method name.
-- [ ] `./mvnw clean verify` passes.
+- [x] After running any ingestion method, `GET /actuator/metrics/sipsa.ingestion.duration`
+      returns data — verified in Docker (below), including a real successful
+      `promediosSipsaParcial` run (677,061 records).
+- [x] All metrics have a `method` tag with the SOAP/ingestion method name.
+- [x] `./mvnw clean verify` passes (327 tests, up from 311 — 16 new).
 
-**Completed:** —
+**Completed:** New `IngestionMetrics` component instruments both the ingestion-run
+lifecycle and SOAP calls, as detailed above. New tests: `IngestionMetricsTest` (9 cases,
+`SimpleMeterRegistry` — no Prometheus backend needed for tests — covering a successful
+run, a failed run, two methods staying on separate/stable tag series, SOAP
+success/failure/retry, a zero-record run, a negative value being refused, and an
+explicit check that no meter ever carries a tag outside `method`/`outcome`/`source`),
+`IngestionJobMetricsTest` (4 cases, mocked `IngestionMetrics`, verifying `execute()`
+calls `recordRunCompleted` exactly once per run with the correct outcome — success,
+failure, canceled — and never for a window-skipped run that never created a context),
+and `SoapStreamingClientMetricsTest` (3 cases, a real local `com.sun.net.httpserver`
+loopback server — no WireMock, which this repo doesn't have yet per TECH-044 — verifying
+exactly one `recordSoapCallCompleted` per `stream()` call and exactly one
+`recordSoapRetry` per retry attempt, for success, a non-retryable 400, and a
+retry-exhausting 500). Verified in Docker: clean rebuild, `/actuator/health` unaffected,
+metrics absent before any run (meters are created lazily on first use — expected, not a
+bug), all 10 `sipsa.*` metrics present with exactly the designed tags after a run,
+`/actuator/prometheus` returns the same series in Prometheus text format, no sensitive
+data (no `requestId`, no raw payloads) in any tag or metric name. No status codes,
+`ErrorResponse`, DTOs, security, retries, thresholds, scheduler, or database logic
+changed. No Flyway migration; V1–V4 unchanged; no `V5`.
 
 ---
 
