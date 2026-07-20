@@ -1,8 +1,10 @@
 package com.dalejandrov.sipsa.infrastructure.soap.client;
 
 import com.dalejandrov.sipsa.domain.exception.SipsaExternalException;
+import com.dalejandrov.sipsa.infrastructure.observability.IngestionMetrics;
 import com.dalejandrov.sipsa.infrastructure.soap.config.SoapProperties;
 import com.dalejandrov.sipsa.infrastructure.soap.gateway.SoapGatewayImpl;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -53,6 +55,7 @@ public class SoapStreamingClient {
 
     private final SoapProperties soapProperties;
     private final HttpClient httpClient;
+    private final IngestionMetrics metrics;
 
     /**
      * Creates the SOAP streaming client with configured properties.
@@ -63,9 +66,11 @@ public class SoapStreamingClient {
      * chunked transfers.
      *
      * @param soapProperties configuration properties for SOAP service
+     * @param metrics Micrometer instrumentation for SOAP call counts, retries, and duration (TECH-032)
      */
-    public SoapStreamingClient(SoapProperties soapProperties) {
+    public SoapStreamingClient(SoapProperties soapProperties, IngestionMetrics metrics) {
         this.soapProperties = soapProperties;
+        this.metrics = metrics;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(soapProperties.getConnectTimeoutMs()))
                 .version(HttpClient.Version.HTTP_1_1)  // HTTP/1.1 for better chunked transfer support
@@ -112,50 +117,59 @@ public class SoapStreamingClient {
     @SuppressWarnings("unused")
     public InputStream stream(String soapAction, String soapPayload) {
         String envelope = wrapEnvelope(soapPayload);
+        Timer.Sample sample = metrics.startSoapCall();
+        boolean success = false;
 
-        int attempt = 0;
-        Exception lastException = null;
+        try {
+            int attempt = 0;
+            Exception lastException = null;
 
-        while (attempt <= soapProperties.getMaxRetries()) {
-            if (attempt > 0) {
+            while (attempt <= soapProperties.getMaxRetries()) {
+                if (attempt > 0) {
+                    metrics.recordSoapRetry(soapAction);
+                    try {
+                        /* Exponential backoff: retryBackoffMs * 2^(attempt-1) */
+                        long sleep = soapProperties.getRetryBackoffMs() * (long) Math.pow(2, attempt - 1);
+                        log.info("Retrying SOAP call (attempt {}/{}) in {}ms...", attempt, soapProperties.getMaxRetries(), sleep);
+                        TimeUnit.MILLISECONDS.sleep(sleep);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new SipsaExternalException("Interrupted during retry backoff", e);
+                    }
+                }
+
                 try {
-                    /* Exponential backoff: retryBackoffMs * 2^(attempt-1) */
-                    long sleep = soapProperties.getRetryBackoffMs() * (long) Math.pow(2, attempt - 1);
-                    log.info("Retrying SOAP call (attempt {}/{}) in {}ms...", attempt, soapProperties.getMaxRetries(), sleep);
-                    TimeUnit.MILLISECONDS.sleep(sleep);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new SipsaExternalException("Interrupted during retry backoff", e);
+                    InputStream result = executeCall(envelope);
+                    success = true;
+                    return result;
+                } catch (SipsaExternalException e) {
+                    lastException = e;
+                    if (isNonRetryable(e)) {
+                        log.error("Non-retryable SOAP error: {} (HTTP: {}, Fault: {})",
+                                e.getMessage(), e.getHttpStatus(), e.getSoapFaultCode());
+                        throw e;
+                    }
+                    log.warn("Retryable SOAP error on attempt {}: {} (HTTP: {})",
+                            attempt, e.getMessage(), e.getHttpStatus());
+                } catch (Exception e) {
+                    lastException = e;
+                    if (isNonRetryable(e)) {
+                        log.error("Non-retryable error encountered: {}", e.getMessage());
+                        throw new SipsaExternalException("SOAP call failed (non-retryable)", e);
+                    }
+                    log.warn("Retryable error on attempt {}: {}", attempt, e.getMessage());
                 }
+                attempt++;
             }
 
-            try {
-                return executeCall(envelope);
-            } catch (SipsaExternalException e) {
-                lastException = e;
-                if (isNonRetryable(e)) {
-                    log.error("Non-retryable SOAP error: {} (HTTP: {}, Fault: {})",
-                            e.getMessage(), e.getHttpStatus(), e.getSoapFaultCode());
-                    throw e;
-                }
-                log.warn("Retryable SOAP error on attempt {}: {} (HTTP: {})",
-                        attempt, e.getMessage(), e.getHttpStatus());
-            } catch (Exception e) {
-                lastException = e;
-                if (isNonRetryable(e)) {
-                    log.error("Non-retryable error encountered: {}", e.getMessage());
-                    throw new SipsaExternalException("SOAP call failed (non-retryable)", e);
-                }
-                log.warn("Retryable error on attempt {}: {}", attempt, e.getMessage());
+            // After all retries failed, throw with context
+            if (lastException instanceof SipsaExternalException) {
+                throw (SipsaExternalException) lastException;
             }
-            attempt++;
+            throw new SipsaExternalException("SOAP call failed after " + soapProperties.getMaxRetries() + " retries", lastException);
+        } finally {
+            metrics.recordSoapCallCompleted(sample, soapAction, success);
         }
-
-        // After all retries failed, throw with context
-        if (lastException instanceof SipsaExternalException) {
-            throw (SipsaExternalException) lastException;
-        }
-        throw new SipsaExternalException("SOAP call failed after " + soapProperties.getMaxRetries() + " retries", lastException);
     }
 
     /**
