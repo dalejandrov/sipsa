@@ -8,6 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Testing
+
+- **TECH-042 — completed `IngestionJob.execute()`'s unit test contract, without
+  duplicating coverage TECH-032 and TECH-053 had already added.** An audit-first pass
+  (grepping every `IngestionJob`-related test and reading its real assertions, not just
+  its name) found that `IngestionJobMetricsTest` (TECH-032) and
+  `IngestionJobRejectThresholdTest` (TECH-135) already covered 3 of the 9 target cases
+  from the testing strategy doc; 6 had zero test evidence anywhere in the suite: both
+  duplicate-run cases (`isRunComplete=true` skipped without `force`, proceeds with
+  `force=true`), rejected-record persistence (`logReject` called once per record with
+  exact arguments), `updateMetrics` DB persistence in `finally` (on both success and
+  failure), and the MDC lifecycle (zero `MDC` references existed anywhere in the test
+  suite before this story). New `IngestionJobContractTest` (15 cases) targets exactly
+  those 6 gaps plus explicit `updateStatus`/audit-event assertions for the RUNNING,
+  SUCCEEDED, FAILED (including the `SipsaExternalException` → `httpStatus`/
+  `soapFaultCode` extraction and the null-fields case for a non-external exception),
+  and CANCELED transitions — previously only provable indirectly through the
+  outcome-metric proxy — and an MDC-no-leak-between-executions case. Reuses the
+  `ScriptedIngestionJob` subclass-with-mocked-collaborators pattern already established
+  by `IngestionJobMetricsTest`; no existing test file was rewritten or consolidated.
+  Test-only story: no scheduler, dispatcher, executor, `CallerRunsPolicy`, metric
+  names/tags, `IngestionMetrics`, production audit logic, business/threshold logic,
+  repository, or API change. No Flyway migration; V1–V4 unchanged.
+
 ### Fixed
 
 - **TECH-060 — removed the N+1 query pattern from
