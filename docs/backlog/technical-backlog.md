@@ -54,9 +54,9 @@ When a story is implemented:
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
-| TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending (infrastructure) |
-| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending (infrastructure) |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | Pending (infrastructure) |
+| TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending — audited 2026-07-20, blocked on decisions (see [aws-production-readiness.md](../architecture/aws-production-readiness.md)) |
+| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — audited 2026-07-20, blocked on TECH-130 + decisions |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | Pending — audited 2026-07-20, blocked on decisions |
 | TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
@@ -2592,6 +2592,16 @@ step confirmed the suite ran).
 **Complexity:** M
 **Branch:** — (infrastructure work; IaC location to be defined — likely a separate repository)
 
+**Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
+code changed):** full classification and evidence in
+[aws-production-readiness.md](../architecture/aws-production-readiness.md) §2. Every
+application-side item (issuer/`token_use`/`client_id`/scope validation, key rotation) is
+already implemented and e2e-validated against a mock issuer — confirmed **E** (resolved).
+Remaining blockers are the real user pool/resource server/app clients (**C**, needs AWS
+account access) plus 3 open decisions (**D**): how many `client_credentials` app clients
+and their scopes, whether a human-operator `authorization_code` flow is needed at all,
+and where client secrets are stored. **Cannot be marked Done** until those are resolved.
+
 **Origin:** [ADR-002](../adr/ADR-002-internal-endpoint-security.md) (Accepted, Option E),
 layer 2. The application side (Resource Server, TECH-001) is already implemented and
 validated against a local mock OIDC issuer (e2e re-validated 2026-07-15 post-merge, 9/9
@@ -2629,6 +2639,20 @@ green); this story provisions the real identity provider.
 **Complexity:** M
 **Branch:** — (infrastructure work)
 
+**Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
+code changed):** full classification and evidence in
+[aws-production-readiness.md](../architecture/aws-production-readiness.md) §2. Confirmed
+by reading `IngestionJob`/`ScheduledIngestionDispatcher`: the async trigger (TECH-053)
+means `POST /api/internal/ingestion/run` returns `202` in milliseconds, so API Gateway's
+~29s REST integration timeout is not at risk (**E**, resolved). No incompatibility found
+between the Cognito authorizer, API keys, private integration, and Spring Security's own
+re-validation — four independent responsibilities, not overlapping ones (§3 of the
+readiness doc). Open blockers: depends on TECH-130 existing (**C**); REST vs HTTP API,
+whether an IAM/SigV4 authorizer path is needed, real usage-plan tiers (the backlog's
+`basic`/`partner` figures below are illustrative examples, not a decision), and CORS
+(**D**, all four — CORS in particular has zero prior mention anywhere in this repo).
+**Cannot be marked Done** until those are resolved.
+
 **Origin:** ADR-002 (Accepted, Option E), layer 1.
 
 **Scope:**
@@ -2662,6 +2686,21 @@ green); this story provisions the real identity provider.
 **Status:** Pending
 **Complexity:** M
 **Branch:** — (infrastructure work)
+
+**Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
+code changed):** full classification, gateway-bypass-prevention design, and evidence in
+[aws-production-readiness.md](../architecture/aws-production-readiness.md) §2 and §7.
+Confirmed by reading `SoapProperties`/`.env.example`: `SOAP_ENDPOINT` is a **public
+internet** DANE endpoint, so a **NAT Gateway (or equivalent) is required, not optional**
+— VPC endpoints alone cannot cover this egress path (this is evidence-based, not a
+default assumption). App-side readiness confirmed **E**: `/actuator/health` is
+unauthenticated with Spring Boot's liveness/readiness probe groups already enabled, the
+app is fully environment-driven for `DB_HOST`/`DB_PORT`, and it logs to stdout
+(CloudWatch-Logs-ready) — no code change needed for any of this. Open blockers (**D**):
+ECS Fargate vs EC2, RDS vs self-managed PostgreSQL, VPC-internal TLS policy, and whether
+Cloud Map service discovery is needed (likely not, for a single API-Gateway-fronted
+service — not yet confirmed). Every provisioning step itself is **C** (real AWS access).
+**Cannot be marked Done** until the D items are resolved.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 4.
 
