@@ -17,9 +17,9 @@ These are approved and queued for implementation. See [Technical Backlog](../bac
 | Story | Description | Phase |
 |---|---|---|
 | TECH-020 | Fix `@RequestMapping` without leading `/` | Phase 1 |
-| TECH-021 | `SipsaParseException` → HTTP 502 | Phase 2 |
-| TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Phase 2 |
-| TECH-023 | Add `requestId` and `instance` to `ErrorResponse` | Phase 2 |
+| TECH-021 | `SipsaParseException` → HTTP 502 — **Done** (2026-07-19) | Phase 2 |
+| TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 — **Done** (2026-07-19) | Phase 2 |
+| TECH-023 | Add `requestId` and `instance` to `ErrorResponse` — **Done** (2026-07-19) | Phase 2 |
 | TECH-030 | Named executor in `@Async` of `IngestionAuditService` — **Done**, resolved by [TECH-136](../backlog/technical-backlog.md#tech-136) (2026-07-19) | Phase 1 |
 | TECH-050 | Remove placeholder comments from handlers | Phase 1 |
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Phase 1 |

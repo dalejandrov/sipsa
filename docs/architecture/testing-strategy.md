@@ -164,30 +164,47 @@ Mock all dependencies: `WindowPolicy`, `IngestionControlService`, `IngestionAudi
 
 ---
 
-### `GlobalExceptionHandlerTest`
+### `GlobalExceptionHandlerContractTest` — **Done** (2026-07-20, TECH-043)
 
 **Target:** `api/controller/GlobalExceptionHandler.java`  
-**Branch:** `test/exception-handler`
+**Branch:** `test/global-exception-handler-contract` (the originally-listed
+`test/exception-handler` name, and the originally-planned `GlobalExceptionHandlerTest`
+class name, were not reused)
 
-Use `@WebMvcTest(GlobalExceptionHandler.class)` with a minimal test controller that throws
-each exception type.
+Implemented with `@WebMvcTest` and a shared fixture controller
+(`RequestContextThrowingTestController`) that throws each exception type — 15 cases
+covering every `@ExceptionHandler` method via real MVC dispatch.
 
-| Test case | Expected HTTP | Expected `code` field |
+**Note — the table below was written before TECH-021/022/023 shipped, proposing a
+`SIPSA_*`-prefixed error-code taxonomy from ADR-003's draft (still `Proposed`, never
+`Accepted`). That taxonomy was explicitly *not* adopted: TECH-021 and TECH-022 changed
+only HTTP status codes, deliberately preserving the existing `code` values, and TECH-023
+added `requestId`/`instance` without touching `code` either. The table now reflects the
+`code` values actually in `main`.**
+
+| Test case | Actual HTTP | Actual `code` field |
 |---|---|---|
-| `SipsaValidationException` | 400 | `SIPSA_VALIDATION_ERROR` |
-| `SipsaParseException` (after TECH-021) | 502 | `SIPSA_UPSTREAM_PARSE_ERROR` |
-| `SipsaIngestionValidationException` | 400 | `SIPSA_INGESTION_VALIDATION_ERROR` |
-| `SipsaNotFoundException` (after TECH-022) | 404 | `SIPSA_NOT_FOUND` |
-| `SipsaBusinessException` | 422 | `SIPSA_BUSINESS_ERROR` |
-| `SipsaExternalException` | 502 | `SIPSA_UPSTREAM_ERROR` |
-| `SipsaIngestionException` | 500 | `SIPSA_INGESTION_ERROR` |
-| `SipsaConfigurationException` | 500 | `SIPSA_CONFIGURATION_ERROR` |
-| `MethodArgumentNotValidException` | 400 | `SIPSA_VALIDATION_ERROR` |
-| `ConstraintViolationException` | 400 | `SIPSA_VALIDATION_ERROR` |
-| `Exception` (unknown) | 500 | `SIPSA_INTERNAL_ERROR` |
+| `SipsaValidationException` | 400 | `VALIDATION_ERROR` |
+| `SipsaParseException` (TECH-021) | 502 | `PARSE_ERROR` |
+| `SipsaIngestionValidationException` | 400 | `INGESTION_VALIDATION_ERROR` |
+| `SipsaNotFoundException` (TECH-022) | 404 | `NOT_FOUND` |
+| `SipsaBusinessException` | 422 | `BUSINESS_ERROR` |
+| `SipsaExternalException` | 502 | `EXTERNAL_ERROR` |
+| `SipsaIngestionException` | 500 | `INGESTION_ERROR` |
+| `SipsaConfigurationException` | 500 | `CONFIGURATION_ERROR` |
+| `MethodArgumentNotValidException` | 400 | `VALIDATION_ERROR` |
+| `ConstraintViolationException` | 400 | `VALIDATION_ERROR` |
+| `MethodArgumentTypeMismatchException` | 400 | `TYPE_MISMATCH` |
+| `HttpMessageNotReadableException` | 400 | `INVALID_FORMAT` |
+| `MissingServletRequestParameterException` | 400 | `MISSING_PARAMETER` |
+| `NoResourceFoundException` / `NoHandlerFoundException` | 404 | `NOT_FOUND` |
+| `Exception` (unknown) | 500 | `INTERNAL_ERROR` |
 
-**Important:** Each test must verify that no stack trace appears in the response body
-and that infrastructure details (class names, SQL, table names) are not exposed.
+Every case also asserts `requestId` (present), `instance` (matches the request path),
+and a present `timestamp` (TECH-023's additive fields). **Verified:** no test asserts
+that a stack trace appears in the response body, and no infrastructure detail (class
+names, SQL, table names) is exposed — confirmed explicitly for the two `500` cases and
+the generic-exception catch-all.
 
 ---
 

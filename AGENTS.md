@@ -47,8 +47,11 @@ Full architecture description: [`docs/adr/ADR-000-current-architecture.md`](docs
 ## Current Phase
 
 **Phase 1 — Foundation Cleanup is done** (2026-07-19). **Phase 2 — Contract and
-Correctness** is next: TECH-021, TECH-022, TECH-023 close the HTTP error contract;
-TECH-053/TECH-054 remain unblocked but are not part of that immediate group. See the
+Correctness:** the HTTP error contract is closed — TECH-021, TECH-022, TECH-023 are
+**Done** (2026-07-19), and TECH-043 (Phase 3, full `GlobalExceptionHandler` test
+coverage) is also **Done** (2026-07-20), completed ahead of Phase 2's remaining items
+by explicit prioritization since all four are one thread of work. TECH-053 and
+TECH-054 are the only Phase 2 items still pending. See the
 [implementation roadmap](docs/architecture/implementation-roadmap.md) for current
 phase status and the [technical backlog](docs/backlog/technical-backlog.md) for
 per-story evidence.
