@@ -47,9 +47,9 @@ When a story is implemented:
 | TECH-081 | Write ADR-001 (deduplication) | Low | 6 | **Done** (2026-07-16 — ADR-001 Accepted with empirical evidence) |
 | TECH-090 | Move internal ingestion commands to `application/command` | Low | — | **Done** |
 | TECH-091 | Move `TimezoneFilter` out of `infrastructure/config` into `api` | Low | — | **Done** |
-| TECH-092 | Separate generated SOAP sources from manual code | Low | — | **Blocked** (needs TECH-094 SPIKE) |
+| TECH-092 | Separate generated SOAP sources from manual code | Low | — | Ready — unblocked by TECH-094 (Recommended: proceed, with 1 scope correction, see [SPIKE report](../architecture/spikes/TECH-094-generated-soap-relocation.md)) |
 | TECH-093 | Add ArchUnit package-boundary rules (Historia B) | Low | — | Done |
-| TECH-094 | SPIKE: Evaluate relocating CXF-generated SOAP sources | Low | — | Pending |
+| TECH-094 | SPIKE: Evaluate relocating CXF-generated SOAP sources | Low | — | Done |
 | TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A) | Low | — | **Done** |
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
@@ -1792,30 +1792,43 @@ filter ordering — no change.
 **Type:** Refactor
 **Priority:** Low
 **Phase:** —
-**Status:** **Blocked** — F3 is explicitly **not** part of ADR-007's scoped acceptance.
-Requires [TECH-094](#tech-094) (SPIKE) to complete first; TECH-094's findings determine
-whether this story is approved as-is, re-scoped, or rejected. **Do not move any generated
-code before TECH-094 reports back.**
+**Status:** Ready — unblocked by TECH-094 (2026-07-20, **Recommended: proceed**, with the
+scope correction below). Not started; not implemented as part of TECH-094.
 **Complexity:** S
 **Branch:** `refactor/soap-generated-package` (not created yet)
 
+**Scope correction from TECH-094's SPIKE (mandatory, verified by running the actual
+change — see [the SPIKE report](../architecture/spikes/TECH-094-generated-soap-relocation.md)
+§5):** `SoapGatewayImpl.java`'s wildcard import (`soap.client.*`) also supplies
+`SoapStreamingClient`, which stays in the *old* package (it's hand-written, not
+generated). Retargeting the wildcard alone breaks compilation. Add a 4th line beyond the
+original 3:
+`import com.dalejandrov.sipsa.infrastructure.soap.client.SoapStreamingClient;`
+The SPIKE also corrected the generated-file count from 24 (ADR-007's original,
+unverified figure) to a freshly-measured **22** — informational, no scope impact.
+
 **Problem:**
-`cxf-codegen-plugin` generates 24 JAXB classes into
+`cxf-codegen-plugin` generates 22 JAXB classes (corrected by TECH-094's SPIKE from the
+originally-cited 24, which was never re-verified before being repeated) into
 `com.dalejandrov.sipsa.infrastructure.soap.client` — the same package as the hand-written
 `SoapStreamingClient.java`. Generated and manual code are not distinguishable by package.
 
-**Evidence:** ADR-007 §F3. `pom.xml:264` (`-p com.dalejandrov.sipsa.infrastructure.soap.client`);
-`find target/generated-sources -name "*.java"` → 24 files in that package.
+**Evidence:** ADR-007 §F3. `pom.xml:307` (`-p com.dalejandrov.sipsa.infrastructure.soap.client`);
+`find target/generated-sources -name "*.java"` → 22 files in that package (TECH-094,
+2026-07-20).
 
 **Scope:**
 - `pom.xml`: change the `wsdl2java` `-p` argument to `com.dalejandrov.sipsa.infrastructure.soap.generated`.
-- `src/main/java/com/dalejandrov/sipsa/infrastructure/soap/gateway/SoapGatewayImpl.java:5`: update the wildcard import.
+- `src/main/java/com/dalejandrov/sipsa/infrastructure/soap/gateway/SoapGatewayImpl.java:5`: update the wildcard import **and add the new explicit `SoapStreamingClient` import** (see the scope correction above).
 - `src/main/java/com/dalejandrov/sipsa/infrastructure/soap/config/SipsaSoapClientConfig.java:4-5`: update the two explicit imports.
 
-**Dependencies:** [TECH-094](#tech-094) (SPIKE) must complete first.
+**Dependencies:** [TECH-094](#tech-094) (SPIKE) — **complete**, recommendation: proceed.
 
-**Risk:** Low, but must be verified, not assumed — JAXB `@XmlType`/`@XmlSchema` bindings
-occasionally reference the generated package implicitly.
+**Risk:** Low — **verified by TECH-094's SPIKE**, not merely assumed. JAXB
+`@XmlType`/`@XmlSchema` bindings were confirmed independent of the Java package (bound to
+the WSDL/XSD's XML target namespace instead); a full retarget-and-verify experiment
+produced a diff-clean regeneration and a green `./mvnw clean verify` (415/415 tests,
+SOAP marshalling included) once the scope correction above was applied.
 
 **Verification steps (mandatory, per this story's acceptance criteria):**
 1. Confirm the WSDL and JAX-WS catalog are unchanged.
@@ -1939,9 +1952,10 @@ infrastructure change. No Flyway migration; V1–V4 unchanged.
 **Type:** SPIKE
 **Priority:** Low
 **Phase:** —
-**Status:** Pending
+**Status:** Done
 **Complexity:** XS
-**Branch:** `spike/soap-generated-package`
+**Branch:** `spike/evaluate-generated-soap-relocation` (the originally-listed
+`spike/soap-generated-package` name was not reused)
 **Dependencies:** None.
 
 **Problem:** ADR-007 §F3 identified that CXF-generated JAXB classes share a package with
@@ -1968,12 +1982,34 @@ verified evidence. TECH-092 must not proceed until this is investigated directly
    size and risk found above.
 
 **Acceptance Criteria:**
-- [ ] Report answering all 9 points above, added to this story's **Completed** section or
+- [x] Report answering all 9 points above, added to this story's **Completed** section or
       linked as a separate note.
-- [ ] Explicit recommendation: proceed with TECH-092 as scoped, re-scope it, or reject it.
-- [ ] No source code changed as part of this SPIKE.
+- [x] Explicit recommendation: proceed with TECH-092 as scoped, re-scope it, or reject it.
+- [x] No source code changed as part of this SPIKE.
 
-**Completed:** —
+**Completed:** Full report at
+[docs/architecture/spikes/TECH-094-generated-soap-relocation.md](../architecture/spikes/TECH-094-generated-soap-relocation.md).
+**Recommendation: proceed with TECH-092**, with one scope correction. Summary of the 9
+points: (1) `cxf-codegen-plugin` 4.2.2; (2) `SrvSipsaUpraBeanService.wsdl` + local
+`jax-ws-catalog.xml`, no remote fetch; (3) current target package
+`infrastructure.soap.client`; (4) confirmed not version-controlled (`.gitignore:11`); (5)
+deterministic modulo a cosmetic generation-timestamp comment in 2 of 22 files, verified
+by running codegen twice and diffing; (6) **file count corrected from the previously-cited
+24 to a freshly-measured 22** — a real discrepancy this SPIKE caught rather than
+re-assumed, with no change to the risk conclusion; expected diff **verified, not
+estimated**, at 1 `pom.xml` line + 4 import lines (not 3 — see next point); (7) import
+impact on both files confirmed, and a **real gap found**: `SoapGatewayImpl`'s wildcard
+import was also the only import path for the hand-written `SoapStreamingClient` (which
+stays in the old package) — retargeting the wildcard alone breaks the build; a 4th line
+(one explicit `SoapStreamingClient` import) is required and was not in the original
+3-line scope; (8) confirmed via a full `./mvnw clean verify` on the actual retargeted
+package — `BUILD SUCCESS`, 415/415 tests green, including real-PostgreSQL Testcontainers
+suites and SOAP marshalling tests; (9) yes, worth it — a 5-line diff closing a real
+architectural gap (ADR-007 §F3), evidence-based rather than a "low, but non-zero"
+judgment call. The relocation (package retarget + 4 import lines) was implemented,
+verified end-to-end, and **fully reverted** (`git checkout --`) before this SPIKE's
+final commit — `git status --short` confirmed clean afterward. No production code
+change is part of this story.
 
 ---
 
