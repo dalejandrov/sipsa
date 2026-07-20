@@ -1,6 +1,6 @@
 # ADR-005 — Scheduler Execution Model
 
-**Status:** Proposed  
+**Status:** Accepted (2026-07-20, refined — see Resolution)  
 **Date:** 2026-07-13  
 **Backlog:** [TECH-053](../backlog/technical-backlog.md#tech-053)
 
@@ -104,4 +104,54 @@ Recommendation: **Option A**, with the following safeguards:
 
 ---
 
-*Update this ADR to `Accepted` after TECH-053 is implemented.*
+---
+
+## Resolution (2026-07-20, TECH-053)
+
+**Option A was accepted, refined.** The literal Option A sketch above —
+`asyncIngestionService.executeAsync(request)` called once per method — was not used
+as-is: dispatching each of the daily window's three methods as an *independent*
+`@Async` call would let them race each other on `ingestionTaskExecutor` (core pool
+size 2, so genuinely concurrent), silently breaking the sequential,
+resource-contention-avoiding execution this same document's Problem section
+describes as the current, intentional behavior ("the three ingestion jobs run one
+after another"). This gap wasn't discussed in the Alternatives section above.
+
+**Actual design:** a new `ScheduledIngestionDispatcher` (not `AsyncIngestionService`,
+which stays dedicated to the manual-trigger, one-request-per-dispatch path — its
+existing purpose and callers are unchanged) exposes one `@Async("ingestionTaskExecutor")`
+method **per scheduled window**, not per method:
+- `dispatchDailyWindow()` — runs Ciudad → Parcial → Semana sequentially, inside one
+  async call, on one worker thread. One dispatch per cron trigger, not three.
+- `dispatchMonthlyMes()` / `dispatchMonthlyAbas()` — one method each, so the
+  per-method and per-window granularity coincide; no sequencing concern there.
+
+This is still exactly Option A's core trade-off — the scheduler thread returns
+immediately, ingestion runs on the managed pool — with the window-level grouping
+added specifically to preserve the pre-existing sequential-execution property.
+Verified in Docker (a real, cron-fired daily window): the scheduler's `@Scheduled`
+method returns essentially instantly, and all three methods then run in order on a
+single `ingestion-async-*` thread.
+
+**Safeguards from the original recommendation:**
+1. *Queue capacity increase* — **not applied.** At most one window-level task is ever
+   queued per cron trigger (3 became 1 concurrent task, not 3, precisely because of
+   the window-level grouping above) — the concern this safeguard was written for
+   (3 daily + 2 monthly concurrent submissions) does not arise with this design.
+   Changing `queue-capacity` was also out of this story's explicit scope.
+2. *`CallerRunsPolicy` saturation documented* — done, in
+   `ScheduledIngestionDispatcher`'s own Javadoc: under sustained saturation the
+   scheduler thread can still end up blocked (accepted, existing backpressure
+   behavior, not eliminated — this ADR's "non-blocking" claim was never
+   unconditional and TECH-053 does not claim otherwise).
+3. *`isRunComplete()` / duplicate-window prevention validated* — confirmed unchanged:
+   the real `uq_ingestion_runs_window UNIQUE (method_name, window_key)` constraint,
+   translated by `IngestionControlService.createRun` into a `SipsaBusinessException`
+   that `IngestionJob.execute` already treats as a controlled skip, is exercised
+   identically regardless of which thread calls `execute()`. Regression-tested in
+   `ScheduledIngestionDispatcherTest`.
+
+**Consequences realized:** `SipsaIngestionScheduler` now depends on
+`ScheduledIngestionDispatcher`, not `GenericIngestionJob`, at all. Scheduler threads
+are not blocked in the normal (non-saturated) case. Graceful shutdown
+(`await-termination: true`) is unchanged — not touched by this story.
