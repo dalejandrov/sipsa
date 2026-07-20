@@ -3,8 +3,8 @@
 **Version:** 1.0  
 **Date:** 2026-07-13  
 **Last updated:** 2026-07-20 (reconciled against `main` — resolution evidence added for
-O-03, A-03, A-04, T-04 (TECH-023/021/022/043, the HTTP error contract closure); see the
-status note at the end of this document)
+O-03, A-03, A-04, T-04 (TECH-023/021/022/043, the HTTP error contract closure) and O-01
+(TECH-032, ingestion observability); see the status note at the end of this document)
 
 This registry tracks all known technical debt items identified during the architectural review.
 Each item references a backlog story for implementation planning.
@@ -39,7 +39,7 @@ Each item references a backlog story for implementation planning.
 
 | ID | Item | Priority | Impact | Complexity | Risk | Backlog |
 |---|---|---|---|---|---|---|
-| O-01 | No custom Micrometer metrics for ingestion | **Medium** | Cannot alert on duration, rejects, SOAP failures | M | Low | [TECH-032](../backlog/technical-backlog.md#tech-032) |
+| O-01 | ~~No custom Micrometer metrics for ingestion~~ **Resolved** (2026-07-20, TECH-032 — new `IngestionMetrics` component instruments `IngestionJob.execute` and `SoapStreamingClient.stream`; `sipsa.ingestion.duration`/`runs`/`records.*` and `sipsa.soap.calls`/`failures`/`retries`/`duration`, all with bounded `method`/`outcome`/`source` tags; a latent bug found and fixed along the way — `micrometer-registry-prometheus` was marked `optional`, silently excluded from the runnable jar by Spring Boot's repackage goal) | **Medium** | Cannot alert on duration, rejects, SOAP failures | M | Low | [TECH-032](../backlog/technical-backlog.md#tech-032) (Done) |
 | O-02 | ~~`SipsaHealthIndicator` thresholds hardcoded~~ **Resolved** (2026-07-19, TECH-031 — externalized to validated `SipsaHealthProperties`, canonical defaults `36h`/`840h` unchanged) | **Low** | Not configurable per environment | XS | Low | [TECH-031](../backlog/technical-backlog.md#tech-031) (Done) |
 | O-03 | ~~No `requestId`/`instance` in error responses~~ **Resolved** (2026-07-19, TECH-023 — new `RequestIdFilter` establishes a correlation ID per request (validated incoming `X-Request-Id` or a generated UUID); `ErrorResponse`, `IngestionValidationErrorResponse`, and `ValidationErrorResponse` all gained `requestId` and `instance` additively) | **Low** | Difficult to correlate client errors with server logs | S | Low | [TECH-023](../backlog/technical-backlog.md#tech-023) (Done) |
 | O-04 | `GET /api/internal/ingestion/runs` unbounded | **Low** | Memory/performance issue at scale | S | Low | [TECH-054](../backlog/technical-backlog.md#tech-054) |
@@ -115,7 +115,7 @@ Each item references a backlog story for implementation planning.
 | **Total** | **2** | **4** | **7** | **15** | **28** |
 
 **Status note (updated 2026-07-20 against `main`):** of the 28 registered items,
-**20 are resolved**: T-01, T-06 (closed by TECH-110/TECH-040); S-01, S-02 (closed by
+**21 are resolved**: T-01, T-06 (closed by TECH-110/TECH-040); S-01, S-02 (closed by
 TECH-001/TECH-002/ADR-002 on 2026-07-15, application layer merged via PR #17 and
 e2e-validated against the mock OIDC issuer; the AWS gateway/network layers remain
 tracked as TECH-130..132); PS-01 (closed by TECH-010/TECH-011/ADR-001 on 2026-07-16);
@@ -123,7 +123,8 @@ C-01, C-02, C-03, C-04, C-05 (closed by TECH-070/TECH-071/TECH-133/TECH-135/TECH
 2026-07-16 through 2026-07-19 — see [technical backlog](../backlog/technical-backlog.md)
 for each); O-02 (closed by TECH-031, 2026-07-19); O-03 (closed by TECH-023, 2026-07-19);
 A-03, A-04 (closed by TECH-021, TECH-022, both 2026-07-19); T-04 (closed by TECH-043,
-2026-07-20); Q-01, Q-02, Q-03, Q-04, Q-05 (closed by TECH-050, TECH-051, TECH-052,
+2026-07-20); O-01 (closed by TECH-032, 2026-07-20 — merged to `main`, commit `277e00a`);
+Q-01, Q-02, Q-03, Q-04, Q-05 (closed by TECH-050, TECH-051, TECH-052,
 TECH-020, and TECH-136 respectively — the last one resolving the original TECH-030
 finding — all 2026-07-19). **1 is partially resolved / re-scoped** (A-01 — closed for
 the 3 internal commands by TECH-090; the residual imports are accepted by ADR-007).
@@ -131,14 +132,14 @@ Items are annotated in place rather than deleted, so the registry remains the fu
 historical record.
 
 Of the remaining items, the following were **code-verified still open against `main`**
-on 2026-07-19 (exact code citations in the corresponding backlog story): O-01/TECH-032
-(zero Micrometer/`MeterRegistry` usage in `src/main/java` — still true as of 2026-07-20;
-this is the item TECH-032 is now closing), P-01/TECH-060 (`upsertFallbackBatch` still
-one query per item — same pattern also present in the Mensual and Abastecimientos
-repositories). O-04/TECH-054, P-02/TECH-053, A-02/TECH-055 and T-02/T-03
-(TECH-041/042) were **not re-verified this cycle** — no evidence contradicts their
-existing "pending" classification, but no fresh code citation was collected for them
-either.
+on 2026-07-20 (exact code citations in the corresponding backlog story): P-01/TECH-060
+(`upsertFallbackBatch` still one query per item — same pattern also present in the
+Mensual and Abastecimientos repositories; a fix has been implemented and pushed on
+branch `perf/remove-mayoristas-fallback-n-plus-one`, not yet merged to `main` — see
+TECH-060 in the technical backlog for full evidence). O-04/TECH-054, P-02/TECH-053,
+A-02/TECH-055 and T-02/T-03 (TECH-041/042) were **not re-verified this cycle** — no
+evidence contradicts their existing "pending" classification, but no fresh code
+citation was collected for them either.
 
 ---
 
