@@ -10,6 +10,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
+- **TECH-041 — added the first tests for `SpecificationBuilder`, which had zero coverage
+  anywhere (direct or indirect) before this story.** Read the real production contract
+  before writing anything: `withAttribute` is exact-match equality only (no LIKE/partial
+  match/case-insensitivity — the class simply doesn't have them); `withDateOrRange` has a
+  3-way precedence (exact date beats a start/end range beats no filter) using a fixed
+  business timezone; `build()` only supports AND composition, never OR. Confirmed via
+  `SipsaReadService` (all 5 call sites) that every attribute name passed to
+  `SpecificationBuilder` is a hardcoded literal, never client input — no field-name
+  allowlist exists inside the class itself, but no concrete injection/traversal risk
+  exists in real usage today; documented, not "fixed," since no test demonstrates an
+  actual exploitable path. Split into `SpecificationBuilderTest` (13 cases, mocked JPA
+  Criteria API, no database — which builder method fires with which arguments) and
+  `SpecificationBuilderPostgresTest` (8 cases, real PostgreSQL via Testcontainers, against
+  `SipsaMayoristasSemanalRepository` — real AND composition, real `TIMESTAMPTZ`
+  timezone-boundary semantics, and filter+pagination interaction). **Found and documented
+  a real, previously-unwritten implementation detail along the way:** the exact-date
+  filter's `cb.between` is inclusive on both ends, so the exact next-day-midnight instant
+  is itself matched by a same-day filter — negligible in practice, not treated as a
+  defect, but now pinned down by a dedicated test rather than left as an undocumented
+  assumption. Test-only story: no production code changed. No endpoints, HTTP contract,
+  TECH-054 pagination, scheduler, metrics, audit, ingestion repositories, TECH-060, SOAP,
+  security, or database schema change. No Flyway migration; V1–V4 unchanged.
+
 - **TECH-042 — completed `IngestionJob.execute()`'s unit test contract, without
   duplicating coverage TECH-032 and TECH-053 had already added.** An audit-first pass
   (grepping every `IngestionJob`-related test and reading its real assertions, not just

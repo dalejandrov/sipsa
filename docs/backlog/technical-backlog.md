@@ -30,7 +30,7 @@ When a story is implemented:
 | TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Low | 1 | **Done** (2026-07-19, branch `refactor/externalize-health-thresholds`) |
 | TECH-032 | Add Micrometer metrics for ingestion | Medium | 4 | Done |
 | TECH-040 | Unit tests for `WindowPolicy` | High | 3 | **Done** (implemented by TECH-110) |
-| TECH-041 | Unit tests for `SpecificationBuilder` | High | 3 | Pending |
+| TECH-041 | Unit tests for `SpecificationBuilder` | High | 3 | Done |
 | TECH-042 | Unit tests for `IngestionJob` | High | 3 | Done |
 | TECH-043 | Tests for `GlobalExceptionHandler` | Medium | 3 | Done |
 | TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | Partially resolved — Testcontainers half settled by ADR-009 (`FlywayMigrationsTest`); WireMock half pending |
@@ -766,17 +766,74 @@ TECH-110's broader scheduling validation; see TECH-110 for why)
 **Type:** Testing  
 **Priority:** High  
 **Phase:** 3  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** S  
-**Branch:** `test/specification-builder`
+**Branch:** `test/complete-specification-builder-coverage` (the originally-listed
+`test/specification-builder` name was not reused)
 
 **Dependencies:** None.
 
-**Acceptance Criteria:**
-- [ ] ≥ 7 test cases as defined in [Testing Strategy](../architecture/testing-strategy.md).
-- [ ] `./mvnw clean verify` passes.
+**Audit before implementing:** grepped `src/main`/`src/test`/`docs` for `TECH-041`,
+`SpecificationBuilder`, `Specification<`, `JpaSpecificationExecutor`, `CriteriaBuilder`,
+`Predicate`. Result: exactly **one** `SpecificationBuilder` class
+(`infrastructure/specification/SpecificationBuilder.java`), used by `SipsaReadService` for
+5 entity types. **Zero test coverage found anywhere** — no dedicated test file, and no
+indirect/transitive coverage either (no test exercises `SipsaReadService` or any
+`*QueryRequest` filtering path). Unlike TECH-042, this was not a duplication-avoidance
+audit; it confirmed a genuine, complete gap.
 
-**Completed:** —
+**Real contract (read from the production source, not assumed):** `withAttribute` is
+exact-match equality only (no LIKE/partial-match/case-insensitivity — those simply don't
+exist in this class); `withDateOrRange` has a 3-way precedence (exact date > start/end
+range > no filter) with a fixed business timezone; `build()` AND-combines every added
+filter (no OR support anywhere); no field-name allowlist inside the class itself, but
+every one of `SipsaReadService`'s 5 call sites passes a hardcoded literal attribute name,
+never client input — no concrete injection/traversal risk exists in real usage today (see
+full write-up in [Testing Strategy](../architecture/testing-strategy.md)). Several topics
+from the original story's suggested checklist do not apply to this class as implemented
+and were **not** tested, per the instruction not to invent behavior it doesn't have:
+`%`/`_` escaping, case sensitivity, joins, OR composition, enum/boolean type conversion
+(all values arrive already-typed from the caller).
+
+**Decision: Case B (real gaps — actually a full gap) — new tests.** Split across 2
+classes: `SpecificationBuilderTest` (13 cases, mocked JPA Criteria API, no database — pure
+predicate-selection logic) and `SpecificationBuilderPostgresTest` (8 cases, real
+PostgreSQL via Testcontainers, against `SipsaMayoristasSemanalRepository` — AND
+composition, real `TIMESTAMPTZ` timezone-boundary semantics, and filter+pagination
+interaction, none of which a mock can honestly prove). A boundary run of the exact-date
+Postgres test **found and pinned down a real, previously-undocumented implementation
+detail**: `withDateOrRange`'s exact-date filter uses `cb.between`, which is inclusive on
+*both* ends, so the exact next-day-midnight instant is itself matched — the class's own
+Javadoc ("full day range") doesn't spell this out. Documented as observed behavior, not
+treated as a defect (negligible in practice — real ingested timestamps essentially never
+land on exact midnight) and not "fixed," matching the instruction to document rather than
+expand scope absent a concrete demonstrated risk.
+
+**Acceptance Criteria:**
+- [x] ≥ 7 test cases as defined in [Testing Strategy](../architecture/testing-strategy.md)
+      — all 8 originally-planned cases covered, plus 13 more (factory validation,
+      precedence, real DB/timezone/pagination semantics) — 21 new cases total.
+- [x] `./mvnw clean verify` passes (410 tests, up from 389 — 21 net new).
+
+**Completed:** `SpecificationBuilderTest` (13 cases): `builder()` factory
+null/blank/valid-timezone; `withAttribute` null-skip and equal-predicate construction
+(mocked `cb.equal`, args verified); `withDateOrRange`'s 3-way precedence including exact
+date beating an accompanying range; boundary `Instant` values captured and asserted for
+`between`/`greaterThanOrEqualTo`/`lessThan`, not just "some call happened"; `build()`'s
+empty→conjunction and single-filter→unwrapped-passthrough behavior. No SQL-string
+assertions, no Hibernate internals, no incidental predicate ordering — only the class's
+own observable Criteria API calls. `SpecificationBuilderPostgresTest` (8 cases, real
+PostgreSQL): unfiltered `build()` matches every row; an equality filter matches only the
+right rows; a real America/Bogota `TIMESTAMPTZ` calendar-day boundary for the exact-date
+filter (one second before midnight included, one second after the *next* midnight
+excluded) plus the separate inclusive-upper-bound edge case described above; start-only
+range inclusive at the boundary; end-only range exclusive at the boundary; two filters
+combined via real AND composition (not mocked); a filter combined with pagination across
+multiple pages produces no duplicates, no omissions, and never surfaces a non-matching
+row. No production code changed — test-only story, confirmed by diff (only 2 new test
+files). No endpoints, HTTP contract, TECH-054 pagination, scheduler, metrics, audit,
+ingestion repositories, TECH-060, SOAP, general security, database schema, or AWS
+infrastructure change. No Flyway migration; V1–V4 unchanged.
 
 ---
 

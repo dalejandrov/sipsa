@@ -122,23 +122,74 @@ not exist under the default (disabled) configuration.
 
 ---
 
-### `SpecificationBuilderTest`
+### `SpecificationBuilderTest` — **Done** (2026-07-20, TECH-041 — split across 2 classes)
 
 **Target:** `infrastructure/specification/SpecificationBuilder.java`  
-**Branch:** `test/specification-builder`
+**Branch:** `test/complete-specification-builder-coverage` (the originally-listed
+`test/specification-builder` name was not reused)
 
-Use an H2 in-memory repository or pure predicate inspection (no database required).
+**Real contract, confirmed by reading the production source before writing any test** (no
+behavior was assumed or invented):
+- `builder(String timezone)`: throws `SipsaConfigurationException` if `null`/blank.
+- `withAttribute(String attribute, Object value)`: exact-match `cb.equal(root.get(attribute),
+  value)`; skipped entirely if `value` is `null`. No LIKE/partial-match, no
+  case-insensitivity, no `%`/`_` handling, no type conversion — the caller (always
+  `SipsaReadService`, passing already-typed DTO fields) is responsible for the value's
+  type; `SpecificationBuilder` never inspects or converts it.
+- `withDateOrRange(...)`: precedence — exact date wins if present (a full-`between` range
+  from that day's start to the *next* day's start, in the builder's fixed business
+  timezone, never the request's `X-Timezone`); else a start/end range (`between` if both
+  given, `>=` if only start, `<` if only end); all-`null` → no filter.
+- `build()`: empty → `cb.conjunction()` (always-true, unfiltered); one filter → that
+  filter's own predicate, unwrapped; multiple filters → AND-combined via Spring Data's
+  `Specification.and()`. **No OR composition exists anywhere in this class.**
+- **Field-name safety, confirmed via `SipsaReadService`:** `SpecificationBuilder` performs
+  no attribute-name allowlist/validation itself — `root.get(attribute)` is called with
+  whatever string is passed. Every one of its 5 real call sites (`getCiudad`,
+  `getMayoristasMensual`, `getParcial`, `getMayoristasSemanal`,
+  `getAbastecimientosMensual`) passes a **hardcoded string literal**, never a
+  client-supplied value — clients only ever supply filter *values* through typed
+  `*QueryRequest` DTO fields, never field *names*. No concrete injection/traversal risk
+  exists in the actual codebase today; this is a design observation (documented here, not
+  "fixed" — no test demonstrates an exploitable path in real usage, so TECH-041 does not
+  expand into a security rewrite per its own explicit scope limit). No joins are possible
+  either: `Path.get(String)` does not accept a dotted association path.
+
+**Split across 2 classes** (unit tests for pure construction logic; PostgreSQL for real
+DB/timezone/composition semantics — mocking `Specification.and()`'s internals would be
+fragile and would prove nothing about real query behavior):
+
+**`SpecificationBuilderTest`** (13 cases, mocked `Root`/`CriteriaBuilder`/`Path`/`Predicate`,
+no database) — verifies which builder method fires with which arguments:
 
 | Test case | Description |
 |---|---|
-| `withAttribute_null_noPredicateAdded` | Null value → `build()` returns `conjunction()` |
-| `withAttribute_value_equalPredicate` | Non-null value → equal predicate applied |
-| `withDateOrRange_exactDate_singleDayRange` | Exact date → full day range (startOfDay to endOfDay) |
-| `withDateOrRange_startAndEnd_range` | Both dates → between predicate |
-| `withDateOrRange_onlyStart_greaterThanOrEqual` | Start only → `>=` predicate |
-| `withDateOrRange_onlyEnd_lessThan` | End only → `<` predicate |
-| `withDateOrRange_allNull_noPredicateAdded` | All null → no filter |
-| `build_empty_returnsConjunction` | No filters → always-true conjunction |
+| `builder_nullTimezone_throws` / `builder_blankTimezone_throws` / `builder_validTimezone_succeeds` | Factory validation |
+| `withAttribute_null_noPredicateAdded` | Null value → `build()` returns `conjunction()`, `root` never touched |
+| `withAttribute_value_equalPredicate` | Non-null value → `cb.equal(root.get(attribute), value)` |
+| `withDateOrRange_exactDate_singleDayRange` | Exact date → `cb.between` with the correct start/end `Instant`s (captured and asserted, not just "some between call") |
+| `withDateOrRange_exactDateTakesPrecedenceOverRange` | Exact date + start/end all given → the range args are ignored |
+| `withDateOrRange_startAndEnd_range` | Both dates, no exact date → `between(start, end+1day)` |
+| `withDateOrRange_onlyStart_greaterThanOrEqual` | Start only → `>=`, and `between`/`lessThan` are never called |
+| `withDateOrRange_onlyEnd_lessThan` | End only → `<` at `end+1day` |
+| `withDateOrRange_allNull_noPredicateAdded` | All null → no filter, `root` never touched |
+| `build_empty_returnsConjunction` | No filters → `conjunction()` |
+| `build_singleFilter_returnsThatPredicateDirectly` | One filter → returned unwrapped, no AND applied |
+
+**`SpecificationBuilderPostgresTest`** (8 cases, real PostgreSQL via Testcontainers,
+against `SipsaMayoristasSemanalRepository` — the same `JpaSpecificationExecutor` +
+`fecha_ini TIMESTAMPTZ` column `SipsaReadService.getMayoristasSemanal` actually uses):
+no-filter returns every row; an equality filter returns only matching rows; an exact-date
+filter respects the real America/Bogota `TIMESTAMPTZ` calendar-day boundary (a row one
+second before midnight is included, a row one second after the *next* midnight is
+excluded); a start-only range's boundary is inclusive; an end-only range's boundary is
+exclusive; **a verified, real implementation detail**: the exact next-day-midnight instant
+itself *is* matched by the exact-date filter, because `cb.between` is inclusive on both
+ends (the class's own Javadoc describes this as a "full day range," which slightly
+undersells the precise boundary — documented here as observed behavior, not treated as a
+defect); two filters combined select only rows matching both (real AND composition, not
+mocked); and a filter combined with pagination produces no duplicate or omitted rows
+across pages, with non-matching rows never appearing on any page.
 
 ---
 
