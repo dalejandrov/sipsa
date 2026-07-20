@@ -48,7 +48,7 @@ When a story is implemented:
 | TECH-090 | Move internal ingestion commands to `application/command` | Low | — | **Done** |
 | TECH-091 | Move `TimezoneFilter` out of `infrastructure/config` into `api` | Low | — | **Done** |
 | TECH-092 | Separate generated SOAP sources from manual code | Low | — | **Blocked** (needs TECH-094 SPIKE) |
-| TECH-093 | Add ArchUnit package-boundary rules (Historia B) | Low | — | Pending (TECH-090/TECH-091 merged; still not started) |
+| TECH-093 | Add ArchUnit package-boundary rules (Historia B) | Low | — | Done |
 | TECH-094 | SPIKE: Evaluate relocating CXF-generated SOAP sources | Low | — | Pending |
 | TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A) | Low | — | **Done** |
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
@@ -1844,44 +1844,92 @@ bindings — no change.
 **Type:** Testing
 **Priority:** Low
 **Phase:** —
-**Status:** Pending — **blocked until TECH-090 and TECH-091 are merged** (ADR-007 is
-already `Accepted`, scoped to F5; the block is sequencing, not approval)
+**Status:** Done
 **Complexity:** S
-**Branch:** `test/architecture-boundaries`
+**Branch:** `test/enforce-package-boundaries` (the originally-listed
+`test/architecture-boundaries` name was not reused)
 
-**Problem:** No ArchUnit (or equivalent) test exists to prevent the boundaries fixed by
-TECH-090, TECH-091, and TECH-095 from regressing.
+**Problem (before):** No ArchUnit (or equivalent) test existed to prevent the boundaries
+fixed by TECH-090, TECH-091, and TECH-095 from regressing.
 
 **Evidence:** ADR-007 §F5.
 
+**Audit before implementing:** grepped `src/main`/`src/test`/`docs`/`pom.xml` for
+`TECH-093`, `ArchUnit`, `architecture test`, `package boundary`, `layeredArchitecture`.
+Found ADR-007 and this exact backlog entry already specify the 3 rules precisely (no
+architecture had to be invented). Confirmed via a fresh grep of the real current
+dependency graph, not assumed from the ADR's 2026-07-13 snapshot:
+
+| Cross-layer edge | Files (2026-07-20, post TECH-090/091/095) | Status |
+|---|---|---|
+| `application → api` | 5: `IngestionTriggerService`, `IngestionRunQueryService`, `SipsaReadService`, `AuditTrailService`, `IngestionAuditService` — importing `api.dto.request/response`, `api.mapper`, `api.util.TimezoneUtil` | Accepted by ADR-007 (deliberate pattern, not a regression) |
+| `infrastructure → api` | 0 | Fixed by TECH-091, confirmed still 0 |
+| `domain → infrastructure` | 0 | Fixed by TECH-095, confirmed still 0 |
+| `api.controller → infrastructure.persistence.repository` | 0 | Already true, no fix needed — rule only guards regression |
+
+No ArchUnit dependency was present (`grep archunit pom.xml` → no results before this
+story).
+
+| Proposed rule | Architectural evidence | Current violations | Decision |
+|---|---|---|---|
+| `application` does not depend on `api`, except the 5 ADR-007-accepted services | Table above; ADR-007 §Decision explicitly excludes this rule from a blanket form | 0 (with the 5 named exclusions) | Implemented |
+| `domain` does not depend on `infrastructure` | ADR-007 §F4/TECH-095 | 0 | Implemented |
+| `api.controller..` does not depend on `infrastructure.persistence.repository..` | ADR-007 §F5 | 0 | Implemented |
+
 **Scope:**
-- Add `com.tngtech.archunit:archunit-junit5` (test scope) to `pom.xml`.
-- Add one ArchUnit test class asserting exactly these 3 rules (no more in this first version):
-  1. `application` does not depend on `api`.
-  2. `domain` does not depend on `infrastructure`.
-  3. `api.controller..` does not depend on `infrastructure.persistence.repository..`.
+- Added `com.tngtech.archunit:archunit-junit5:1.4.2` (test scope) to `pom.xml` — bytecode
+  import, not reflection, so it works against Java 25 class files regardless of ArchUnit's
+  documented supported-JDK list; verified empirically (all tests green), not assumed.
+- One test class, `PackageBoundaryArchitectureTest`, asserting exactly the 3 rules above —
+  no more.
 
-**Explicitly out of scope for this story's rules:** any additional rule beyond the 3 above.
-In particular, rule 1 (`application` must not depend on `api`) must be written narrowly
-enough to pass against the classes ADR-007 explicitly keeps as-is
-(`SipsaReadService`, `IngestionRunQueryService`, `AuditTrailService` using
-`api.mapper`/`api.dto.response`/`api.dto.request.*QueryRequest`) — either by excluding
-those specific classes or by scoping the rule to `api.dto.request..IngestionRequest`,
-`CreateRunRequest`, `AuditEventRequest` (which TECH-090 removes anyway). Do not write a
-rule that fails against an accepted decision.
+**Rule 1's exact form (why, per this story's own explicit scope limit):** a literal
+"`application` must never depend on `api`" rule would fail on day one against an
+ADR-007-accepted decision. Implemented as `noClasses().that().resideInAPackage
+("..application..").and().areNotAssignableTo(<the 5 accepted classes>).should()
+.dependOnClassesThat().resideInAPackage("..api..")` — the explicitly-authorized "exclude
+those specific classes" strategy from this story's own scope text (the alternative,
+"scope to `api.dto.request..IngestionRequest/CreateRunRequest/AuditEventRequest`," would
+be vacuous today since TECH-090 already moved those 3 classes out of `api.dto.request`
+entirely — it could never catch a real regression). This form protects the *actual*
+regression this rule exists to catch: any application class *other than* the 5 named ones
+newly reaching into `api` (controller, filter, dto, or mapper) is flagged; the 5 named
+exceptions remain exactly as ADR-007 accepted them.
 
-**Dependencies:** TECH-090 and TECH-091 must be merged first so the ArchUnit rules assert
-the *post*-move state rather than failing immediately. TECH-095 (Javadoc fix) must also be
-merged first so rule 2 passes on day one.
+**Generated SOAP code (ADR-007 §F3, TECH-094):** no exclusion was needed for any of the 3
+rules. Rule 3 doesn't touch `infrastructure` internally at all, and `domain`'s dependency
+on `infrastructure` is confirmed zero *of any kind* — nothing about
+`infrastructure.soap.client` (the CXF-generated package) interacts with these rules. No
+SOAP class, generated or hand-written, was moved, and TECH-094/TECH-092 remain untouched
+and unblocked by this story either way.
 
-**Risk:** Low.
+**Regression-detection fixture (proves the rule pattern itself can catch a violation,
+without adding an invalid production class):** `archunitregression.ArchRulePatternRegressionTest`
+(2 cases) — a `FakeDomainClass`/`FakeInfraClass` pair living entirely outside
+`com.dalejandrov.sipsa` (so `PackageBoundaryArchitectureTest`'s own
+`com.dalejandrov.sipsa`-scoped scan never sees them) proves the exact same `noClasses()
+...should().dependOnClassesThat()...` pattern both (a) flags a genuine violation and (b)
+does not false-positive against an innocent class in scope.
+
+**Dependencies:** TECH-090, TECH-091 (merged, confirmed via `main` at `bac0fc9`+) and
+TECH-095 (merged) — all landed first, so these rules assert the *post*-move state.
+
+**Risk:** Low — realized as documented; zero surprises.
 
 **Acceptance Criteria:**
-- [ ] ArchUnit test class exists with the 3 rules above, all green.
-- [ ] `./mvnw clean verify` passes.
-- [ ] No rule beyond the 3 listed was added.
+- [x] ArchUnit test class exists with the 3 rules above, all green.
+- [x] `./mvnw clean verify` passes (415 tests, up from 410 — 5 net new: 3 rules + 2
+      regression-fixture proof cases).
+- [x] No rule beyond the 3 listed was added.
 
-**Completed:** —
+**Completed:** `PackageBoundaryArchitectureTest` (3 `@ArchTest` rules, `@AnalyzeClasses
+(packages = "com.dalejandrov.sipsa", importOptions = ImportOption.DoNotIncludeTests.class)`
+— production sources only, no test class including itself is ever in scope) plus
+`archunitregression.ArchRulePatternRegressionTest` (2 cases, isolated fixture, proves
+detection capability). No production code changed: only `pom.xml` (one test-scope
+dependency + one version property) and new test files. No endpoints, HTTP contract,
+scheduler, metrics, persistence, TECH-054 pagination, security, database, Flyway, or AWS
+infrastructure change. No Flyway migration; V1–V4 unchanged.
 
 ---
 

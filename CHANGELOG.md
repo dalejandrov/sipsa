@@ -10,6 +10,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
+- **TECH-093 — added ArchUnit rules to prevent regression on the three package boundaries
+  ADR-007 established (F1/F2/F4, closed by TECH-090/091/095).** New
+  `com.tngtech.archunit:archunit-junit5:1.4.2` test-scope dependency (bytecode import, not
+  reflection — verified compatible with Java 25). One test class,
+  `PackageBoundaryArchitectureTest`, asserting exactly the 3 rules ADR-007 and this story's
+  own scope specify, no more: (1) `application` must not depend on `api`, except the 5
+  services ADR-007 explicitly accepts as a deliberate pattern (`SipsaReadService`,
+  `IngestionRunQueryService`, `AuditTrailService`, `IngestionTriggerService`,
+  `IngestionAuditService` — consuming HTTP DTOs/mappers/`TimezoneUtil`); (2) `domain` must
+  not depend on `infrastructure`; (3) `api.controller..` must not depend on
+  `infrastructure.persistence.repository..`. All 3 pass against the real, freshly-grepped
+  current dependency graph (not assumed from ADR-007's original 2026-07-13 snapshot) with
+  zero violations. Rule 1 is written as an explicit exclusion of the 5 named accepted
+  classes rather than scoped to the 3 already-relocated `TECH-090` classes, since the
+  latter would be vacuous today and could never catch a real regression. No exclusion was
+  needed for CXF-generated SOAP code (ADR-007 §F3/TECH-094): none of the 3 rules touch
+  `infrastructure` internally, and `domain → infrastructure` is confirmed zero of any
+  kind. A separate negative-control fixture (`archunitregression.ArchRulePatternRegressionTest`,
+  2 cases, entirely outside `com.dalejandrov.sipsa` so it's never part of the real scan)
+  proves the rule pattern itself both flags a genuine violation and doesn't false-positive
+  against innocent code — no invalid production class was added anywhere to demonstrate
+  this. No production code changed: only `pom.xml` (dependency) and new test files. No
+  TECH-094, TECH-092, endpoints, scheduler, metrics, persistence, pagination, security, or
+  database change. No Flyway migration; V1–V4 unchanged.
+
 - **TECH-041 — added the first tests for `SpecificationBuilder`, which had zero coverage
   anywhere (direct or indirect) before this story.** Read the real production contract
   before writing anything: `withAttribute` is exact-match equality only (no LIKE/partial
