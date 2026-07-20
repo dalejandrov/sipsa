@@ -8,6 +8,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **TECH-053 — the scheduler dispatches ingestion asynchronously; scheduler threads no
+  longer block for the duration of a run.** `SipsaIngestionScheduler` no longer depends
+  on `GenericIngestionJob` at all — each `@Scheduled` method now logs and delegates to
+  a new `ScheduledIngestionDispatcher` (`@Async("ingestionTaskExecutor")`, the same
+  executor already used by manual-trigger ingestion and audit logging — no new
+  executor). **Dispatch is per window, not per method:** the daily window's Ciudad →
+  Parcial → Semana sequence still runs sequentially, on one worker thread, inside a
+  single async call — dispatching each method as its own independent async call would
+  have let them race on the pool, silently breaking the sequential,
+  resource-contention-avoiding execution this exact codebase already relied on. This
+  is a deliberate refinement of ADR-005's Option A (now **Accepted** — see its
+  Resolution section), not the literal `asyncIngestionService.executeAsync(request)`-
+  per-method sketch the ADR and original backlog entry described. Request
+  construction, `RequestSource.SCHEDULED`, per-method failure containment
+  (try/catch/`log.error`, one method's failure doesn't stop the others), and the
+  existing overlap-prevention path (the real `uq_ingestion_runs_window` unique
+  constraint, translated to a controlled skip by `IngestionControlService.createRun`)
+  are all unchanged — only relocated and regression-tested. `CallerRunsPolicy`
+  saturation behavior is unchanged and explicitly not oversold: under sustained
+  overload the scheduler thread can still end up blocked, same as before. New tests:
+  `SipsaIngestionSchedulerTest` (3 cases, rewritten to verify pure delegation),
+  `ScheduledIngestionDispatcherTest` (9 cases — the previous scheduler test's logic
+  moved here, plus a new overlap-protection regression), `ScheduledIngestionAsyncDispatchTest`
+  (3 cases, real Spring context — dispatch-returns-before-completion via a controlled
+  latch, `ingestion-async-*` thread name, and the daily window confirmed still
+  sequential on one thread even when dispatched asynchronously). Verified in Docker
+  with a real cron-fired trigger (daily window bounds and cron time overridden via env
+  vars for this one verification run only, no committed config changed): scheduler
+  returned immediately, all three methods ran in order on one `ingestion-async-1`
+  thread, three runs created with no duplicates, audit events and the
+  `sipsa.ingestion.runs` metric each present exactly once per run, health unaffected.
+  No cron, window, HTTP, pagination, repository, deduplication, or database change. No
+  Flyway migration; V1–V4 unchanged.
+
 ### Added
 
 - **TECH-032 — Micrometer metrics for the ingestion pipeline and SOAP calls.** New

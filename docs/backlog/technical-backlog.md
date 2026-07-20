@@ -37,7 +37,7 @@ When a story is implemented:
 | TECH-050 | Remove placeholder comments from handlers | Low | 1 | **Done** (2026-07-19, branch `refactor/remove-existing-code-comments`) |
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Low | 1 | **Done** (2026-07-19, branch `refactor/rename-audit-mapper-response`) |
 | TECH-052 | `getRun()` returns `Optional<IngestionRun>` | Low | 1 | **Done** (2026-07-19, branch `refactor/optional-ingestion-run`) |
-| TECH-053 | Make scheduler dispatch async | Medium | 2 | Pending |
+| TECH-053 | Make scheduler dispatch async | Medium | 2 | Done |
 | TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Low | 2 | Pending |
 | TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | Low | 6 | Pending |
 | TECH-060 | Fix N+1 in `upsertFallbackBatch` | Medium | 4 | Pending |
@@ -1038,27 +1038,104 @@ migration; V1–V4 unchanged.
 **Type:** Correctiva  
 **Priority:** Medium  
 **Phase:** 2  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** S  
-**Branch:** `fix/scheduler-async-execution`
+**Branch:** `feat/async-scheduled-ingestion` (the originally-listed
+`fix/scheduler-async-execution` name was not reused)
 
 **Problem:**
 `SipsaIngestionScheduler.runSafely()` calls `ingestionJob.execute()` synchronously, blocking
 one of the 5 scheduler threads for the full duration of the ingestion (potentially hours for Parcial).
 
-**Evidence:** `SipsaIngestionScheduler.java:130`: `ingestionJob.execute(request)`
+**Evidence (before):** `SipsaIngestionScheduler.java:130`: `ingestionJob.execute(request)`
 
-**Objective:** Replace with `asyncIngestionService.executeAsync(request)` which uses `@Async("ingestionTaskExecutor")`.
+**Diagnosis (before implementing):**
 
-**Dependencies:** See [ADR-005](../adr/ADR-005-scheduler-execution-model.md) for the decision and trade-offs.
+| Scheduler method | Cron/window | Request source | Job called | Thread (before) | Dispatch (after) |
+|---|---|---|---|---|---|
+| `runDailyWindow()` | `0 20 14 * * *` (14:20 COT) | SCHEDULED | Ciudad, Parcial, Semana — 3 separate `IngestionRequest`s, sequential | scheduler thread, blocked for all 3 | `dispatcher.dispatchDailyWindow()` — one async call, still sequential inside it |
+| `runMonthlyMes()` | `0 30 14 8 * *` (day 8) | SCHEDULED | MesMadr — 1 request | scheduler thread, blocked | `dispatcher.dispatchMonthlyMes()` — one async call |
+| `runMonthlyAbas()` | `0 30 14 10 * *` (day 10) | SCHEDULED | AbasMes — 1 request | scheduler thread, blocked | `dispatcher.dispatchMonthlyAbas()` — one async call |
+
+- **Overlap prevention:** already exists, unrelated to threading — the real
+  `uq_ingestion_runs_window UNIQUE (method_name, window_key)` constraint (V1),
+  translated by `IngestionControlService.createRun` into `SipsaBusinessException`,
+  which `IngestionJob.execute` already treats as a controlled skip (audited, not
+  thrown). Confirmed unchanged by this story; regression-tested (see below).
+- **Executor:** the existing `ingestionTaskExecutor` (`AsyncConfig`, pool 2/10/25/60s,
+  `CallerRunsPolicy`) — already used by manual-trigger ingestion
+  (`AsyncIngestionService.executeAsync`) and audit logging
+  (`IngestionAuditService.logEvent`). No new executor created.
+- **Saturation:** `CallerRunsPolicy` means a saturated pool runs the rejected task on
+  the *calling* thread — here, the scheduler thread, which would then block. This is
+  accepted, existing backpressure (governs the other two `ingestionTaskExecutor`
+  consumers identically), not eliminated by this story — documented precisely, not
+  overclaimed (see `ScheduledIngestionDispatcher`'s Javadoc and ADR-005's Resolution).
+- **Error registration:** unchanged — `runSafely`'s existing try/catch/`log.error`,
+  now living in `ScheduledIngestionDispatcher` instead of `SipsaIngestionScheduler`.
+- **Metrics/audit:** both already flow through `IngestionJob.execute`'s existing
+  paths (`IngestionMetrics.recordRunCompleted`, `IngestionAuditService.logEvent`),
+  called exactly once per `execute()` invocation — dispatching asynchronously
+  doesn't change how many times `execute()` is called, only which thread calls it.
+- **Shutdown:** `sipsa.scheduling.await-termination-seconds` (scheduler pool) and the
+  async executor's own graceful shutdown are both pre-existing and untouched.
+
+**Deviation from the original "Objective" and ADR-005's literal Option A sketch
+(documented, not silent):** neither said to reuse `asyncIngestionService.executeAsync(request)`
+called once per method. Doing so would dispatch the daily window's three methods as
+three *independent* async calls, letting them race on the pool (core size 2) —
+silently breaking the sequential, resource-contention-avoiding execution this same
+story's own evidence describes as intentional current behavior. Instead: a new
+`ScheduledIngestionDispatcher` dispatches **per window**, not per method —
+`dispatchDailyWindow()` runs all three sequentially inside one `@Async` call, on one
+worker thread. `AsyncIngestionService` (manual-trigger path) is untouched — different
+concern, different caller, not reused here. Full reasoning recorded in
+[ADR-005](../adr/ADR-005-scheduler-execution-model.md)'s Resolution section, now
+**Accepted**.
 
 **Acceptance Criteria:**
-- [ ] `runDailyWindow()` returns in < 200ms.
-- [ ] Ingestion jobs run in the `ingestionTaskExecutor` pool.
-- [ ] Logs include `requestSource=SCHEDULED`.
-- [ ] `./mvnw clean verify` passes.
+- [x] `runDailyWindow()` returns without waiting for ingestion to finish (not a literal
+      "< 200ms" stopwatch assertion — proven structurally in
+      `ScheduledIngestionAsyncDispatchTest` via a blocked-latch job that hasn't
+      finished by the time the dispatch call returns; verified live in Docker, where
+      the scheduler's log line and the async thread's first log line are ~100ms apart
+      and the scheduler was never observed blocked).
+- [x] Ingestion jobs run in the `ingestionTaskExecutor` pool — verified by real thread
+      name (`ingestion-async-*`) in both the Spring-context test and Docker.
+- [x] Logs include `requestSource=SCHEDULED` — unchanged, confirmed in Docker
+      (`"requestSource":"SCHEDULED"` on all three runs).
+- [x] `./mvnw clean verify` passes (334 tests, up from 327 — 7 net new).
 
-**Completed:** —
+**Completed:** `SipsaIngestionScheduler` no longer depends on `GenericIngestionJob` at
+all — each `@Scheduled` method logs and calls exactly one method on the new
+`ScheduledIngestionDispatcher` (a separate bean, avoiding `@Async` self-invocation),
+which does the actual dispatch. Request construction (`IngestionRequest.scheduled`,
+UUID `requestId`), `RequestSource.SCHEDULED`, per-method try/catch/`log.error`
+failure containment, and the exact Ciudad → Parcial → Semana sequential order are all
+unchanged — only relocated from `SipsaIngestionScheduler` to
+`ScheduledIngestionDispatcher`. Tests: `SipsaIngestionSchedulerTest` (3 cases, rewritten —
+verifies the scheduler only delegates, never touches `GenericIngestionJob`),
+`ScheduledIngestionDispatcherTest` (9 cases — the old scheduler test's 8 cases moved
+here verbatim (order, flags/UUID, monthly correctness, failure containment), plus one
+new case proving the existing overlap-protection path survives unmodified, using a
+real `GenericIngestionJob` with mocked collaborators), `ScheduledIngestionAsyncDispatchTest`
+(3 cases, real `@SpringBootTest` context — the only way to actually exercise the
+`@Async` proxy and real `ingestionTaskExecutor`: dispatch-returns-before-completion via
+a controlled latch, thread name assertion, multiple dispatches produce one execution
+each with no drops/duplicates, and the daily window's three methods confirmed to run
+sequentially on a single thread even when dispatched asynchronously). Verified in
+Docker with a real cron-fired trigger (daily window's start/end bounds and the cron
+itself were overridden via env vars for this one verification run only — neither
+`application.yaml` nor `docker-compose.yml` changed — so a genuine window-validated
+run could occur without waiting for the real 14:20 COT trigger): scheduler thread
+logged the trigger and returned; all three methods then ran, in order, on a single
+`ingestion-async-1` thread; three runs created (`requestSource: SCHEDULED`, no
+duplicates); audit events (`INGESTION_STARTED`/`RUNNING`/`FAILED`/`METRICS_UPDATED`)
+present exactly once per run; `sipsa.ingestion.runs` metric shows `COUNT: 3.0`
+(`source=scheduled`, no duplication); `/actuator/health` unaffected throughout. No
+cron expression, window logic, HTTP contract, pagination, repository, deduplication,
+metric semantics, audit event shape, database, or Flyway change. No Flyway migration;
+V1–V4 unchanged; no `V5`.
 
 ---
 
