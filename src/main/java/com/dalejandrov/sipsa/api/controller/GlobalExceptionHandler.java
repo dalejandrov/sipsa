@@ -2,6 +2,7 @@ package com.dalejandrov.sipsa.api.controller;
 
 import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
 import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
+import com.dalejandrov.sipsa.domain.exception.SipsaNotFoundException;
 import com.dalejandrov.sipsa.domain.exception.SipsaValidationException;
 import com.dalejandrov.sipsa.domain.exception.SipsaIngestionException;
 import com.dalejandrov.sipsa.domain.exception.SipsaParseException;
@@ -39,6 +40,9 @@ import java.util.stream.Collectors;
  *   <li>{@link SipsaValidationException} → 400 Bad Request</li>
  *   <li>{@link SipsaIngestionValidationException} → 400 Bad Request (with available methods)</li>
  *   <li>{@link SipsaBusinessException} → 422 Unprocessable Entity</li>
+ *   <li>{@link SipsaNotFoundException} → 404 Not Found (TECH-022: the referenced
+ *       resource — e.g. an ingestion run ID — does not exist, as opposed to existing
+ *       but being in a state that rejects the requested operation)</li>
  *   <li>{@link SipsaParseException} → 502 Bad Gateway (TECH-021: malformed data comes
  *       from DANE's upstream XML response, not from the API client)</li>
  *   <li>{@link SipsaExternalException} → 502 Bad Gateway</li>
@@ -95,6 +99,24 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleBusinessException(SipsaBusinessException ex) {
         log.error("Business logic error: {}", ex.getMessage(), ex);
         return buildErrorResponse(HttpStatus.UNPROCESSABLE_CONTENT, "BUSINESS_ERROR", ex.getMessage());
+    }
+
+    /**
+     * Handles not-found exceptions (referenced resource does not exist).
+     * <p>
+     * TECH-022: distinct from {@link SipsaBusinessException} — this means the resource
+     * (e.g. an ingestion run ID) was never there, not that it exists but the requested
+     * operation on it is invalid. The error {@code code} is {@code "NOT_FOUND"}, the same
+     * one {@link #handleNotFound(Exception)} already uses for routing-level 404s — both
+     * are the same HTTP concept, distinguished by the {@code message}.
+     *
+     * @param ex the not-found exception
+     * @return HTTP 404 response with error details
+     */
+    @ExceptionHandler(SipsaNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNotFoundException(SipsaNotFoundException ex) {
+        log.warn("Not found: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage());
     }
 
     /**

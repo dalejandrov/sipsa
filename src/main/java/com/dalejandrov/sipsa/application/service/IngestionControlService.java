@@ -6,6 +6,7 @@ import com.dalejandrov.sipsa.domain.entity.IngestionRun;
 import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
 import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
+import com.dalejandrov.sipsa.domain.exception.SipsaNotFoundException;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.IngestionRejectRepository;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.IngestionRunRepository;
 import lombok.RequiredArgsConstructor;
@@ -323,13 +324,14 @@ public class IngestionControlService {
      * Updates the run status to CANCELED and logs the cancellation.
      *
      * @param runId the run identifier
-     * @throws SipsaBusinessException if run not found or not active
+     * @throws SipsaNotFoundException if run not found
+     * @throws SipsaBusinessException if run exists but is not active
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void cancelRun(long runId) {
         IngestionRun run = runRepository.findById(runId).orElse(null);
         if (run == null) {
-            throw new SipsaBusinessException("Run not found: " + runId);
+            throw new SipsaNotFoundException("Run not found: " + runId);
         }
         if (run.getStatus() != IngestionRunStatus.STARTED && run.getStatus() != IngestionRunStatus.RUNNING) {
             throw new SipsaBusinessException("Run is not active (status: " + run.getStatus() + ")");
