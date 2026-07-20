@@ -320,8 +320,15 @@
                                         <extraarg>-keep</extraarg>
                                         <extraarg>-wsdlLocation</extraarg>
                                         <extraarg>classpath:/wsdl/SrvSipsaUpraBeanService.wsdl</extraarg>
+                                        <!-- TECH-092: generated code lives in its own, clearly-marked
+                                             package, distinguishable from the hand-written classes in
+                                             infrastructure.soap.client (SoapStreamingClient,
+                                             SipsaSoapClientConfig, SoapGatewayImpl). The package mapping
+                                             here is the single source of truth for the generated
+                                             package - do not hand-edit the 22 generated files' package
+                                             declarations as a substitute for changing this argument. -->
                                         <extraarg>-p</extraarg>
-                                        <extraarg>com.dalejandrov.sipsa.infrastructure.soap.client</extraarg>
+                                        <extraarg>com.dalejandrov.sipsa.infrastructure.soap.generated</extraarg>
                                     </extraargs>
                                 </wsdlOption>
                             </wsdlOptions>

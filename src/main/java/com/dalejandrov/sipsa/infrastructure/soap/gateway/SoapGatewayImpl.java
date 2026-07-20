@@ -2,8 +2,14 @@ package com.dalejandrov.sipsa.infrastructure.soap.gateway;
 
 import com.dalejandrov.sipsa.domain.exception.SipsaIngestionException;
 import com.dalejandrov.sipsa.domain.gateway.SoapGateway;
-import com.dalejandrov.sipsa.infrastructure.soap.client.*;
+import com.dalejandrov.sipsa.infrastructure.soap.client.SoapStreamingClient;
 import com.dalejandrov.sipsa.infrastructure.soap.config.SoapProperties;
+import com.dalejandrov.sipsa.infrastructure.soap.generated.ConsultarInsumosSipsaMesMadr;
+import com.dalejandrov.sipsa.infrastructure.soap.generated.PromedioAbasSipsaMesMadr;
+import com.dalejandrov.sipsa.infrastructure.soap.generated.PromediosSipsaCiudad;
+import com.dalejandrov.sipsa.infrastructure.soap.generated.PromediosSipsaMesMadr;
+import com.dalejandrov.sipsa.infrastructure.soap.generated.PromediosSipsaParcial;
+import com.dalejandrov.sipsa.infrastructure.soap.generated.PromediosSipsaSemanaMadr;
 import jakarta.xml.bind.JAXBContext;
 import jakarta.xml.bind.JAXBException;
 import jakarta.xml.bind.Marshaller;
