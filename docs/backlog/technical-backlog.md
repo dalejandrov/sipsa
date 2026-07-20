@@ -32,7 +32,7 @@ When a story is implemented:
 | TECH-040 | Unit tests for `WindowPolicy` | High | 3 | **Done** (implemented by TECH-110) |
 | TECH-041 | Unit tests for `SpecificationBuilder` | High | 3 | Pending |
 | TECH-042 | Unit tests for `IngestionJob` | High | 3 | Pending |
-| TECH-043 | Tests for `GlobalExceptionHandler` | Medium | 3 | Pending |
+| TECH-043 | Tests for `GlobalExceptionHandler` | Medium | 3 | Done |
 | TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | Partially resolved — Testcontainers half settled by ADR-009 (`FlywayMigrationsTest`); WireMock half pending |
 | TECH-050 | Remove placeholder comments from handlers | Low | 1 | **Done** (2026-07-19, branch `refactor/remove-existing-code-comments`) |
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Low | 1 | **Done** (2026-07-19, branch `refactor/rename-audit-mapper-response`) |
@@ -718,18 +718,74 @@ TECH-110's broader scheduling validation; see TECH-110 for why)
 **Type:** Testing  
 **Priority:** Medium  
 **Phase:** 3  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** S  
-**Branch:** `test/exception-handler`
+**Branch:** `test/global-exception-handler-contract` (the originally-listed
+`test/exception-handler` name was not reused)
 
-**Dependencies:** TECH-021 and TECH-022 must be done first so that 502 and 404 cases are included.
+**Dependencies:** TECH-021 and TECH-022 were done first so that 502 and 404 cases are
+included. TECH-023 also landed first, so `requestId`/`instance` are asserted on every
+case rather than the original 5-field shape.
+
+**Handler inventory (`GlobalExceptionHandler.java`, as of `main` before this story):**
+
+| Exception | HTTP | `code` | Prior test | Gap closed |
+| --- | ---: | --- | --- | --- |
+| `SipsaValidationException` | 400 | `VALIDATION_ERROR` | none (unit-level only, via `ParcialQueryRequestTest`) | MVC coverage added |
+| `SipsaBusinessException` | 422 | `BUSINESS_ERROR` | TECH-021/022/023 regression checks | full field coverage added |
+| `SipsaNotFoundException` | 404 | `NOT_FOUND` | TECH-022, TECH-023 | full field coverage added |
+| `SipsaIngestionException` | 500 | `INGESTION_ERROR` | none (unit-level only, via `IngestionJobRejectThresholdTest`) | MVC coverage added |
+| `SipsaParseException` | 502 | `PARSE_ERROR` | TECH-021, TECH-023 | full field coverage added |
+| `SipsaExternalException` | 502 | `EXTERNAL_ERROR` | none | MVC coverage added |
+| `SipsaConfigurationException` | 500 | `CONFIGURATION_ERROR` | none (unit-level only, via `WindowPolicyTest`/`SipsaJwtValidatorsTest`) | MVC coverage added |
+| `Exception` (catch-all) | 500 | `INTERNAL_ERROR` | TECH-023 | re-verified + explicit no-stack-trace/no-original-message assertions |
+| `SipsaIngestionValidationException` | 400 | `INGESTION_VALIDATION_ERROR` | none | MVC coverage added, `availableMethods` asserted |
+| `MethodArgumentNotValidException` | 400 | `VALIDATION_ERROR` | TECH-023 | re-verified, `fieldErrors` asserted |
+| `ConstraintViolationException` | 400 | `VALIDATION_ERROR` | none | MVC coverage added (new `@Validated` path-variable fixture endpoint) |
+| `MethodArgumentTypeMismatchException` | 400 | `TYPE_MISMATCH` | none | MVC coverage added |
+| `HttpMessageNotReadableException` | 400 | `INVALID_FORMAT` | none | MVC coverage added (malformed JSON on the existing `@RequestBody` fixture endpoint) |
+| `MissingServletRequestParameterException` | 400 | `MISSING_PARAMETER` | none | MVC coverage added |
+| `NoHandlerFoundException` / `NoResourceFoundException` | 404 | `NOT_FOUND` | none | `NoResourceFoundException` covered (unmapped route); `NoHandlerFoundException` specifically is presently unreachable — see note below |
+
+**Not covered (out of `GlobalExceptionHandler`'s scope, confirmed no handler exists):**
+`HttpRequestMethodNotSupportedException` (405) and `HttpMediaTypeNotSupportedException`
+(415) have no `@ExceptionHandler` in this class — Spring Boot's default error machinery
+handles them, so there is nothing of this class's contract to test.
+
+**Note (documentation-only, not a defect):** the `handleNotFound` Javadoc states it
+"Requires `spring.mvc.throw-exception-if-no-handler-found=true`," but neither
+`application.yaml` nor any profile sets that property. In this Spring Boot version, an
+unmapped route reaches `NoResourceFoundException` on its own (verified in the new
+tests), so the practical case — unmapped route → 404 — is fully covered regardless;
+`NoHandlerFoundException` itself is just never thrown given current configuration. No
+code change made; behavior is already correct.
 
 **Acceptance Criteria:**
-- [ ] One `@WebMvcTest` test per exception handler.
-- [ ] Each test verifies HTTP code and `code` field; no stack trace in response.
-- [ ] `./mvnw clean verify` passes.
+- [x] Every `@ExceptionHandler` covered via real MVC dispatch (`@WebMvcTest`), not one
+      test per handler in isolation — 15 cases in `GlobalExceptionHandlerContractTest`.
+- [x] Each test verifies HTTP status, `Content-Type`, `code`, `message`, `requestId`,
+      `instance`, a present `timestamp`, and (for the two handlers with extra fields)
+      `fieldErrors`/`availableMethods`; the generic-exception and two 500 cases also
+      assert no stack trace or original exception text leaks into the body.
+- [x] `./mvnw clean verify` passes (311 tests, up from 296 — 15 new).
 
-**Completed:** —
+**Fixtures reused:** `RequestContextThrowingTestController` (introduced in TECH-023) was
+extended with 8 new endpoints (`validation-error`, `ingestion-error`, `external-error`,
+`configuration-error`, `ingestion-validation-error`, `type-mismatch/{id}`,
+`missing-param`, `constraint-violation/{value}`) rather than creating a second,
+near-duplicate fixture controller — it's now shared across TECH-023's and TECH-043's
+tests. `ParseExceptionThrowingTestController` (TECH-021) was left as-is, unchanged.
+
+**Defects found:** none. Every handler behaved exactly as documented; no production code
+was changed in this story.
+
+**Completed:** New `GlobalExceptionHandlerContractTest` (15 cases) closes the coverage
+gap the table above documents — this is the first test in the repository to exercise
+every `@ExceptionHandler` method in `GlobalExceptionHandler` through real MVC dispatch
+with the full field contract (including TECH-023's `requestId`/`instance`) asserted on
+each. No status code, error code, message, `ErrorResponse` shape, or `RequestIdFilter`
+behavior was changed — this story is test-and-documentation only. No Flyway migration;
+V1–V4 unchanged; no `V5`.
 
 ---
 
