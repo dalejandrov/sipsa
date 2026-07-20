@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.BadJwtException;
@@ -20,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -216,6 +218,12 @@ class InternalEndpointSecurityTest {
         @Test
         @DisplayName("runs listing with sipsa/ingestion.read -> 200")
         void runs_withReadScope_200() throws Exception {
+            // TECH-054: getAllRuns now returns Page<...>, not List<...> - Mockito's
+            // built-in "empty collection" default answer does not cover Page, so an
+            // explicit stub is required here (unlike the List-returning endpoints
+            // elsewhere in this class, which rely on that default).
+            when(runQueryService.getAllRuns(any())).thenReturn(Page.empty());
+
             mvc.perform(get("/api/internal/ingestion/runs")
                             .with(tokenWithScope("sipsa/ingestion.read")))
                     .andExpect(status().isOk());

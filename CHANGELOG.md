@@ -10,6 +10,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-054 — `GET /api/internal/ingestion/runs` is now paginated; it no longer loads
+  every row in `ingestion_runs`.** **Contract change for consumers:** the response body
+  changed from a bare JSON array to this API's existing paginated envelope,
+  `ApiResponse<IngestionRunDetailResponse>` (`{count, next, prev, pages, results}` —
+  `PaginationUtils.toApiResponse`, `next`/`prev` omitted when null), the same shape
+  already used by `GET /api/sipsa/*` and `GET /api/internal/audit/all`; consumers
+  reading a raw array must switch to reading `.results`. **Parameters:** `page`
+  (default 1) and `size` (default 20, maximum 100) — bound via a new
+  `IngestionRunQueryRequest` record that clamps out-of-range values rather than
+  rejecting them (`page < 1` → 1, `size < 1` → 20, `size > 100` → 100), matching every
+  other `*QueryRequest` DTO in the codebase (`CiudadQueryRequest`, `AuditQueryRequest`)
+  — a genuinely non-numeric value (e.g. `size=abc`) still produces the existing 400
+  `VALIDATION_ERROR` contract (`requestId`, `instance`, `fieldErrors`, no stack trace).
+  **Order:** fixed `startTime DESC, runId DESC` (not client-configurable) — `runId` is
+  the deterministic tie-breaker for equal `startTime` values, so pagination never
+  duplicates or omits a run across pages. **Implementation:** `SipsaOpsController` →
+  `IngestionRunQueryService.getAllRuns(IngestionRunQueryRequest)` → the *existing but
+  previously unused* `IngestionControlService.findAllRuns(Pageable)` →
+  `IngestionRunRepository.findAll(Pageable)` (inherited from `JpaRepository`, no custom
+  `@Query`) → `Page<IngestionRun>.map(mapper::toDetailDto)` — a real `Page` end to end,
+  never `findAll()` followed by an in-memory sublist. The now-dead, unbounded
+  `IngestionControlService.findAllRuns()` (no-arg) was deleted; it had no other
+  callers. Reused `PaginationConfig`/`PaginationUtils` as-is (the codebase's existing
+  canonical pagination convention, confirmed via diagnosis before implementing) — no
+  new pagination format introduced, `PaginationConfig` itself untouched. New tests:
+  `IngestionRunQueryServiceGetAllRunsTest` (11 cases — empty/first/intermediate/last
+  page, stable two-column order, entity→DTO mapping, `totalElements`/`totalPages`
+  propagation, confirms the unpaged `findAllRuns()` overload no longer exists),
+  `SipsaOpsControllerRunsPaginationTest` (11 cases — defaults, explicit page/size,
+  content, empty page, clamped negative/zero/over-max values, 401/403, the malformed-
+  `size` 400 contract, the `ApiResponse` envelope shape), `IngestionRunPaginationTest`
+  (6 cases, real PostgreSQL via Testcontainers — only the requested page size is
+  fetched, order is stable across repeated calls, total count is correct, pages never
+  duplicate or omit a run, equal-timestamp rows tie-break deterministically by
+  `runId`, and a paginated fetch issues exactly 2 SQL statements regardless of table
+  size, not one that scales with row count). Verified in Docker: 25 runs seeded
+  directly via SQL (no real DANE SOAP call needed for a pure read endpoint), page 1/2/3
+  of size 10 returned correct, non-overlapping, stably-ordered slices with correct
+  `next`/`prev` links; 401 without a token; 403 with `sipsa/audit.read`; health and
+  `/actuator/metrics` unaffected; Flyway still at v4, no new migration. No scheduler,
+  metrics, audit, run-execution, cancellation, SOAP, security, or database schema
+  change.
+
 - **TECH-053 — the scheduler dispatches ingestion asynchronously; scheduler threads no
   longer block for the duration of a run.** `SipsaIngestionScheduler` no longer depends
   on `GenericIngestionJob` at all — each `@Scheduled` method now logs and delegates to

@@ -291,18 +291,6 @@ public class IngestionControlService {
     }
 
     /**
-     * Retrieves all ingestion runs without pagination.
-     * <p>
-     * Use this method when expecting a small number of records.
-     *
-     * @return list of all run entities
-     */
-    @Transactional(readOnly = true)
-    public List<IngestionRun> findAllRuns() {
-        return runRepository.findAll();
-    }
-
-    /**
      * Checks if an ingestion run has been canceled.
      * <p>
      * This method should be called periodically during long-running ingestion processes

@@ -38,7 +38,7 @@ When a story is implemented:
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Low | 1 | **Done** (2026-07-19, branch `refactor/rename-audit-mapper-response`) |
 | TECH-052 | `getRun()` returns `Optional<IngestionRun>` | Low | 1 | **Done** (2026-07-19, branch `refactor/optional-ingestion-run`) |
 | TECH-053 | Make scheduler dispatch async | Medium | 2 | Done |
-| TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Low | 2 | Pending |
+| TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Low | 2 | Done |
 | TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | Low | 6 | Pending |
 | TECH-060 | Fix N+1 in `upsertFallbackBatch` | Medium | 4 | Pending |
 | TECH-070 | Bean Validation on `SoapProperties` | Low | 1 | **Done** (2026-07-19, branch `refactor/validate-soap-properties`) |
@@ -1145,20 +1145,106 @@ V1–V4 unchanged; no `V5`.
 **Type:** Correctiva  
 **Priority:** Low  
 **Phase:** 2  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** S  
-**Branch:** `fix/runs-endpoint-pagination`
+**Branch:** `feat/paginate-ingestion-runs` (the originally-listed
+`fix/runs-endpoint-pagination` name was not reused)
 
-**Evidence:** `IngestionRunQueryService.java:68`: `controlService.findAllRuns()` without Pageable.
+**Evidence (before):** `IngestionRunQueryService.java:68`: `controlService.findAllRuns()`
+without `Pageable` — `SipsaOpsController.getAllRuns()` returned a bare
+`List<IngestionRunDetailResponse>` with every row in `ingestion_runs`.
 
 **Dependencies:** None.
 
-**Acceptance Criteria:**
-- [ ] `GET /api/internal/ingestion/runs` accepts `page` and `size` query parameters.
-- [ ] Default: returns the most recent 50 runs when no parameters are provided.
-- [ ] `./mvnw clean verify` passes.
+**Diagnosis (before implementing):**
 
-**Completed:** —
+| Layer | Current method | Current return | Problem | Proposed contract |
+|---|---|---|---|---|
+| `SipsaOpsController.getAllRuns()` | `GET /api/internal/ingestion/runs`, no params | `ResponseEntity<List<IngestionRunDetailResponse>>` | bare array, unbounded | `ResponseEntity<ApiResponse<IngestionRunDetailResponse>>` |
+| `IngestionRunQueryService.getAllRuns()` | no args | `List<IngestionRunDetailResponse>` (`.stream().map(...).toList()`) | maps the full list, no pagination | `getAllRuns(IngestionRunQueryRequest)` → `Page<IngestionRunDetailResponse>` via `Page.map(mapper::toDetailDto)` |
+| `IngestionControlService.findAllRuns()` | no args | `List<IngestionRun>` (`runRepository.findAll()`) | unbounded `findAll()` | deleted (no callers left); `findAllRuns(Pageable)` — **already existed, unused** — is now the sole overload |
+| `IngestionRunRepository` | `JpaRepository<IngestionRun, Long>` | n/a | — | `findAll(Pageable)` inherited for free, no custom `@Query` needed |
+
+- **Existing paginated wrapper standard, confirmed before designing anything:**
+  `ApiResponse<T>` (`{count, next, prev, pages, results}`, `next`/`prev` omitted when
+  null) + `PaginationUtils.toApiResponse(Page<T>)`, already used by `GET /api/sipsa/*`
+  and `GET /api/internal/audit/all`. Reused as-is — no second pagination format
+  invented, and the generic `{content, page, size, totalElements, totalPages, first,
+  last}` shape considered up front was deliberately abandoned once this convention was
+  found.
+- **Existing `page`/`size` DTO convention, confirmed before designing validation:**
+  every `*QueryRequest` record (`CiudadQueryRequest`, `AuditQueryRequest`) clamps
+  out-of-range `page`/`size` in its compact constructor rather than rejecting them.
+  `IngestionRunQueryRequest` follows the identical pattern (`page < 1` → 1, `size < 1`
+  → 20, `size > 100` → 100) instead of introducing a new, inconsistent validation
+  behavior for just this one endpoint. A genuinely malformed (non-numeric) value is
+  unaffected by clamping and still produces the pre-existing 400 `VALIDATION_ERROR`
+  contract (`requestId`, `instance`, `fieldErrors`, no stack trace) — verified with a
+  dedicated MVC test.
+- **Order:** no existing order was documented for this endpoint (`findAll()` returned
+  whatever the database happened to return). Chose `startTime DESC, runId DESC` —
+  most-recent-first, with `runId` as a deterministic tie-breaker for equal
+  `startTime` values, so no page can duplicate or omit a run. Built via
+  `PaginationConfig.buildPageable(page, size, null)` for its existing
+  defaulting/validation behavior, then wrapped in a fresh two-column `Sort` —
+  `buildPageable`'s `sort` parameter only supports a single field, and `PaginationConfig`
+  itself (shared by other endpoints) was left untouched.
+- **Consumers:** grepped `README.md` and `CONTRIBUTING.md` — the only two references
+  to this endpoint outside the code. `README.md` documented the bare-array shape (now
+  updated); `CONTRIBUTING.md`'s `curl` example doesn't assert a response shape. No
+  evidence of a consumer requiring the old array preserved, so no dual endpoint and no
+  `unpaged=true` parameter were added.
+
+**Acceptance Criteria:**
+- [x] `GET /api/internal/ingestion/runs` accepts `page` and `size` query parameters
+      (default `page=1`, `size=20`, maximum `size=100`).
+- [x] Default: returns the most recent runs first (`startTime DESC, runId DESC`), page
+      1 of size 20, when no parameters are provided — not "the most recent 50 runs"
+      literally, since that was the pre-pagination assumption the diagnosis
+      superseded once the repo's real `page`/`size`/default-20 convention was found;
+      any of the most recent runs are reachable by paging.
+- [x] `./mvnw clean verify` passes (362 tests, up from 334 — 28 net new).
+
+**Completed:** Contract change for consumers: the response body changed from a bare
+JSON array to the existing `ApiResponse<IngestionRunDetailResponse>` envelope —
+consumers reading a raw array must switch to reading `.results`. Layers modified:
+`SipsaOpsController` (now builds `ApiResponse` via `PaginationUtils.toApiResponse`),
+new `IngestionRunQueryRequest` record (query-bound, clamps `page`/`size`),
+`IngestionRunQueryService.getAllRuns(IngestionRunQueryRequest)` (builds the fixed-sort
+`Pageable`, delegates, maps `Page<IngestionRun>` → `Page<IngestionRunDetailResponse>`),
+`IngestionControlService` (deleted the dead unpaged `findAllRuns()`; the paginated
+`findAllRuns(Pageable)` overload already existed and needed no change). The repository
+needed zero new code: `IngestionRunRepository.findAll(Pageable)` is Spring Data JPA's
+built-in paginated finder — confirmed via a real PostgreSQL query-count assertion (see
+below) that it issues exactly one `SELECT ... ORDER BY ... LIMIT ? OFFSET ?` and one
+`SELECT COUNT(...)`, never one query per row. No `findAll()` + in-memory `subList`
+anywhere in the new code. Tests: `IngestionRunQueryServiceGetAllRunsTest` (11 cases —
+empty/first/intermediate/last page, the fixed two-column stable order, entity→DTO
+mapping, `totalElements`/`totalPages` propagation, page/size forwarded correctly,
+confirms the no-arg `findAllRuns()` overload no longer exists on
+`IngestionControlService`), `SipsaOpsControllerRunsPaginationTest` (11 cases — no-param
+defaults forwarded as page=1/size=20, explicit page/size, real content, empty page,
+clamped negative-page/zero-size/over-max-size (all still 200, clamped not rejected),
+401 without a token, 403 with the wrong scope, the malformed-`size` 400 error
+contract, and the `ApiResponse` envelope shape), `IngestionRunPaginationTest` (6 cases,
+real PostgreSQL via Testcontainers, no H2 — only the requested page size is fetched
+regardless of table size, order is stable and repeatable, total count is correct, the
+union of every page across a full pagination walk equals the full inserted set with no
+duplicates, equal-`startTime` rows still tie-break deterministically by `runId`, and a
+Hibernate-statistics assertion proves a paginated fetch issues exactly 2 SQL statements
+whether the table has 5 or 40 rows). Verified in Docker: clean startup, Flyway still at
+v4 (no `V5`); 25 runs seeded directly via SQL (a pure read endpoint needs no real DANE
+SOAP call to verify); `page=1&size=10`, `page=2`, and `page=3` (partial last page)
+each returned correct, non-overlapping, `startTime DESC`-ordered slices with correct
+`next`/`prev` links and `count=25`, `pages=3`; the no-params call defaulted to
+`size=20` (`pages=2`); 401 without a token; 403 with `sipsa/audit.read`;
+`/actuator/health` and `/actuator/metrics` unaffected. `IngestionRunQueryServiceGetRunStatusTest`
+and `InternalEndpointSecurityTest` updated only for the new constructor
+signature/return type (`PaginationConfig` dependency; `Page.empty()` stub for
+Mockito's default answer, which doesn't cover `Page`) — no behavior change in either.
+No scheduler, TECH-053, metrics, audit, run-execution, cancellation, TECH-060, SIPSA
+data repository, SOAP, general security, or database schema change. No Flyway
+migration; V1–V4 unchanged; no `V5`.
 
 ---
 
