@@ -142,25 +142,42 @@ Use an H2 in-memory repository or pure predicate inspection (no database require
 
 ---
 
-### `IngestionJobTest`
+### `IngestionJobTest` — **Done** (2026-07-20, TECH-042 — covered by 4 existing/new classes, no single `IngestionJobTest` file)
 
-**Target:** `application/ingestion/core/IngestionJob.java` (via `GenericIngestionJob`)  
-**Branch:** `test/ingestion-job`
+**Target:** `application/ingestion/core/IngestionJob.java` (via a minimal `ScriptedIngestionJob`
+subclass — the same role `GenericIngestionJob` plays here, but without pulling in its own
+SOAP/handler concerns)  
+**Branch:** `test/complete-ingestion-job-coverage`
 
-Mock all dependencies: `WindowPolicy`, `IngestionControlService`, `IngestionAuditService`,
-`IngestionService`.
+All dependencies mocked (`WindowPolicy`, `IngestionControlService`, `IngestionAuditService`,
+`IngestionMetrics`) — no database, no SOAP, no Spring context, matching the original
+acceptance criteria exactly. TECH-042's audit (this story) found that TECH-032 and TECH-053
+had already organically covered 3 of these 9 target cases plus a related 10th behavior
+(overlap-prevention skip) while adding their own unit tests; rather than duplicate that
+coverage in a new monolithic `IngestionJobTest`, the 6 genuinely-uncovered cases were added
+to a new, narrowly-scoped `IngestionJobContractTest`, and the table below maps every
+original target case to the real class+method that covers it today:
 
-| Test case | Description |
-|---|---|
-| `windowViolation_runSkipped` | `WindowViolationException` → early return, no run created |
-| `alreadySucceeded_duplicateSkipped` | `isRunComplete=true`, `force=false` → early return |
-| `alreadySucceeded_forceTrue_runCreated` | `isRunComplete=true`, `force=true` → run created |
-| `runCreatedSuccessfully_progressesToRunning` | Normal flow → run created → status RUNNING |
-| `runCanceled_afterIngestion_markedCanceled` | `isRunCanceled=true` → status CANCELED, no SUCCEEDED |
-| `ingestionFails_runMarkedFailed` | Handler throws → status FAILED, error logged |
-| `thresholdExceeded_runMarkedFailed` | `rejectCount > maxRejectCount` → `SipsaIngestionException` |
-| `rejectedRecords_persistedInFinally` | Even on failure, `logReject` called for each rejected record |
-| `metrics_alwaysSavedInFinally` | `updateMetrics` called regardless of success or failure |
+| Test case | Description | Covered by |
+|---|---|---|
+| `windowViolation_runSkipped` | `WindowViolationException` → early return, no run created | `IngestionJobMetricsTest.windowSkippedRun_neverRecordsMetrics` (TECH-032) |
+| `alreadySucceeded_duplicateSkipped` | `isRunComplete=true`, `force=false` → early return | `IngestionJobContractTest.duplicateRun_notForced_skippedNoRunCreated` (TECH-042) |
+| `alreadySucceeded_forceTrue_runCreated` | `isRunComplete=true`, `force=true` → run created | `IngestionJobContractTest.duplicateRun_forced_runCreatedAndProceeds` (TECH-042) |
+| `runCreatedSuccessfully_progressesToRunning` | Normal flow → run created → status RUNNING | `IngestionJobContractTest.runningTransition_statusAndAuditEmitted` (TECH-042) |
+| `runCanceled_afterIngestion_markedCanceled` | `isRunCanceled=true` → status CANCELED, no SUCCEEDED | `IngestionJobContractTest.canceledTransition_auditEmitted_statusNotOverwritten` (TECH-042); outcome-metric proxy already in `IngestionJobMetricsTest.canceledRun_recordsOutcomeCanceledOnce` (TECH-032) |
+| `ingestionFails_runMarkedFailed` | Handler throws → status FAILED, error logged | `IngestionJobContractTest.failedTransition_statusAndAuditEmitted` + `.failedTransition_nonExternalException_nullHttpAndFaultCode` (TECH-042); outcome-metric proxy already in `IngestionJobMetricsTest.failedRun_recordsOutcomeFailureOnce` (TECH-032) |
+| `thresholdExceeded_runMarkedFailed` | `rejectCount > maxRejectCount` → `SipsaIngestionException` | `IngestionJobRejectThresholdTest` (7 cases, direct `validateThresholds` calls — rate/count/OR-precedence/boundary/zero-tolerance, TECH-135) |
+| `rejectedRecords_persistedInFinally` | Even on failure, `logReject` called for each rejected record | `IngestionJobContractTest.rejectedRecords_persistedViaLogRejectInFinally` + `.noRejectedRecords_logRejectNeverCalled` (TECH-042) |
+| `metrics_alwaysSavedInFinally` | `updateMetrics` called regardless of success or failure | `IngestionJobContractTest.updateMetricsCalledInFinally_onSuccess` + `.updateMetricsCalledInFinally_onFailure` (TECH-042) |
+
+**Beyond the original 9 cases**, TECH-042 also added: MDC lifecycle (populated during
+`runIngestion` with the correct 5 keys, cleared after both success and failure, and proven
+not to leak between two sequential executions on the same thread — zero prior coverage of
+`IngestionJob`'s MDC handling anywhere in the suite). The `createRun` →
+`SipsaBusinessException` overlap-skip path (a run that cannot even start) is covered
+transitively by `ScheduledIngestionDispatcherTest.dailyWindow_existingOverlapProtection_stillSkipsAndContinues`
+(TECH-053, via a real `GenericIngestionJob`) — legitimate behavioral coverage, left as-is
+rather than duplicated at the `IngestionJob` level.
 
 ---
 

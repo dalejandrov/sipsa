@@ -31,7 +31,7 @@ When a story is implemented:
 | TECH-032 | Add Micrometer metrics for ingestion | Medium | 4 | Done |
 | TECH-040 | Unit tests for `WindowPolicy` | High | 3 | **Done** (implemented by TECH-110) |
 | TECH-041 | Unit tests for `SpecificationBuilder` | High | 3 | Pending |
-| TECH-042 | Unit tests for `IngestionJob` | High | 3 | Pending |
+| TECH-042 | Unit tests for `IngestionJob` | High | 3 | Done |
 | TECH-043 | Tests for `GlobalExceptionHandler` | Medium | 3 | Done |
 | TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | Partially resolved — Testcontainers half settled by ADR-009 (`FlywayMigrationsTest`); WireMock half pending |
 | TECH-050 | Remove placeholder comments from handlers | Low | 1 | **Done** (2026-07-19, branch `refactor/remove-existing-code-comments`) |
@@ -786,18 +786,67 @@ TECH-110's broader scheduling validation; see TECH-110 for why)
 **Type:** Testing  
 **Priority:** High  
 **Phase:** 3  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** M  
-**Branch:** `test/ingestion-job`
+**Branch:** `test/complete-ingestion-job-coverage` (the originally-listed `test/ingestion-job`
+name was not reused)
 
-**Dependencies:** Recommended to implement TECH-040 first to establish test patterns.
+**Dependencies:** TECH-040 was not a prerequisite in practice — TECH-032 and TECH-053
+(both already merged) had already established the `ScriptedIngestionJob`-subclass-with-
+mocked-collaborators pattern this story reused directly.
+
+**Audit before implementing (mandatory — do not duplicate TECH-032/TECH-053 coverage):**
+grepped `src/test`/`src/main`/`docs` for `TECH-042`, `IngestionJobTest`,
+`IngestionJobMetricsTest`, `IngestionJobRejectThresholdTest`, `GenericIngestionJob`, `class
+IngestionJob`, then read every matching test file's actual assertions (not just names) and
+the real `IngestionJob.execute()` contract. Result: 3 of the 9 target cases in [Testing
+Strategy](../architecture/testing-strategy.md) were already covered —
+`windowViolation_runSkipped` and the outcome-metric proxies for the canceled/failed paths,
+by `IngestionJobMetricsTest` (TECH-032); `thresholdExceeded_runMarkedFailed`, thoroughly, by
+`IngestionJobRejectThresholdTest` (7 direct `validateThresholds` cases, TECH-135) — but only
+in isolation, not through a full `execute()` call. Six cases had **zero** test evidence
+anywhere in the suite: both duplicate-run cases (skip without force, proceed with force),
+rejected-record persistence via `logReject`, DB-level `updateMetrics` persistence in
+`finally`, and the MDC lifecycle (zero `MDC` references existed anywhere in `src/test`
+before this story). See the full audit matrix (which test covers which original case) in
+the `IngestionJobTest` section of [Testing Strategy](../architecture/testing-strategy.md).
+
+**Decision: Case B (real gaps) — new tests, not docs-only.** New `IngestionJobContractTest`
+(15 cases) targets exactly the 6 confirmed gaps, plus explicit status/audit-argument
+assertions for the RUNNING/SUCCEEDED/FAILED transitions (previously only provable through
+the metrics-outcome proxy, not the actual `updateStatus`/`logEvent` calls) and the MDC
+lifecycle (populated with the 5 documented keys during `runIngestion`, cleared after both
+outcomes, proven not to leak between two sequential executions). No existing test file was
+rewritten or consolidated; `IngestionJobMetricsTest`, `IngestionJobRejectThresholdTest`, and
+`ScheduledIngestionDispatcherTest` are all untouched.
 
 **Acceptance Criteria:**
-- [ ] ≥ 7 test cases as defined in [Testing Strategy](../architecture/testing-strategy.md).
-- [ ] All dependencies are mocked (no database, no SOAP).
-- [ ] `./mvnw clean verify` passes.
+- [x] ≥ 7 test cases as defined in [Testing Strategy](../architecture/testing-strategy.md)
+      — all 9 original target cases now have direct or explicit coverage (up from 3), plus
+      MDC lifecycle beyond the original list; 15 new cases in `IngestionJobContractTest`.
+- [x] All dependencies are mocked (no database, no SOAP) — `WindowPolicy`,
+      `IngestionControlService`, `IngestionAuditService`, `IngestionMetrics` all mocked;
+      no `@SpringBootTest`.
+- [x] `./mvnw clean verify` passes (389 tests, up from 374 — 15 net new).
 
-**Completed:** —
+**Completed:** New `IngestionJobContractTest.java`
+(`src/test/java/.../application/ingestion/core/`), reusing the `ScriptedIngestionJob`
+subclass-with-mocked-collaborators pattern from `IngestionJobMetricsTest` unchanged. 15
+cases: duplicate-run skip (not forced) and override (forced); rejected-record persistence
+(one `logReject` call per record with exact `rawData`/`reason`/`isParseError` arguments,
+plus a zero-rejects case); `updateMetrics` called once in `finally` with the exact final
+counts, on both success and failure; MDC populated with all 5 documented keys during
+`runIngestion`, cleared after success, cleared after failure, and proven not to leak a
+prior run's `runId` into the next execution on the same thread; explicit
+`updateStatus`/audit-event assertions (not just the outcome-metric proxy) for the RUNNING,
+SUCCEEDED, FAILED (including the `SipsaExternalException` → `httpStatus`/`soapFaultCode`
+extraction path, and the null-fields case for a non-external exception), and CANCELED
+transitions — the CANCELED case explicitly asserts `updateStatus` is never called with
+`SUCCEEDED` or `FAILED`, proving the pre-set status is never overwritten. No production
+code changed — this is a test-only story. No scheduler, dispatcher, executor,
+`CallerRunsPolicy`, metric names/tags, `IngestionMetrics`, production audit logic,
+business/threshold logic, repository, or API change — confirmed by diff (only the one new
+test file). No Flyway migration; V1–V4 unchanged.
 
 ---
 
