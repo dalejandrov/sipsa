@@ -23,7 +23,7 @@ When a story is implemented:
 | TECH-011 | Implement correct deduplication for Parcial | High | 5 | **Done** (2026-07-16, branch `fix/sipsa-parcial-data-integrity`) |
 | TECH-012 | SPIKE: Verify `sipsa_parcial` growth in production | High | 5 | **Pending external verification** — local real-data diagnosis completed 2026-07-16 (see story); the external check applies only if a historical external database is confirmed to exist |
 | TECH-020 | Fix `@RequestMapping` without leading `/` | High | 1 | **Done** (2026-07-19, branch `fix/request-mapping-leading-slash`) |
-| TECH-021 | `SipsaParseException` → HTTP 502 | Medium | 2 | Pending |
+| TECH-021 | `SipsaParseException` → HTTP 502 | Medium | 2 | Done |
 | TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Medium | 2 | Pending |
 | TECH-023 | Add `requestId` and `instance` to error responses | Low | 2 | Pending |
 | TECH-030 | Named executor in `@Async` for audit logging | Low | 1 | **Resolved by TECH-136** (2026-07-19 — `@Async("ingestionTaskExecutor")` on `logEvent`) |
@@ -334,9 +334,9 @@ story). No DTOs, security config, scopes, or business logic touched.
 **Type:** Correctiva  
 **Priority:** Medium  
 **Phase:** 2  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** XS  
-**Branch:** `fix/error-http-semantics`
+**Branch:** `fix/parse-exception-bad-gateway`
 **Dependencies:** None.
 
 **Problem:**
@@ -344,18 +344,44 @@ story). No DTOs, security config, scopes, or business logic touched.
 DANE's XML response cannot be parsed — the error is in the upstream response, not in the
 client's request.
 
-**Evidence:**
+**Evidence (before):**
 - `GlobalExceptionHandler.java:117`: `return buildErrorResponse(HttpStatus.BAD_REQUEST, "PARSE_ERROR", ...)`
 - `AbstractStaxParser.java:82-85`: thrown when parsing DANE SOAP XML
 
 **Acceptance Criteria:**
-- [ ] `SipsaParseException` → HTTP `502 Bad Gateway`.
-- [ ] Error code: `SIPSA_UPSTREAM_PARSE_ERROR`.
-- [ ] Response body does not expose DANE XML details.
-- [ ] TECH-043 test covers this case.
-- [ ] `./mvnw clean verify` passes.
+- [x] `SipsaParseException` → HTTP `502 Bad Gateway`.
+- [ ] Error code: `SIPSA_UPSTREAM_PARSE_ERROR` — **deliberately not done in this story.**
+      ADR-003's error-code taxonomy is still `Proposed`, not `Accepted`; this story's
+      scope, per the operator's explicit instruction, is the HTTP status mapping only.
+      The `code` field is unchanged (`"PARSE_ERROR"`, preserved verbatim). Follow-up
+      below.
+- [x] Response body does not expose DANE XML details. Pre-existing behavior, unaffected
+      by this story — `AbstractStaxParser`'s messages describe the parse failure (e.g.
+      "XML Stream Error: ...") without embedding the raw upstream XML payload.
+- [ ] TECH-043 test covers this case — **deliberately not done in this story.** TECH-043
+      is the full `GlobalExceptionHandler` coverage story (every handler method, one
+      suite). This story adds a narrowly-scoped
+      `GlobalExceptionHandlerParseExceptionTest` (`@WebMvcTest` + real MVC dispatch)
+      covering exactly this exception's contract — status, error code, message,
+      timestamp, content type — plus a regression check that
+      `SipsaBusinessException` → 422 is untouched. TECH-043 will absorb or supersede it.
+- [x] `./mvnw clean verify` passes (270 tests, up from 264 — 6 new).
 
-**Completed:** —
+**Completed:** `SipsaParseException` now maps to `502 Bad Gateway` instead of
+`400 Bad Request` — `GlobalExceptionHandler.handleParseException` changed its status
+argument from `HttpStatus.BAD_REQUEST` to `HttpStatus.BAD_GATEWAY`; no other part of the
+handler or `ErrorResponse` changed. This is a **contractual (breaking) change** for any
+client depending on the previous `400` status for parse failures — the error `code`
+(`"PARSE_ERROR"`), `message`, `timestamp`, and body shape are all preserved verbatim, so
+only the HTTP status line differs. Rationale: a parse failure here means DANE's upstream
+SOAP/XML response could not be understood — the API client did nothing wrong, so `400`
+(client error) was semantically incorrect; `502` (this server, acting as a gateway,
+received an invalid response from an upstream server) is correct. ADR-003 explicitly
+authorizes this status-code correction to proceed independent of its own `Proposed`
+status. **Follow-up (separate story, not this one):** adopting the `SIPSA_UPSTREAM_PARSE_ERROR`
+error-code taxonomy from ADR-003 requires that ADR to be `Accepted` first, and is
+explicitly out of scope here per the operator's instruction not to touch `ErrorResponse`
+in this story.
 
 ---
 
@@ -367,8 +393,9 @@ client's request.
 **Phase:** 2  
 **Status:** Pending  
 **Complexity:** S  
-**Branch:** `fix/error-http-semantics` (same as TECH-021)
-**Dependencies:** None. Can be implemented in the same branch as TECH-021.
+**Branch:** `fix/notfound-exception-404` (TECH-021 shipped on its own branch,
+`fix/parse-exception-bad-gateway`, already pushed — not shared)
+**Dependencies:** None.
 
 **Problem:**
 `SipsaBusinessException` is used for both business rule violations (correct → 422) and
