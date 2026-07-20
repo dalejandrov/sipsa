@@ -131,27 +131,37 @@ No behavioral changes to the public API. No new dependencies (except Spring Secu
 
 **Objective:** Fix HTTP semantics, improve error responses, and make the scheduler non-blocking.
 
-| Story | Title | Type | Branch |
-|---|---|---|---|
-| TECH-021 | `SipsaParseException` → HTTP 502 | Correctiva | `fix/error-http-semantics` |
-| TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Correctiva | `fix/error-http-semantics` |
-| TECH-023 | Add `requestId` and `instance` to error responses | Observability | `feat/error-correlation-id` |
-| TECH-053 | Make scheduler dispatch async | Correctiva | `fix/scheduler-async-execution` |
-| TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Correctiva | `fix/runs-endpoint-pagination` |
+| Story | Title | Type | Branch | Status |
+|---|---|---|---|---|
+| TECH-021 | `SipsaParseException` → HTTP 502 | Correctiva | `fix/parse-exception-bad-gateway` (the originally-listed `fix/error-http-semantics` name was not reused) | **Done** (2026-07-19) |
+| TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Correctiva | `fix/notfound-exception-404` | **Done** (2026-07-19) |
+| TECH-023 | Add `requestId` and `instance` to error responses | Observability | `feat/error-response-context` (the originally-listed `feat/error-correlation-id` name was not reused) | **Done** (2026-07-19) |
+| TECH-053 | Make scheduler dispatch async | Correctiva | `fix/scheduler-async-execution` | Pending |
+| TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Correctiva | `fix/runs-endpoint-pagination` | Pending |
 
 **Acceptance criteria for phase exit:**
 - `./mvnw clean verify` passes.
-- `GET /api/internal/ingestion/runs/99999` returns `404`.
-- A mock test confirms `SipsaParseException` produces HTTP `502`.
-- Scheduler thread `runDailyWindow()` returns in under 200ms.
-- `GET /api/internal/ingestion/runs` accepts `page` and `size` parameters.
+- `GET /api/internal/ingestion/runs/99999` returns `404`. ✅ (TECH-022)
+- A mock test confirms `SipsaParseException` produces HTTP `502`. ✅ (TECH-021)
+- Scheduler thread `runDailyWindow()` returns in under 200ms. (TECH-053, pending)
+- `GET /api/internal/ingestion/runs` accepts `page` and `size` parameters. (TECH-054, pending)
 
 **Notes:**
-- TECH-021 and TECH-022 change HTTP status codes. Ensure any existing client code or monitoring
-  alerts that depend on `422` or `400` for these paths are updated.
-- TECH-023 adds fields to `ErrorResponse` but does not remove any existing fields (backward compatible).
+- TECH-021 and TECH-022 changed HTTP status codes (400→502, 422→404 respectively for
+  their specific cases). Any existing client code or monitoring alerts that depended on
+  the prior codes for these paths need updating.
+- TECH-023 added fields to `ErrorResponse` but did not remove any existing fields
+  (backward compatible).
+- TECH-043 (Phase 3, full `GlobalExceptionHandler` contract coverage) is also **Done**
+  (2026-07-20) — see Phase 3 below. It depended on TECH-021/022/023 landing first so the
+  502/404/`requestId`/`instance` cases were part of the coverage.
 
-**Criterion to start Phase 3:** Phase 2 merge to `main` is complete and green.
+**Criterion to start Phase 3:** Phase 2 merge to `main` is complete and green. **Strict
+phase gating was not followed here** — TECH-043 (Phase 3) was completed and merged
+ahead of TECH-053/TECH-054 (Phase 2), by explicit prioritization: TECH-021/022/023 and
+TECH-043 are all part of the same HTTP error contract closure and were done together as
+one thread of work. TECH-053 and TECH-054 remain the only pending Phase 2 items and can
+proceed independently whenever picked up.
 
 ---
 
@@ -168,21 +178,23 @@ those phases modify production code that needs a safety net.
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | Correctiva | `fix/window-policy-monthly-rules` | **Done** (2026-07-14, merged via PR #15) |
 | TECH-041 | Unit tests for `SpecificationBuilder` | Testing | `test/specification-builder` | Pending |
 | TECH-042 | Unit tests for `IngestionJob` | Testing | `test/ingestion-job` | Pending |
-| TECH-043 | Tests for `GlobalExceptionHandler` | Testing | `test/exception-handler` | Pending |
+| TECH-043 | Tests for `GlobalExceptionHandler` | Testing | `test/global-exception-handler-contract` (the originally-listed `test/exception-handler` name was not reused) | **Done** (2026-07-20) |
 
-**Progress (2026-07-15):** TECH-040 was completed via TECH-110; TECH-111 was produced by
-that validation and implemented on 2026-07-14 (merged via PR #15). TECH-041/042/043 have
-not started — the phase remains open.
+**Progress (2026-07-20):** TECH-040 was completed via TECH-110; TECH-111 was produced by
+that validation and implemented on 2026-07-14 (merged via PR #15). TECH-043 is done —
+`GlobalExceptionHandlerContractTest` covers all 15 `@ExceptionHandler` cases (311 tests
+total on `main`). TECH-041/042 have not started — the phase remains open on those two.
 
 **Acceptance criteria for phase exit:**
-- `./mvnw clean verify` passes with ≥ 30 unit tests. *(Already met — 104 tests as of
-  2026-07-15 — but the phase does not exit until the per-component criteria below are
-  also met.)*
+- `./mvnw clean verify` passes with ≥ 30 unit tests. ✅ (311 tests as of 2026-07-20 — but
+  the phase does not exit until the per-component criteria below are also met.)
 - `WindowPolicy`: ≥ 8 test cases covering daily/monthly, force=true, timezone. ✅ (25 delivered)
-- `SpecificationBuilder`: ≥ 7 test cases covering all filter combinations.
-- `IngestionJob`: ≥ 7 test cases covering all execution paths.
-- `GlobalExceptionHandler`: one test per exception handler.
-- No tests depend on a running database or network connection.
+- `SpecificationBuilder`: ≥ 7 test cases covering all filter combinations. (TECH-041, pending)
+- `IngestionJob`: ≥ 7 test cases covering all execution paths. (TECH-042, pending)
+- `GlobalExceptionHandler`: one test per exception handler. ✅ (TECH-043 — 15 cases,
+  every `@ExceptionHandler` method, via real MVC dispatch)
+- No tests depend on a running database or network connection. ✅ (TECH-043's tests use
+  `@WebMvcTest`, no database)
 
 **Criterion to start Phase 4:** Phase 3 merge to `main` is complete; ≥ 30 tests pass.
 

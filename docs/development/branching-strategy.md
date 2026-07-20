@@ -81,7 +81,7 @@ Some backlog stories share the same branch because they are closely related and 
 | Branch | Stories |
 |---|---|
 | `fix/internal-endpoint-security` | TECH-001, TECH-002 |
-| `fix/error-http-semantics` | TECH-021, TECH-022 |
+| ~~`fix/error-http-semantics`~~ | ~~TECH-021, TECH-022~~ — **not how it shipped**: each landed on its own branch instead (`fix/parse-exception-bad-gateway`, `fix/notfound-exception-404`), by explicit choice to keep every HTTP-contract story isolated and independently mergeable. Both **Done**, 2026-07-19. |
 | `fix/cleanup-placeholder-comments` | TECH-050, TECH-051 |
 | `refactor/config-validation` | TECH-070, TECH-071 |
 

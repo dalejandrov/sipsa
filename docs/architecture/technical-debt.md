@@ -2,8 +2,9 @@
 
 **Version:** 1.0  
 **Date:** 2026-07-13  
-**Last updated:** 2026-07-19 (reconciled against `main` — resolution evidence added for
-PS-01, C-02..C-05, Q-05; see the status note at the end of this document)
+**Last updated:** 2026-07-20 (reconciled against `main` — resolution evidence added for
+O-03, A-03, A-04, T-04 (TECH-023/021/022/043, the HTTP error contract closure); see the
+status note at the end of this document)
 
 This registry tracks all known technical debt items identified during the architectural review.
 Each item references a backlog story for implementation planning.
@@ -28,7 +29,7 @@ Each item references a backlog story for implementation planning.
 | T-01 | ~~No unit tests for `WindowPolicy`~~ **Resolved** (2026-07-13, TECH-040/TECH-110 — 25 deterministic tests via injected `Clock`) | **High** | Undetected bugs in time-window logic, timezone errors | S | Low (additive) | [TECH-040](../backlog/technical-backlog.md#tech-040) |
 | T-02 | No unit tests for `SpecificationBuilder` | **High** | Filter regressions go undetected | S | Low | [TECH-041](../backlog/technical-backlog.md#tech-041) |
 | T-03 | No unit tests for `IngestionJob` | **High** | Central pipeline has no safety net | M | Low | [TECH-042](../backlog/technical-backlog.md#tech-042) |
-| T-04 | No tests for `GlobalExceptionHandler` | **Medium** | Error contract regressions go undetected | S | Low | [TECH-043](../backlog/technical-backlog.md#tech-043) |
+| T-04 | ~~No tests for `GlobalExceptionHandler`~~ **Resolved** (2026-07-20, TECH-043 — `GlobalExceptionHandlerContractTest` covers all 15 `@ExceptionHandler` cases via real MVC dispatch; status, `Content-Type`, `code`, `message`, `requestId`, `instance`, timestamp, and no-stack-trace-leak all asserted; no production code changed, no defects found) | **Medium** | Error contract regressions go undetected | S | Low | [TECH-043](../backlog/technical-backlog.md#tech-043) (Done) |
 | T-05 | No integration tests for any ingestion handler | **Medium** | End-to-end SOAP → parse → persist path untested | L | Low | [TECH-044](../backlog/technical-backlog.md#tech-044) (SPIKE) |
 | T-06 | ~~Single context-load test as only test suite~~ **Resolved** (2026-07-13, TECH-110 — 65 tests across 7 classes on `main`; remaining gaps are T-02..T-05) | **High** | Zero behavioral coverage | — | — | Foundation for T-01 through T-05 |
 
@@ -40,7 +41,7 @@ Each item references a backlog story for implementation planning.
 |---|---|---|---|---|---|---|
 | O-01 | No custom Micrometer metrics for ingestion | **Medium** | Cannot alert on duration, rejects, SOAP failures | M | Low | [TECH-032](../backlog/technical-backlog.md#tech-032) |
 | O-02 | ~~`SipsaHealthIndicator` thresholds hardcoded~~ **Resolved** (2026-07-19, TECH-031 — externalized to validated `SipsaHealthProperties`, canonical defaults `36h`/`840h` unchanged) | **Low** | Not configurable per environment | XS | Low | [TECH-031](../backlog/technical-backlog.md#tech-031) (Done) |
-| O-03 | No `requestId`/`instance` in error responses | **Low** | Difficult to correlate client errors with server logs | S | Low | [TECH-023](../backlog/technical-backlog.md#tech-023) |
+| O-03 | ~~No `requestId`/`instance` in error responses~~ **Resolved** (2026-07-19, TECH-023 — new `RequestIdFilter` establishes a correlation ID per request (validated incoming `X-Request-Id` or a generated UUID); `ErrorResponse`, `IngestionValidationErrorResponse`, and `ValidationErrorResponse` all gained `requestId` and `instance` additively) | **Low** | Difficult to correlate client errors with server logs | S | Low | [TECH-023](../backlog/technical-backlog.md#tech-023) (Done) |
 | O-04 | `GET /api/internal/ingestion/runs` unbounded | **Low** | Memory/performance issue at scale | S | Low | [TECH-054](../backlog/technical-backlog.md#tech-054) |
 
 ---
@@ -60,8 +61,8 @@ Each item references a backlog story for implementation planning.
 |---|---|---|---|---|---|---|
 | A-01 | Application layer imports from `api.dto.request` — **Partially resolved / re-scoped** (2026-07-13): TECH-090 (ADR-007, merged) removed the 3 internal-command imports; the 5 files still importing from `api` were investigated and **accepted** by ADR-007, so no further action is planned | **Low** | Coupling increase; changes to HTTP DTOs ripple into core | L | Medium | [TECH-090](../backlog/technical-backlog.md#tech-090) (Done). Residual guarded by TECH-093 (ArchUnit) when implemented. |
 | A-02 | `WindowPolicy.isMonthlyMethod()` uses string matching | **Low** | New monthly handlers with different naming break scheduling | S | Low | [TECH-055](../backlog/technical-backlog.md#tech-055) (SPIKE) |
-| A-03 | `SipsaParseException` mapped to HTTP 400 (should be 502) | **Medium** | Wrong HTTP semantics for upstream XML errors | XS | Low | [TECH-021](../backlog/technical-backlog.md#tech-021) |
-| A-04 | "Not found" cases return HTTP 422 (should be 404) | **Medium** | Wrong HTTP semantics | S | Low | [TECH-022](../backlog/technical-backlog.md#tech-022) |
+| A-03 | ~~`SipsaParseException` mapped to HTTP 400 (should be 502)~~ **Resolved** (2026-07-19, TECH-021 — `GlobalExceptionHandler.handleParseException` now maps to `502 Bad Gateway`; error `code` (`PARSE_ERROR`), `message`, and body shape unchanged) | **Medium** | Wrong HTTP semantics for upstream XML errors | XS | Low | [TECH-021](../backlog/technical-backlog.md#tech-021) (Done) |
+| A-04 | ~~"Not found" cases return HTTP 422 (should be 404)~~ **Resolved** (2026-07-19, TECH-022 — new `SipsaNotFoundException` maps to `404 Not Found`; migrated `IngestionRunQueryService.getRunStatus` and `IngestionControlService.cancelRun`'s not-found branch only — its not-active branch stays `SipsaBusinessException` → 422) | **Medium** | Wrong HTTP semantics | S | Low | [TECH-022](../backlog/technical-backlog.md#tech-022) (Done) |
 
 ---
 
@@ -113,32 +114,31 @@ Each item references a backlog story for implementation planning.
 | Code Quality | — | — | — | 6 | 6 |
 | **Total** | **2** | **4** | **7** | **15** | **28** |
 
-**Status note (updated 2026-07-19 against `main`):** of the 28 registered items,
-**16 are resolved**: T-01, T-06 (closed by TECH-110/TECH-040); S-01, S-02 (closed by
+**Status note (updated 2026-07-20 against `main`):** of the 28 registered items,
+**20 are resolved**: T-01, T-06 (closed by TECH-110/TECH-040); S-01, S-02 (closed by
 TECH-001/TECH-002/ADR-002 on 2026-07-15, application layer merged via PR #17 and
 e2e-validated against the mock OIDC issuer; the AWS gateway/network layers remain
 tracked as TECH-130..132); PS-01 (closed by TECH-010/TECH-011/ADR-001 on 2026-07-16);
 C-01, C-02, C-03, C-04, C-05 (closed by TECH-070/TECH-071/TECH-133/TECH-135/TECH-136,
 2026-07-16 through 2026-07-19 — see [technical backlog](../backlog/technical-backlog.md)
-for each); O-02 (closed by TECH-031, 2026-07-19); Q-01, Q-02, Q-03, Q-04, Q-05 (closed
-by TECH-050, TECH-051, TECH-052, TECH-020, and TECH-136 respectively — the last one
-resolving the original TECH-030 finding — all 2026-07-19). **1 is partially resolved /
-re-scoped** (A-01 — closed for the 3 internal commands by TECH-090; the residual
-imports are accepted by ADR-007). Items are annotated in place rather than deleted, so
-the registry remains the full historical record.
+for each); O-02 (closed by TECH-031, 2026-07-19); O-03 (closed by TECH-023, 2026-07-19);
+A-03, A-04 (closed by TECH-021, TECH-022, both 2026-07-19); T-04 (closed by TECH-043,
+2026-07-20); Q-01, Q-02, Q-03, Q-04, Q-05 (closed by TECH-050, TECH-051, TECH-052,
+TECH-020, and TECH-136 respectively — the last one resolving the original TECH-030
+finding — all 2026-07-19). **1 is partially resolved / re-scoped** (A-01 — closed for
+the 3 internal commands by TECH-090; the residual imports are accepted by ADR-007).
+Items are annotated in place rather than deleted, so the registry remains the full
+historical record.
 
 Of the remaining items, the following were **code-verified still open against `main`**
 on 2026-07-19 (exact code citations in the corresponding backlog story): O-01/TECH-032
-(zero Micrometer/`MeterRegistry` usage in `src/main/java`), O-03/TECH-023
-(`ErrorResponse` still 5 fields, no `requestId`/`instance`), A-03/TECH-021
-(`SipsaParseException` still maps to 400), A-04/TECH-022 (not-found still throws
-`SipsaBusinessException` → 422, no `SipsaNotFoundException` class exists), P-01/TECH-060
-(`upsertFallbackBatch` still one query per item — same pattern also present in the
-Mensual and Abastecimientos repositories), and T-04/TECH-043 (no
-`GlobalExceptionHandler` test file exists). O-04/TECH-054, P-02/TECH-053, A-02/TECH-055
-and T-02/T-03 (TECH-041/042) were **not re-verified this cycle** — no evidence
-contradicts their existing "pending" classification, but no fresh code citation was
-collected for them either.
+(zero Micrometer/`MeterRegistry` usage in `src/main/java` — still true as of 2026-07-20;
+this is the item TECH-032 is now closing), P-01/TECH-060 (`upsertFallbackBatch` still
+one query per item — same pattern also present in the Mensual and Abastecimientos
+repositories). O-04/TECH-054, P-02/TECH-053, A-02/TECH-055 and T-02/T-03
+(TECH-041/042) were **not re-verified this cycle** — no evidence contradicts their
+existing "pending" classification, but no fresh code citation was collected for them
+either.
 
 ---
 
