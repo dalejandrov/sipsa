@@ -8,6 +8,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **CXF-generated SOAP classes relocated to a distinguishable package** ([ADR-007](docs/adr/ADR-007-package-boundaries-and-internal-models.md)
+  §F3, TECH-092, unblocked by TECH-094's SPIKE). All 22 `cxf-codegen-plugin`-generated
+  JAXB classes moved from `infrastructure.soap.client` (shared with the hand-written
+  `SoapStreamingClient`) to `infrastructure.soap.generated` — a single `pom.xml` line
+  (`wsdl2java`'s `-p` argument), not 22 hand-edited package declarations; the plugin
+  mapping remains the single source of truth, regenerated fresh on every build (generated
+  code is never committed, confirmed by TECH-094). `SoapGatewayImpl`'s single wildcard
+  import was replaced with 6 explicit imports for the generated request types it actually
+  uses, plus one explicit import for `SoapStreamingClient` (which stays in the manual
+  package — TECH-094's SPIKE found the wildcard had been silently supplying both).
+  `SipsaSoapClientConfig`'s 2 explicit imports updated the same way. WSDL, JAX-WS catalog,
+  XML namespaces, `@XmlType`/`@XmlSchema` bindings, QNames, SOAP actions, service/port
+  names, and JAXB marshalling/unmarshalling behavior are all unchanged — verified, not
+  assumed: a normalized diff (package declaration and the 2 known cosmetic
+  generation-timestamp lines excluded) between the old and new package output is empty,
+  and a new `SoapGeneratedPackageRelocationTest` (15 cases) proves the relocation
+  end-to-end (all 22 classes present in the new package and absent from the old one,
+  `SoapStreamingClient` unmoved, JAXB marshal/unmarshal round-trips preserve the DANE
+  namespace and field values, `SoapGatewayImpl` builds correct, well-formed SOAP request
+  payloads against the relocated types). `PackageBoundaryArchitectureTest` (TECH-093)
+  needed no changes and required no new exclusion — none of its 3 rules interact with
+  `infrastructure` sub-packages internally. No behavior change: SOAP timeouts, retries,
+  metrics, ingestion logic, and every consumer outside the 2 updated files are untouched.
+  Verified in Docker: clean startup, SOAP client bean constructed successfully against
+  the relocated classes, no `ClassNotFoundException`, no JAXB context errors,
+  `/actuator/health` unaffected. No Flyway migration; V1–V4 unchanged.
+
 ### Testing
 
 - **TECH-093 — added ArchUnit rules to prevent regression on the three package boundaries
