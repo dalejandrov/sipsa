@@ -8,6 +8,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **TECH-023 — HTTP error responses now include `requestId` and `instance`.**
+  Additive change only: every existing field (`timestamp`, `status`, `error`, `code`,
+  `message`), every existing status code, and every existing error `code` (including
+  TECH-021's `502`/`PARSE_ERROR` and TECH-022's `404`/`NOT_FOUND`) is unchanged.
+  `instance` is the request path (`HttpServletRequest.getRequestURI()` — no host,
+  scheme, or query string). `requestId` comes from a new `RequestIdFilter`
+  (`api/filter/`, mirrors the existing `TimezoneFilter` pattern): no per-HTTP-request
+  correlation ID source existed anywhere in this repository before this — the only
+  prior "requestId" concept was the ingestion-domain business correlation ID
+  (`UUID.randomUUID()` in `IngestionTriggerService`/`SipsaIngestionScheduler`, generated
+  only for ingestion-trigger operations, not every request), and MDC
+  (`IngestionJob`) is populated only deep inside the async ingestion pipeline, never on
+  the synchronous request-handling thread. The new filter honors an incoming
+  `X-Request-Id` header if present and non-blank, otherwise generates a UUID — exactly
+  once per request, before the rest of the filter chain runs, and echoes it back on the
+  `X-Request-Id` response header. Every `@ExceptionHandler` in `GlobalExceptionHandler`
+  now produces both new fields consistently (no handler was left without them),
+  including the two that build their response DTOs directly rather than through the
+  shared `buildErrorResponse` helper (`IngestionValidationErrorResponse`,
+  `ValidationErrorResponse`). New `GlobalExceptionHandlerRequestContextTest` covers all
+  five required exception shapes (parse/502, not-found/404, business/422,
+  validation/400, generic/500 — with an explicit check that no stack trace leaks) plus
+  correlation behavior: an incoming header is echoed verbatim, the fallback generates a
+  non-blank ID consistent between the response header and body, and a blank incoming
+  header is not trusted verbatim. No Flyway migration; V1–V4 unchanged.
+
 ### Changed
 
 - **TECH-022 — a missing ingestion run now returns `404 Not Found`, not
