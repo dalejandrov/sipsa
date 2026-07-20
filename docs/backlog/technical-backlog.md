@@ -25,7 +25,7 @@ When a story is implemented:
 | TECH-020 | Fix `@RequestMapping` without leading `/` | High | 1 | **Done** (2026-07-19, branch `fix/request-mapping-leading-slash`) |
 | TECH-021 | `SipsaParseException` → HTTP 502 | Medium | 2 | Done |
 | TECH-022 | Introduce `SipsaNotFoundException` → HTTP 404 | Medium | 2 | Done |
-| TECH-023 | Add `requestId` and `instance` to error responses | Low | 2 | Pending |
+| TECH-023 | Add `requestId` and `instance` to error responses | Low | 2 | Done |
 | TECH-030 | Named executor in `@Async` for audit logging | Low | 1 | **Resolved by TECH-136** (2026-07-19 — `@Async("ingestionTaskExecutor")` on `logEvent`) |
 | TECH-031 | Externalize `SipsaHealthIndicator` thresholds | Low | 1 | **Done** (2026-07-19, branch `refactor/externalize-health-thresholds`) |
 | TECH-032 | Add Micrometer metrics for ingestion | Medium | 4 | Pending |
@@ -456,24 +456,71 @@ not-found split to `AuditTrailService`'s two lookup methods.
 **Type:** Observability  
 **Priority:** Low  
 **Phase:** 2  
-**Status:** Pending  
+**Status:** Done  
 **Complexity:** S  
-**Branch:** `feat/error-correlation-id`
+**Branch:** `feat/error-response-context` (the originally-listed `feat/error-correlation-id`
+name was not reused)
 **Dependencies:** None.
 
 **Problem:**
 Error responses lack correlation fields. Clients cannot identify which server-side log
 entry corresponds to their received error.
 
-**Evidence:** `GlobalExceptionHandler.java:324`: `ErrorResponse` record has no `requestId` or `instance`.
+**Evidence (before):** `GlobalExceptionHandler.java:324`: `ErrorResponse` record has no `requestId` or `instance`.
+
+**Diagnosis — existing request-ID sources (before implementing):** no per-HTTP-request
+correlation ID source existed anywhere in this repository. What did exist, and was
+deliberately *not* reused because it doesn't cover every HTTP request:
+- `IngestionTriggerService.triggerIngestion` / `SipsaIngestionScheduler` each call
+  `UUID.randomUUID()` to correlate one *ingestion run* — a business-domain ID, generated
+  only for ingestion-trigger operations, absent for e.g. a validation error on an
+  unrelated endpoint.
+- `IngestionJob` populates SLF4J MDC (`runId`, `requestId`, `method`, `windowKey`) —
+  but only deep inside the async ingestion pipeline's own thread, never on the
+  synchronous request-handling thread `GlobalExceptionHandler` runs on.
+- No distributed-tracing library (no Sleuth, no Micrometer Tracing/Brave) is on the
+  classpath — only `micrometer-registry-prometheus` (metrics, unrelated).
+- No filter previously read or normalized an incoming correlation header;
+  `TimezoneFilter` is the only existing `OncePerRequestFilter`, and it's unrelated
+  (resolves `X-Timezone`, not request identity).
+Per the operator's explicit instruction not to trust an arbitrary header directly in a
+handler, and since no stable source existed, a new minimal filter was introduced (see
+Completed below) — this *is* the "atributo de request establecido por un filtro" source,
+now created rather than found.
 
 **Acceptance Criteria:**
-- [ ] `ErrorResponse` includes `instance` (the request path, from `HttpServletRequest.getRequestURI()`).
-- [ ] `ErrorResponse` includes `requestId` (from `X-Request-ID` header if present, generated otherwise).
-- [ ] Existing fields (`timestamp`, `status`, `error`, `code`, `message`) are preserved.
-- [ ] `./mvnw clean verify` passes.
+- [x] `ErrorResponse` includes `instance` (the request path, from `HttpServletRequest.getRequestURI()`).
+- [x] `ErrorResponse` includes `requestId` (from `X-Request-Id` header if present, generated otherwise).
+- [x] Existing fields (`timestamp`, `status`, `error`, `code`, `message`) are preserved.
+- [x] `./mvnw clean verify` passes (289 tests, up from 279 — 10 new).
 
-**Completed:** —
+**Completed:** New `RequestIdFilter` (`api/filter/`, mirrors the existing
+`TimezoneFilter` pattern) establishes exactly one correlation ID per request — honors an
+incoming `X-Request-Id` header if present and non-blank, otherwise generates a UUID —
+stored as a request attribute before the rest of the filter chain runs (so it survives
+even when a handler throws), and echoed back on the `X-Request-Id` response header.
+`GlobalExceptionHandler.buildErrorResponse` gained an `HttpServletRequest` parameter
+(every `@ExceptionHandler` method now receives and forwards it — no handler was left
+without the new fields), reads the correlation ID via `resolveRequestId(request)`
+(defensive fallback to a fresh UUID only if the filter's attribute is somehow absent —
+never overrides a value the filter already set), and sets `instance` from
+`request.getRequestURI()` — path only, no host, scheme, or query string, per the
+operator's explicit constraint. `ErrorResponse`, `IngestionValidationErrorResponse`, and
+`ValidationErrorResponse` (the two handlers that build their DTOs directly rather than
+through `buildErrorResponse`) all gained the same two fields in the same position,
+additively — `timestamp`/`status`/`error`/`code`/`message` (plus each record's own extra
+field) are untouched, and every prior status/code mapping (TECH-021's 502, TECH-022's
+404, TECH-020's routing 404, etc.) is unchanged. New
+`GlobalExceptionHandlerRequestContextTest` (`@WebMvcTest`, which picks up
+`RequestIdFilter` automatically the same way it already picked up `TimezoneFilter`)
+covers: `SipsaParseException` → 502 with `requestId`/`instance`; `SipsaNotFoundException`
+→ 404 with `requestId`/`instance`; `SipsaBusinessException` → 422 with new fields and
+prior contract preserved; a Bean Validation error with new fields and `fieldErrors`
+preserved; a generic exception with new fields and no stack trace leaked; an incoming
+`X-Request-Id` header echoed verbatim in both body and response header; the fallback
+case generating a non-blank ID consistent between header and body (no fragile exact-UUID
+assertion, presence/consistency only); and a blank incoming header not being trusted
+verbatim. No Flyway migration; V1–V4 unchanged; no `V5`.
 
 ---
 
