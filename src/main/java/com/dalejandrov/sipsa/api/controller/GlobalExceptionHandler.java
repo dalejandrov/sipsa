@@ -1,5 +1,6 @@
 package com.dalejandrov.sipsa.api.controller;
 
+import com.dalejandrov.sipsa.api.filter.RequestIdFilter;
 import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
 import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
 import com.dalejandrov.sipsa.domain.exception.SipsaNotFoundException;
@@ -8,6 +9,7 @@ import com.dalejandrov.sipsa.domain.exception.SipsaIngestionException;
 import com.dalejandrov.sipsa.domain.exception.SipsaParseException;
 import com.dalejandrov.sipsa.domain.exception.SipsaExternalException;
 import com.dalejandrov.sipsa.domain.exception.SipsaIngestionValidationException;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +29,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -67,8 +70,15 @@ import java.util.stream.Collectors;
  * </ul>
  * <p>
  * All error responses follow a consistent JSON structure with timestamp,
- * status code, error code, and message. This ensures that clients never
- * receive unhandled 500 errors with stack traces.
+ * status code, error code, message, {@code requestId}, and {@code instance}
+ * (TECH-023: added additively — every existing field, and every prior status/code
+ * mapping, is unchanged). This ensures that clients never receive unhandled 500 errors
+ * with stack traces.
+ * <p>
+ * {@code requestId} comes from the current request's {@value
+ * RequestIdFilter#REQUEST_ID_ATTRIBUTE} attribute, set once per request by {@link
+ * RequestIdFilter} before any handler runs; {@code instance} is the request's path
+ * ({@link HttpServletRequest#getRequestURI()} — no host, scheme, or query string).
  *
  * @see org.springframework.web.bind.annotation.ControllerAdvice
  * @see org.springframework.web.bind.annotation.ExceptionHandler
@@ -81,24 +91,26 @@ public class GlobalExceptionHandler {
      * Handles validation exceptions (invalid input data).
      *
      * @param ex the validation exception
+     * @param request the current HTTP request
      * @return HTTP 400 response with error details
      */
     @ExceptionHandler(SipsaValidationException.class)
-    public ResponseEntity<ErrorResponse> handleValidationException(SipsaValidationException ex) {
+    public ResponseEntity<ErrorResponse> handleValidationException(SipsaValidationException ex, HttpServletRequest request) {
         log.warn("Validation error: {}", ex.getMessage());
-        return buildErrorResponse(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", ex.getMessage(), request);
     }
 
     /**
      * Handles business logic exceptions (business rules violated).
      *
      * @param ex the business exception
+     * @param request the current HTTP request
      * @return HTTP 422 response with error details
      */
     @ExceptionHandler(SipsaBusinessException.class)
-    public ResponseEntity<ErrorResponse> handleBusinessException(SipsaBusinessException ex) {
+    public ResponseEntity<ErrorResponse> handleBusinessException(SipsaBusinessException ex, HttpServletRequest request) {
         log.error("Business logic error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(HttpStatus.UNPROCESSABLE_CONTENT, "BUSINESS_ERROR", ex.getMessage());
+        return buildErrorResponse(HttpStatus.UNPROCESSABLE_CONTENT, "BUSINESS_ERROR", ex.getMessage(), request);
     }
 
     /**
@@ -111,24 +123,26 @@ public class GlobalExceptionHandler {
      * are the same HTTP concept, distinguished by the {@code message}.
      *
      * @param ex the not-found exception
+     * @param request the current HTTP request
      * @return HTTP 404 response with error details
      */
     @ExceptionHandler(SipsaNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFoundException(SipsaNotFoundException ex) {
+    public ResponseEntity<ErrorResponse> handleNotFoundException(SipsaNotFoundException ex, HttpServletRequest request) {
         log.warn("Not found: {}", ex.getMessage());
-        return buildErrorResponse(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage());
+        return buildErrorResponse(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage(), request);
     }
 
     /**
      * Handles ingestion process exceptions (data ingestion failures).
      *
      * @param ex the ingestion exception
+     * @param request the current HTTP request
      * @return HTTP 500 response with error details
      */
     @ExceptionHandler(SipsaIngestionException.class)
-    public ResponseEntity<ErrorResponse> handleIngestionException(SipsaIngestionException ex) {
+    public ResponseEntity<ErrorResponse> handleIngestionException(SipsaIngestionException ex, HttpServletRequest request) {
         log.error("Ingestion error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "INGESTION_ERROR", ex.getMessage());
+        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "INGESTION_ERROR", ex.getMessage(), request);
     }
 
     /**
@@ -142,36 +156,39 @@ public class GlobalExceptionHandler {
      * taxonomy proposal, not adopted in this story.
      *
      * @param ex the parse exception
+     * @param request the current HTTP request
      * @return HTTP 502 response with error details
      */
     @ExceptionHandler(SipsaParseException.class)
-    public ResponseEntity<ErrorResponse> handleParseException(SipsaParseException ex) {
+    public ResponseEntity<ErrorResponse> handleParseException(SipsaParseException ex, HttpServletRequest request) {
         log.warn("Parse error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(HttpStatus.BAD_GATEWAY, "PARSE_ERROR", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_GATEWAY, "PARSE_ERROR", ex.getMessage(), request);
     }
 
     /**
      * Handles external service exceptions (SOAP service failures).
      *
      * @param ex the external service exception
+     * @param request the current HTTP request
      * @return HTTP 502 response with error details
      */
     @ExceptionHandler(SipsaExternalException.class)
-    public ResponseEntity<ErrorResponse> handleExternalException(SipsaExternalException ex) {
+    public ResponseEntity<ErrorResponse> handleExternalException(SipsaExternalException ex, HttpServletRequest request) {
         log.error("External service error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(HttpStatus.BAD_GATEWAY, "EXTERNAL_ERROR", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_GATEWAY, "EXTERNAL_ERROR", ex.getMessage(), request);
     }
 
     /**
      * Handles configuration exceptions (invalid application configuration).
      *
      * @param ex the configuration exception
+     * @param request the current HTTP request
      * @return HTTP 500 response with error details
      */
     @ExceptionHandler(SipsaConfigurationException.class)
-    public ResponseEntity<ErrorResponse> handleConfigurationException(SipsaConfigurationException ex) {
+    public ResponseEntity<ErrorResponse> handleConfigurationException(SipsaConfigurationException ex, HttpServletRequest request) {
         log.error("Configuration error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "CONFIGURATION_ERROR", ex.getMessage());
+        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "CONFIGURATION_ERROR", ex.getMessage(), request);
     }
 
     /**
@@ -181,22 +198,25 @@ public class GlobalExceptionHandler {
      * ensuring that all errors are properly logged and return a safe response.
      *
      * @param ex the unexpected exception
+     * @param request the current HTTP request
      * @return HTTP 500 response with generic error message
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+    public ResponseEntity<ErrorResponse> handleGenericException(Exception ex, HttpServletRequest request) {
         log.error("Unexpected error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred");
+        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred", request);
     }
 
     /**
      * Handles ingestion validation exceptions with available methods.
      *
      * @param ex the ingestion validation exception
+     * @param request the current HTTP request
      * @return HTTP 400 response with error details and available methods
      */
     @ExceptionHandler(SipsaIngestionValidationException.class)
-    public ResponseEntity<IngestionValidationErrorResponse> handleIngestionValidationException(SipsaIngestionValidationException ex) {
+    public ResponseEntity<IngestionValidationErrorResponse> handleIngestionValidationException(
+            SipsaIngestionValidationException ex, HttpServletRequest request) {
         log.warn("Ingestion validation error: {}", ex.getMessage());
         return ResponseEntity.badRequest().body(new IngestionValidationErrorResponse(
                 LocalDateTime.now(),
@@ -204,6 +224,8 @@ public class GlobalExceptionHandler {
                 "Bad Request",
                 "INGESTION_VALIDATION_ERROR",
                 ex.getMessage(),
+                resolveRequestId(request),
+                request.getRequestURI(),
                 ex.getAvailableMethods()
         ));
     }
@@ -215,10 +237,12 @@ public class GlobalExceptionHandler {
      * Returns detailed field-level validation errors.
      *
      * @param ex the method argument validation exception
+     * @param request the current HTTP request
      * @return HTTP 400 response with field-specific errors
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ValidationErrorResponse> handleMethodArgumentNotValid(MethodArgumentNotValidException ex) {
+    public ResponseEntity<ValidationErrorResponse> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex, HttpServletRequest request) {
         Map<String, String> errors = new HashMap<>();
         ex.getBindingResult().getAllErrors().forEach(error -> {
             String fieldName = ((FieldError) error).getField();
@@ -233,6 +257,8 @@ public class GlobalExceptionHandler {
                 "Bad Request",
                 "VALIDATION_ERROR",
                 "Request validation failed",
+                resolveRequestId(request),
+                request.getRequestURI(),
                 errors
         ));
     }
@@ -244,63 +270,67 @@ public class GlobalExceptionHandler {
      * Returns detailed constraint violation messages.
      *
      * @param ex the constraint violation exception
+     * @param request the current HTTP request
      * @return HTTP 400 response with constraint violations
      */
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex) {
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest request) {
         String message = ex.getConstraintViolations().stream()
                 .map(ConstraintViolation::getMessage)
                 .collect(Collectors.joining(", "));
 
         log.warn("Constraint violation: {}", message);
-        return buildErrorResponse(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", message);
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", message, request);
     }
 
     /**
      * Handles type mismatch errors (e.g., passing string where number is expected).
      *
      * @param ex the type mismatch exception
+     * @param request the current HTTP request
      * @return HTTP 400 response with error details
      */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
         String message = String.format("Parameter '%s' should be of type %s",
                 ex.getName(),
                 ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "unknown");
 
         log.warn("Type mismatch error: {}", message);
-        return buildErrorResponse(HttpStatus.BAD_REQUEST, "TYPE_MISMATCH", message);
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "TYPE_MISMATCH", message, request);
     }
 
     /**
      * Handles malformed JSON or request body parsing errors.
      *
      * @param ex the message not readable exception
+     * @param request the current HTTP request
      * @return HTTP 400 response with error details
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(HttpMessageNotReadableException ex) {
+    public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(HttpMessageNotReadableException ex, HttpServletRequest request) {
         String message = "Malformed JSON request";
         if (ex.getCause() != null) {
             message = "Invalid request format: " + ex.getCause().getMessage();
         }
 
         log.warn("Request parsing error: {}", message);
-        return buildErrorResponse(HttpStatus.BAD_REQUEST, "INVALID_FORMAT", message);
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "INVALID_FORMAT", message, request);
     }
 
     /**
      * Handles missing required request parameters.
      *
      * @param ex the missing parameter exception
+     * @param request the current HTTP request
      * @return HTTP 400 response with error details
      */
     @ExceptionHandler(MissingServletRequestParameterException.class)
-    public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException ex) {
+    public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException ex, HttpServletRequest request) {
         String message = String.format("Required parameter '%s' is missing", ex.getParameterName());
 
         log.warn("Missing parameter error: {}", message);
-        return buildErrorResponse(HttpStatus.BAD_REQUEST, "MISSING_PARAMETER", message);
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "MISSING_PARAMETER", message, request);
     }
 
     /**
@@ -310,14 +340,15 @@ public class GlobalExceptionHandler {
      * and spring.web.resources.add-mappings=false in application.yaml
      *
      * @param ex the no handler found exception
+     * @param request the current HTTP request
      * @return HTTP 404 response with error details
      */
     @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
-    public ResponseEntity<ErrorResponse> handleNotFound(Exception ex) {
+    public ResponseEntity<ErrorResponse> handleNotFound(Exception ex, HttpServletRequest request) {
         String message = "The requested resource was not found";
 
         log.debug("Resource not found: {}", ex.getMessage());
-        return buildErrorResponse(HttpStatus.NOT_FOUND, "NOT_FOUND", message);
+        return buildErrorResponse(HttpStatus.NOT_FOUND, "NOT_FOUND", message, request);
     }
 
     /**
@@ -326,17 +357,37 @@ public class GlobalExceptionHandler {
      * @param status the HTTP status
      * @param errorCode the application-specific error code
      * @param message the error message
+     * @param request the current HTTP request — supplies {@code requestId} and {@code instance}
      * @return response entity with error details
      */
-    private ResponseEntity<ErrorResponse> buildErrorResponse(HttpStatus status, String errorCode, String message) {
+    private ResponseEntity<ErrorResponse> buildErrorResponse(
+            HttpStatus status, String errorCode, String message, HttpServletRequest request) {
         ErrorResponse errorResponse = new ErrorResponse(
                 LocalDateTime.now(),
                 status.value(),
                 status.getReasonPhrase(),
                 errorCode,
-                message
+                message,
+                resolveRequestId(request),
+                request.getRequestURI()
         );
         return new ResponseEntity<>(errorResponse, status);
+    }
+
+    /**
+     * Resolves the current request's correlation ID.
+     * <p>
+     * {@link RequestIdFilter} sets this attribute for every request before any handler
+     * runs, so the fallback below is a last-resort safety net (e.g. a request that
+     * somehow bypassed the filter chain), not the normal path — it never overrides a
+     * value the filter already established, so at most one ID is generated per request.
+     *
+     * @param request the current HTTP request
+     * @return the request's correlation ID, never blank
+     */
+    private static String resolveRequestId(HttpServletRequest request) {
+        Object attribute = request.getAttribute(RequestIdFilter.REQUEST_ID_ATTRIBUTE);
+        return attribute != null ? attribute.toString() : UUID.randomUUID().toString();
     }
 
     /**
@@ -350,13 +401,17 @@ public class GlobalExceptionHandler {
      * @param error HTTP status reason phrase (e.g., "Bad Request")
      * @param code application-specific error code (e.g., "VALIDATION_ERROR")
      * @param message detailed error message
+     * @param requestId correlation ID of the current request (TECH-023)
+     * @param instance path of the request that produced the error (TECH-023)
      */
     public record ErrorResponse(
             LocalDateTime timestamp,
             int status,
             String error,
             String code,
-            String message
+            String message,
+            String requestId,
+            String instance
     ) {}
 
     /**
@@ -370,6 +425,8 @@ public class GlobalExceptionHandler {
      * @param error HTTP status reason phrase (e.g., "Bad Request")
      * @param code application-specific error code (e.g., "INGESTION_VALIDATION_ERROR")
      * @param message detailed error message
+     * @param requestId correlation ID of the current request (TECH-023)
+     * @param instance path of the request that produced the error (TECH-023)
      * @param availableMethods set of available methods for the request
      */
     public record IngestionValidationErrorResponse(
@@ -378,6 +435,8 @@ public class GlobalExceptionHandler {
             String error,
             String code,
             String message,
+            String requestId,
+            String instance,
             Set<String> availableMethods
     ) {}
 
@@ -392,6 +451,8 @@ public class GlobalExceptionHandler {
      * @param error HTTP status reason phrase ("Bad Request")
      * @param code application-specific error code ("VALIDATION_ERROR")
      * @param message general error message
+     * @param requestId correlation ID of the current request (TECH-023)
+     * @param instance path of the request that produced the error (TECH-023)
      * @param fieldErrors map of field names to error messages
      */
     public record ValidationErrorResponse(
@@ -400,6 +461,8 @@ public class GlobalExceptionHandler {
             String error,
             String code,
             String message,
+            String requestId,
+            String instance,
             Map<String, String> fieldErrors
     ) {}
 }
