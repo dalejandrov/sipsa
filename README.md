@@ -74,7 +74,7 @@ Locally, tokens come from the mock OIDC service — see
 - `POST /api/internal/ingestion/run` - Trigger manual ingestion (query params: `method`, `force`) — scope `sipsa/ingestion.execute`
 - `GET /api/internal/ingestion/methods` - List available ingestion methods
 - `GET /api/internal/ingestion/running` - Get currently active ingestion runs
-- `GET /api/internal/ingestion/runs` - List all ingestion runs
+- `GET /api/internal/ingestion/runs` - List ingestion runs, paginated (query params: `page` default 1, `size` default 20 max 100; ordered `startTime DESC, runId DESC`)
 - `GET /api/internal/ingestion/runs/{runId}` - Get specific run status
 - `POST /api/internal/ingestion/cancel/{runId}` - Cancel an active run — scope `sipsa/ingestion.cancel`
 
