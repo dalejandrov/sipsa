@@ -4,6 +4,7 @@ import com.dalejandrov.sipsa.application.service.IngestionAuditService;
 import com.dalejandrov.sipsa.application.service.IngestionService;
 import com.dalejandrov.sipsa.application.service.IngestionControlService;
 import com.dalejandrov.sipsa.infrastructure.config.IngestionProperties;
+import com.dalejandrov.sipsa.infrastructure.observability.IngestionMetrics;
 import org.springframework.stereotype.Service;
 
 /**
@@ -46,11 +47,12 @@ public class GenericIngestionJob extends IngestionJob {
      * @param controlService service for managing run state and lifecycle
      * @param auditService service for logging audit events
      * @param ingestionProperties centrally validated ingestion configuration
+     * @param metrics Micrometer instrumentation for run duration, outcomes, and record counts
      */
     public GenericIngestionJob(IngestionService ingestionService, WindowPolicy windowPolicy,
                                IngestionControlService controlService, IngestionAuditService auditService,
-                               IngestionProperties ingestionProperties) {
-        super(windowPolicy, controlService, auditService, ingestionProperties);
+                               IngestionProperties ingestionProperties, IngestionMetrics metrics) {
+        super(windowPolicy, controlService, auditService, ingestionProperties, metrics);
         this.ingestionService = ingestionService;
     }
 

@@ -11,6 +11,8 @@ import com.dalejandrov.sipsa.domain.exception.SipsaExternalException;
 import com.dalejandrov.sipsa.domain.exception.SipsaIngestionException;
 import com.dalejandrov.sipsa.domain.exception.WindowViolationException;
 import com.dalejandrov.sipsa.infrastructure.config.IngestionProperties;
+import com.dalejandrov.sipsa.infrastructure.observability.IngestionMetrics;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,6 +56,7 @@ public abstract class IngestionJob {
     protected WindowPolicy windowPolicy;
     protected IngestionControlService controlService;
     protected IngestionAuditService auditService;
+    protected final IngestionMetrics metrics;
 
     /* Quality thresholds for rejections. Sourced from IngestionProperties (TECH-135,
      * C-04) — the single, validated binding of sipsa.ingestion.max-reject-rate /
@@ -69,15 +72,19 @@ public abstract class IngestionJob {
      * @param auditService service for audit event logging
      * @param ingestionProperties centrally validated ingestion configuration
      *                            (reject thresholds are read from it at construction)
+     * @param metrics Micrometer instrumentation for run duration, outcomes, and
+     *                record counts (TECH-032)
      */
     protected IngestionJob(WindowPolicy windowPolicy, IngestionControlService controlService,
                            IngestionAuditService auditService,
-                           IngestionProperties ingestionProperties) {
+                           IngestionProperties ingestionProperties,
+                           IngestionMetrics metrics) {
         this.windowPolicy = windowPolicy;
         this.controlService = controlService;
         this.auditService = auditService;
         this.maxRejectRate = ingestionProperties.getMaxRejectRate();
         this.maxRejectCount = ingestionProperties.getMaxRejectCount();
+        this.metrics = metrics;
     }
 
     /**
@@ -130,6 +137,9 @@ public abstract class IngestionJob {
         IngestionContext context = new IngestionContext(runId, request.methodName(), windowKey,
                                                        request.requestId(), request.requestSource());
 
+        Timer.Sample runSample = metrics.startRun();
+        String outcome = IngestionMetrics.OUTCOME_FAILURE;
+
         try {
             org.slf4j.MDC.put("runId", String.valueOf(runId));
             org.slf4j.MDC.put("method", request.methodName());
@@ -147,6 +157,7 @@ public abstract class IngestionJob {
             if (controlService.isRunCanceled(runId)) {
                 log.warn("Ingestion Job CANCELED: {} (ID: {})", request.methodName(), runId);
                 auditService.logEvent(AuditEventRequest.ingestionCanceled(request.requestId(), runId, request.requestSource()));
+                outcome = IngestionMetrics.OUTCOME_CANCELED;
                 return; // Exit early without marking as succeeded
             }
 
@@ -155,6 +166,7 @@ public abstract class IngestionJob {
             controlService.updateStatus(runId, IngestionRunStatus.SUCCEEDED);
             auditService.logEvent(AuditEventRequest.ingestionSucceeded(context));
             log.info("Ingestion Job SUCCEEDED: {} (ID: {}). Stats: {}", request.methodName(), runId, context.toLogSummary());
+            outcome = IngestionMetrics.OUTCOME_SUCCESS;
 
         } catch (Exception e) {
             log.error("Ingestion Job FAILED: {} (ID: {})", request.methodName(), runId, e);
@@ -178,6 +190,7 @@ public abstract class IngestionJob {
             persistRejectedRecords(context);
 
             auditService.logEvent(AuditEventRequest.metricsUpdated(context));
+            metrics.recordRunCompleted(runSample, context, outcome);
             org.slf4j.MDC.clear();
         }
     }

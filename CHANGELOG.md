@@ -8,6 +8,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **TECH-032 — Micrometer metrics for the ingestion pipeline and SOAP calls.** New
+  `IngestionMetrics` component (`infrastructure/observability/`) instruments
+  `IngestionJob.execute` (every ingestion run, regardless of method — the abstract base
+  class every job runs through) and `SoapStreamingClient.stream` (every SOAP call,
+  including its internal retry loop). No new dependency: `spring-boot-starter-actuator`
+  and `micrometer-registry-prometheus` were already present, just unused.
+  **Metrics:** `sipsa.ingestion.duration` (Timer), `sipsa.ingestion.runs` (Counter),
+  `sipsa.ingestion.records.seen/inserted/skipped/rejected` (DistributionSummary, one
+  value per run from the run's already-existing final counters — never recalculated,
+  never double-recorded), `sipsa.soap.calls`/`sipsa.soap.failures`/`sipsa.soap.retries`
+  (Counter), `sipsa.soap.duration` (Timer, spans all retries/backoff). Tags are strictly
+  `method` (closed catalog: the ~5 registered ingestion methods / SOAP actions),
+  `outcome` (`success`/`failure`/`canceled`), and `source` (lowercased
+  `RequestSource`) — never `requestId`, `runId`, a raw exception message, or any other
+  unbounded value. Every `IngestionMetrics` method swallows and logs registry
+  exceptions rather than propagating them: instrumentation must never break an
+  ingestion run or a SOAP call. **Bug found and fixed along the way:**
+  `micrometer-registry-prometheus` was marked `<optional>true</optional>` in `pom.xml`,
+  which Spring Boot Maven Plugin's `repackage` goal excludes from the runnable jar by
+  default — the dependency compiled fine and showed in `dependency:tree`, but was never
+  actually bundled, so `/actuator/prometheus` 404'd despite being in the exposure list.
+  Fixed by removing the flag; verified in Docker with a real successful
+  `promediosSipsaParcial` run (677,061 records) — all 10 `sipsa.*` metrics present with
+  the designed tags in both `/actuator/metrics` and `/actuator/prometheus`,
+  `/actuator/health` unaffected, no sensitive data in any tag. New tests:
+  `IngestionMetricsTest` (9 cases, `SimpleMeterRegistry`), `IngestionJobMetricsTest` (4
+  cases, verifying exactly one `recordRunCompleted` call per run with the correct
+  outcome), `SoapStreamingClientMetricsTest` (3 cases, a real local loopback HTTP
+  server — no WireMock, not yet in this repo per TECH-044 — verifying exactly one
+  outcome record and the correct retry count per call). No status codes, `ErrorResponse`,
+  DTOs, security, retries, thresholds, scheduler, or database logic changed. No Flyway
+  migration; V1–V4 unchanged.
+
 ### Testing
 
 - **TECH-043 — full `GlobalExceptionHandler` contract coverage.** New
