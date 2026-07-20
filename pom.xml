@@ -36,6 +36,9 @@
 
         <!-- MapStruct version for compile-time mapper generation -->
         <mapstruct.version>1.6.3</mapstruct.version>
+
+        <!-- ArchUnit version (TECH-093) -->
+        <archunit.version>1.4.2</archunit.version>
     </properties>
 
     <!-- ======================================= -->
@@ -179,6 +182,16 @@
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock</artifactId>
             <version>${wiremock.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ArchUnit: package-boundary regression tests (TECH-093, ADR-007 F5). Bytecode
+             import, not reflection - compatible with Java 25 independent of ArchUnit's
+             documented supported-JDK list. -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
             <scope>test</scope>
         </dependency>
 
