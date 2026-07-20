@@ -5,7 +5,7 @@ import com.dalejandrov.sipsa.api.dto.response.IngestionRunDetailResponse;
 import com.dalejandrov.sipsa.api.dto.response.IngestionRunResponse;
 import com.dalejandrov.sipsa.api.mapper.IngestionAuditMapper;
 import com.dalejandrov.sipsa.domain.entity.IngestionRun;
-import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
+import com.dalejandrov.sipsa.domain.exception.SipsaNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -78,7 +78,7 @@ public class IngestionRunQueryService {
      *
      * @param runId the run identifier
      * @return run detail response
-     * @throws SipsaBusinessException if run not found
+     * @throws SipsaNotFoundException if run not found
      */
     @Transactional(readOnly = true)
     public IngestionRunDetailResponse getRunStatus(Long runId) {
@@ -87,7 +87,7 @@ public class IngestionRunQueryService {
                 .map(mapper::toDetailDto)
                 .orElseThrow(() -> {
                     log.warn("Run not found: runId={}", runId);
-                    return new SipsaBusinessException("Ingestion run not found: " + runId);
+                    return new SipsaNotFoundException("Ingestion run not found: " + runId);
                 });
     }
 }
