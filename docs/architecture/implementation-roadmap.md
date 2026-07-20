@@ -204,16 +204,16 @@ total on `main`). TECH-041/042 have not started — the phase remains open on th
 
 **Objective:** Instrument the system for production diagnosis and fix the N+1 query issue.
 
-| Story | Title | Type | Branch |
-|---|---|---|---|
-| TECH-032 | Add Micrometer metrics for ingestion | Observability | `feat/ingestion-metrics` |
-| TECH-060 | Fix N+1 in `upsertFallbackBatch` | Performance | `fix/batch-upsert-n-plus-one` |
+| Story | Title | Type | Branch | Status |
+|---|---|---|---|---|
+| TECH-032 | Add Micrometer metrics for ingestion | Observability | `feat/ingestion-micrometer-metrics` (the originally-listed `feat/ingestion-metrics` name was not reused) | **Done** (2026-07-20, merged to `main`) |
+| TECH-060 | Fix N+1 in `upsertFallbackBatch` | Performance | `perf/remove-mayoristas-fallback-n-plus-one` (the originally-listed `fix/batch-upsert-n-plus-one` name was not reused) | Implemented and pushed, not yet merged to `main` |
 
 **Acceptance criteria for phase exit:**
 - `./mvnw clean verify` passes.
-- `GET /actuator/metrics` includes `sipsa.ingestion.duration` and `sipsa.ingestion.records`.
-- Metrics have a `method` tag with the SOAP method name.
-- `upsertFallbackBatch()` executes exactly 1 SELECT query per batch regardless of batch size.
+- `GET /actuator/metrics` includes `sipsa.ingestion.duration` and `sipsa.ingestion.records`. ✅ (TECH-032)
+- Metrics have a `method` tag with the SOAP method name. ✅ (TECH-032)
+- `upsertFallbackBatch()` executes exactly 1 SELECT query per batch regardless of batch size. (TECH-060, implemented on its branch, not yet merged)
 
 **Criterion to start Phase 5:** Phase 4 merge to `main` is complete. TECH-010 (SPIKE) is resolved.
 
@@ -291,8 +291,9 @@ main (post-migration)
 │   TECH-041/042/043 remain
 │   Duration estimate: 3–5 days
 │
-├── Phase 4 — Observability + Performance [After Phase 3; not started]
-│   Metrics (TECH-032) + N+1 fix (TECH-060) — both code-verified open 2026-07-19
+├── Phase 4 — Observability + Performance [Started ahead of sequence]
+│   Metrics (TECH-032) — Done, 2026-07-20, merged to main.
+│   N+1 fix (TECH-060) — implemented and pushed, not yet merged.
 │   Duration estimate: 2–3 days
 │
 └── Phase 5 — Data Integrity              [Done, 2026-07-16; follow-on track done 2026-07-19]
