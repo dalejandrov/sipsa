@@ -40,6 +40,7 @@ When a story is implemented:
 | TECH-053 | Make scheduler dispatch async | Medium | 2 | Done |
 | TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Low | 2 | Done |
 | TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | Low | 6 | **Done** (2026-07-20, `spike/evaluate-is-monthly-contract`) |
+| TECH-056 | Consolidate monthly-method classification in `WindowPolicy` | Medium | 6 | **Done** (2026-07-20, `refactor/consolidate-monthly-method-classification`) |
 | TECH-060 | Fix N+1 in `upsertFallbackBatch` | Medium | 4 | Done |
 | TECH-070 | Bean Validation on `SoapProperties` | Low | 1 | **Done** (2026-07-19, branch `refactor/validate-soap-properties`) |
 | TECH-071 | Align `batch-size` defaults | Low | 1 | **Done** (2026-07-16 — single typed source of truth, canonical 500) |
@@ -1432,6 +1433,118 @@ definition. `IngestionHandler` and all 5 handler implementations are completely
 untouched — this story changed no production code. No scheduler, window, metrics,
 audit, repository, API, security, SOAP, database, or AWS infrastructure change. No
 Flyway migration; V1–V4 unchanged.
+
+---
+
+### TECH-056
+
+**Title:** Consolidate monthly-method classification in `WindowPolicy`
+**Type:** Refactor
+**Priority:** Medium
+**Phase:** 6
+**Status:** Done
+**Complexity:** S
+**Branch:** `refactor/consolidate-monthly-method-classification`
+**Dependencies:** [TECH-055](#tech-055) (SPIKE, Done) — this story implements exactly the
+follow-up TECH-055 scoped, no more.
+
+**Problem (found by TECH-055, not assumed here):** `WindowPolicy.resolveMonthlyRule`
+(private, substring-matched, richer than a boolean) and
+`SipsaHealthIndicator.DAILY_METHODS` (a hardcoded `Set` of exact method names) were two
+completely independent daily/monthly classification implementations, with **zero shared
+source of truth**. If a 6th handler were ever added and one site updated but not the
+other, the two would silently disagree — `WindowPolicy` would validate its window
+correctly while `SipsaHealthIndicator` applied the wrong staleness threshold, or vice
+versa.
+
+**Diagnosis:**
+
+| Método | Clasificación en `WindowPolicy` (antes y ahora) | Clasificación en `HealthIndicator` (antes) | Resultado esperado (y logrado) |
+|---|---|---|---|
+| `promediosSipsaCiudad` | no monthly | en `DAILY_METHODS` → daily threshold | not monthly → daily |
+| `promediosSipsaParcial` | no monthly | en `DAILY_METHODS` → daily threshold | not monthly → daily |
+| `promediosSipsaSemanaMadr` | no monthly (weekly *data*, daily *scheduling cadence*) | en `DAILY_METHODS` → daily threshold | not monthly → daily |
+| `promediosSipsaMesMadr` | monthly (`MES_MADR_RULE`, day 8/9, key `M8`) | NOT en `DAILY_METHODS` → monthly threshold | monthly → monthly |
+| `promedioAbasSipsaMesMadr` | monthly (`ABAS_RULE`, day 10/11, key `M10`) | NOT en `DAILY_METHODS` → monthly threshold | monthly → monthly |
+
+Methods are identified by exact `String` name (no alias, no enum, no wrapper type) — the
+same convention every other part of this codebase uses (`IngestionHandler.getMethodName()`
+returns `String`; no `IngestionMethod`/`MethodName`/`SipsaMethod` type exists anywhere,
+confirmed by a fresh grep before deciding the signature — introducing one now would widen
+this story's scope for no behavioral benefit). `SipsaHealthIndicator` only ever needed a
+binary "is this monthly" answer, never `WindowPolicy`'s richer per-rule payload
+(principal day, grace day, key suffix) — so the new query returns `boolean`, not
+`Optional<MonthlyRule>`, and `MonthlyRule` itself stays a private implementation detail of
+`WindowPolicy`, never exposed.
+
+**Design:** `WindowPolicy` gains exactly one new public method:
+
+```java
+public boolean isMonthlyMethod(String methodName) {
+    return resolveMonthlyRule(methodName).isPresent();
+}
+```
+
+`SipsaHealthIndicator` is constructor-injected with `WindowPolicy` and calls
+`windowPolicy.isMonthlyMethod(method)` in place of `DAILY_METHODS.contains(method)` —
+`DAILY_METHODS` is deleted entirely, not deprecated or left dead.
+
+**Unrecognized method — explicit behavior decision (documented, not silent):** an
+ingestion method name `WindowPolicy` does not recognize at all now gets the **daily**
+threshold (36h), matching `WindowPolicy`'s own "unrecognized → not monthly" convention
+(`resolveMonthlyRule` returns `Optional.empty()`, the same outcome an unrecognized method
+already gets from `validateAndGetKey` today — it falls through to `validateDaily`). This
+is a narrow change from `SipsaHealthIndicator`'s *previous*, **untested**, independent
+fallback (unrecognized → monthly/840h, the `else` branch of its own now-deleted ternary).
+Per the explicit instruction to match `WindowPolicy`'s current contract for this query,
+and since (a) no existing test locked in the old fallback as an intentional contract and
+(b) all 5 real, registered methods classify identically before and after — this is
+treated as a deliberate, narrow, fully-tested refinement, not a hidden behavior change.
+
+**Acceptance Criteria:**
+- [x] `WindowPolicy.isMonthlyMethod(String)` is public, delegates to the existing rule
+      table, no change to `validateAndGetKey`'s own behavior.
+- [x] `SipsaHealthIndicator.DAILY_METHODS` is removed; classification is sourced from
+      `WindowPolicy` exclusively — confirmed structurally (a reflection-based test
+      asserts zero `Collection`-typed fields remain on the class) and behaviorally (a
+      mocked-`WindowPolicy` test proves the same method/age flips DOWN↔UP purely from
+      `WindowPolicy`'s answer, not from comparing two lists).
+- [x] All 5 real methods keep their exact prior thresholds — verified by unit tests and a
+      real Docker smoke test (see below).
+- [x] `IngestionHandler`'s interface and all 5 implementations are untouched.
+- [x] ArchUnit (TECH-093) needed no new exclusion — none of its 3 rules restrict
+      `infrastructure → application` (the new `SipsaHealthIndicator → WindowPolicy`
+      dependency direction), confirmed by re-running `PackageBoundaryArchitectureTest`
+      (3/3 green, unmodified).
+- [x] `./mvnw clean verify` passes (441 tests, up from 430 — 11 net new).
+
+**Completed:** `WindowPolicy.isMonthlyMethod(String)` added (6 lines, delegates to the
+existing private `resolveMonthlyRule`). `SipsaHealthIndicator` constructor-injected with
+`WindowPolicy`; `DAILY_METHODS` field deleted; its one call site updated. Stale Javadoc
+in `SipsaHealthProperties` (2 references to `SipsaHealthIndicator.DAILY_METHODS`) and
+`SipsaHealthIndicator`'s own class-level Javadoc updated to describe the new,
+`WindowPolicy`-sourced classification instead of a hardcoded list. Tests:
+`WindowPolicyTest.IsMonthlyMethodClassification` (7 cases — all 5 real methods
+individually, an unrecognized method returns `false` without throwing, and an explicit
+cross-check that `isMonthlyMethod` agrees with `validateAndGetKey`'s own classification
+for two real methods). `SipsaHealthIndicatorTest`: its 6 pre-existing cases updated to
+mock the now-injected `WindowPolicy` (behaviorally unchanged — same thresholds, same
+verdicts) plus 4 new cases — a genuine-dependency proof (identical method name and age,
+`WindowPolicy`'s mocked answer alone flips the health verdict DOWN↔UP), the
+unrecognized-method case (daily threshold applies, explicitly asserted), a structural
+regression test (reflection over `getDeclaredFields()` asserting zero
+`java.util.Collection`-assignable field exists on the class — fails on *any* future
+hardcoded collection reintroduced, not a name-specific grep), and a constructor-dependency
+check (`WindowPolicy` is a declared constructor parameter type). Verified in Docker: clean
+startup, no wiring/context errors; two rows seeded directly via SQL
+(`promediosSipsaCiudad` daily, `promediosSipsaMesMadr` monthly) aged to 40 hours —
+`/actuator/health`'s `sipsa` component correctly flagged only the daily method `STALE`
+(exceeds the 36h threshold) while the monthly method stayed fresh (well under 840h),
+proving the consolidated classification is applied correctly, differently, per method, in
+the real running application; `/actuator/metrics` and the scheduler startup log
+unaffected. No scheduler, window-validation, cron, metrics, audit, endpoint, HTTP
+contract, SOAP, security, or persistence change. No Flyway migration; V1–V4 unchanged; no
+`V5`; no remote database access.
 
 ---
 
