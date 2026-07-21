@@ -1,0 +1,117 @@
+# Infra plan (TECH-137, ADR-010): validates every Terraform change on pull
+# requests touching infra/terraform/ — format, syntax, lint, a security scan,
+# and (only once the OIDC role below exists) a real `terraform plan`.
+#
+# fmt/validate/lint/scan need no AWS credentials and always run. The plan step
+# is conditioned on the `AWS_TERRAFORM_PLAN_ROLE_ARN` repository variable
+# being set — that role does not exist yet (see infra/terraform/README.md);
+# creating it is a prerequisite for whichever of TECH-130/TECH-132 lands
+# first and needs a real `plan` in CI, not invented here.
+name: Infra Plan
+
+on:
+  pull_request:
+    paths:
+      - 'infra/terraform/**'
+      - '.github/workflows/infra-plan.yml'
+
+# Least privilege by default. `id-token: write` is required for the OIDC
+# federation used by the (currently-skipped) plan step — granting it here
+# does not by itself authenticate anything without the AWS-side role trust
+# policy also existing.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: infra-plan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_VERSION: '1.9.8'
+  TF_ROOT: infra/terraform/environments/production
+
+jobs:
+  fmt-validate:
+    name: fmt, validate, lint, security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check (all stacks)
+        run: terraform fmt -check -recursive infra/terraform
+
+      - name: terraform validate — bootstrap
+        working-directory: infra/terraform/bootstrap
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: terraform validate — environments/production
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: Run TFLint
+        run: |
+          tflint --init
+          tflint --recursive --chdir=infra/terraform
+
+      # tfsec is the chosen scanner (over checkov/trivy) to keep CI to one
+      # security tool for Terraform, per ADR-010/TECH-137 scope — do not add
+      # a second scanner without a reason to replace this one, not stack them.
+      - name: tfsec security scan
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: infra/terraform
+
+  plan:
+    name: terraform plan (production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: fmt-validate
+    # Skips cleanly until the OIDC role exists — see the header comment above.
+    if: vars.AWS_TERRAFORM_PLAN_ROLE_ARN != ''
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          aws-region: us-east-1
+
+      # backend.hcl itself is gitignored (real bucket/table names, see
+      # infra/terraform/environments/production/backend.hcl.example) — wiring
+      # it into CI (repository variables or a generated file) is part of the
+      # same follow-up that creates AWS_TERRAFORM_PLAN_ROLE_ARN, not done here.
+      - name: terraform init
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform init -backend-config=backend.hcl
+
+      - name: terraform plan
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform plan -input=false -no-color
