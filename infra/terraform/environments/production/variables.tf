@@ -298,3 +298,123 @@ variable "ecs_log_retention_days" {
   type        = number
   default     = 30
 }
+
+# --- Internal ALB and ECS Service (TECH-141) --------------------------------
+
+variable "alb_allowed_ingress_security_group_ids" {
+  description = "Security group IDs allowed to reach the internal ALB on port 80. Empty by default — no VPC Link exists yet; TECH-131 populates this."
+  type        = list(string)
+  default     = []
+}
+
+variable "alb_allowed_ingress_cidr_blocks" {
+  description = "CIDR blocks allowed to reach the internal ALB, as a documented fallback. Empty by default; 0.0.0.0/0 is rejected by the ecs-service module's own validation."
+  type        = list(string)
+  default     = []
+}
+
+variable "alb_deletion_protection" {
+  description = "Whether ALB deletion protection is enabled. Default true (ADR-010 posture)."
+  type        = bool
+  default     = true
+}
+
+variable "enable_alb_access_logs" {
+  description = "Whether ALB access logs are enabled. Default false — no S3 bucket exists for them yet (see modules/ecs-service/README.md)."
+  type        = bool
+  default     = false
+}
+
+variable "alb_access_logs_bucket" {
+  description = "S3 bucket for ALB access logs, only used when enable_alb_access_logs is true. No default."
+  type        = string
+  default     = null
+}
+
+variable "alb_access_logs_prefix" {
+  description = "S3 key prefix for ALB access logs, only used when enable_alb_access_logs is true."
+  type        = string
+  default     = ""
+}
+
+variable "alb_desync_mitigation_mode" {
+  description = "ALB desync mitigation mode. Default \"defensive\" (AWS's own recommended default)."
+  type        = string
+  default     = "defensive"
+}
+
+variable "health_check_path" {
+  description = "Target group health check path. Default \"/actuator/health\" — confirmed safe unauthenticated (see modules/ecs-service/README.md)."
+  type        = string
+  default     = "/actuator/health"
+}
+
+variable "health_check_matcher" {
+  description = "Expected HTTP status code(s) for a healthy target. Default \"200\"."
+  type        = string
+  default     = "200"
+}
+
+variable "health_check_interval_seconds" {
+  description = "Seconds between health checks. Default 30."
+  type        = number
+  default     = 30
+}
+
+variable "health_check_timeout_seconds" {
+  description = "Seconds to wait for a health check response. Default 5."
+  type        = number
+  default     = 5
+}
+
+variable "health_check_healthy_threshold" {
+  description = "Consecutive successful health checks before a target is healthy. Default 3."
+  type        = number
+  default     = 3
+}
+
+variable "health_check_unhealthy_threshold" {
+  description = "Consecutive failed health checks before a target is unhealthy. Default 3."
+  type        = number
+  default     = 3
+}
+
+variable "ecs_service_desired_count" {
+  description = <<-EOT
+    Number of ECS tasks the service maintains. Default 1 — must not be
+    raised until the in-process ingestion scheduler's multiple-replica
+    risk is resolved (leader election, external scheduler, or a
+    distributed lock — see modules/ecs-service/README.md).
+  EOT
+  type        = number
+  default     = 1
+}
+
+variable "ecs_deployment_minimum_healthy_percent" {
+  description = "Minimum percent of desired_count healthy during a deployment. Default 100."
+  type        = number
+  default     = 100
+}
+
+variable "ecs_deployment_maximum_percent" {
+  description = "Maximum percent of desired_count during a deployment. Default 200 — allows a new task to start before the old one stops."
+  type        = number
+  default     = 200
+}
+
+variable "ecs_enable_execute_command" {
+  description = "Whether ECS Exec is enabled. Default false — no IAM/logging/audit posture defined for it yet."
+  type        = bool
+  default     = false
+}
+
+variable "ecs_health_check_grace_period_seconds" {
+  description = <<-EOT
+    Seconds ECS waits after task start before counting a failed ALB
+    health check. Default 120 — a conservative, unmeasured proposal;
+    must be validated against a real application startup before the
+    first real deployment (see modules/ecs-service/README.md).
+  EOT
+  type        = number
+  default     = 120
+}
