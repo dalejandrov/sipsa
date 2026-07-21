@@ -1,8 +1,14 @@
 # AWS Production Readiness — TECH-130 / TECH-131 / TECH-132
 
-**Version:** 1.1 (2026-07-21 — §10 Q3, the IaC tool choice, is now formally addressed by
-[ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md); every other blocking question
-below remains open exactly as originally audited)
+**Version:** 1.3 (2026-07-21 — [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
+now **Accepted**: the repository owner resolved IaC tool, ownership, account, region,
+environments, VPC, ECS launch type, database, Cognito ownership, domain, NAT Gateway,
+logging retention, secrets management, and (in a same-day revision) API Gateway
+REST-vs-HTTP-API (Q8 — **REST API**, required for API key/usage-plan/quota/throttling
+support). §10 below is annotated per-item with each resolution; §9 Risks updated
+accordingly. Still open: exact M2M integration count/scopes (Q2), IAM/SigV4 path
+necessity (Q9), and CORS/end-to-end-VPC-TLS — see the annotations below, not assumed
+resolved just because most of §10 now is)
 **Date:** 2026-07-20
 **Author:** Repository audit (branch `docs/production-aws-readiness-plan`), read-only —
 no AWS resource was created, no AWS CLI command was run against a real account, no
@@ -201,14 +207,17 @@ decision, secret storage strategy) beyond needing raw AWS access.
 | REST API vs HTTP API | D | **Undecided** — HTTP API is cheaper/simpler with native JWT authorizers; REST API has more mature native API-key/usage-plan support. Needs an explicit choice, not an assumption (AWS's HTTP API feature set for usage plans has evolved — verify current support before deciding, don't assume either way) |
 | JWT authorizer wired to the TECH-130 pool | C | Depends on TECH-130 existing first |
 | IAM/SigV4 authorizer for admin routes | D | Backlog phrases this as "or" — **whether this path is needed at all, alongside Cognito, is undecided** |
-| API keys + usage plans (tiers, rps, quotas) | D + C | Backlog's `basic`/`partner` figures are **illustrative examples, not a decision** — real tiers need a real decision |
+| API keys + usage plans (tiers, rps, quotas) | Resolved + C | ADR-010: general 10 req/s / burst 20 / 100k monthly per consumer; ingestion-trigger routes 1 req/s / burst 2 — replaces the previously-illustrative `basic`/`partner` figures; implementing requires AWS |
 | Access logs (`apiKeyId`/`clientId`) | C | Format can be decided now (B), implementing requires AWS |
 | CORS | D | **Completely undecided — no browser-client requirement has been established anywhere in the repo** |
 | Max payload size / integration timeout | E (verified safe for the async trigger) / D (for any future large-payload endpoint) | See §1.8 |
 | Cognito authorizer vs API keys vs private integration vs Spring Security — compatibility | E (no incompatibility found) | See §6 below — these are four independent, non-overlapping responsibilities already documented in ADR-002, not four mechanisms competing for the same route |
 
-**TECH-131 cannot be marked Done**: depends on TECH-130 (C), and REST-vs-HTTP API, IAM
-authorizer necessity, real usage-plan tiers, and CORS are all open **D** decisions.
+**TECH-131 cannot be marked Done**: depends on TECH-130 (C). REST API is now decided
+(ADR-010) — the remaining open **D** decisions are IAM authorizer necessity and CORS; real
+usage-plan tiers are also decided (ADR-010: general 10 req/s / burst 20 / 100k monthly,
+ingestion-trigger 1 req/s / burst 2), replacing the previously-illustrative
+`basic`/`partner` figures.
 
 ### TECH-132 — Private networking
 
@@ -458,11 +467,14 @@ security posture.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| IaC tool chosen late, blocking all three stories | High (blocking) | Resolve Q3 (§10) first — nothing else can start meaningfully without it |
+| IaC tool chosen late, blocking all three stories | Resolved | Q3 (§10) resolved by ADR-010 (Accepted, 2026-07-21) — Terraform, this repository |
+| Single NAT Gateway is a point of failure for all outbound egress | Medium (accepted) | Deliberate cost trade-off (ADR-010) — documented upgrade path to one NAT per AZ once justified |
+| RDS Single-AZ has no automatic failover | Medium (accepted) | Deliberate cost trade-off (ADR-010) — Multi-AZ is a documented future upgrade, not assumed permanent |
+| `desired_count=1` ECS gives no task redundancy | Medium (accepted) | Deliberate cost trade-off (ADR-010) — revisit once real traffic/criticality data exists |
 | `SPRING_PROFILES_ACTIVE` left unset/wrong in the ECS task definition | Medium | Base `application.yaml` already fails fast on missing secrets regardless of profile — the failure mode is safe, but should be verified explicitly in the first real deploy, not assumed |
 | NAT Gateway omitted, ingestion silently fails | High | §7 makes this explicit and evidence-based, not a footnote |
 | API keys mistaken for authentication by a future contributor | Medium | Already documented repeatedly (ADR-002, `SecurityConfig` Javadoc) — carry the same language into any IaC/runbook documentation |
-| REST vs HTTP API chosen without checking current AWS feature parity for usage plans | Medium | Verify AWS's current documentation at decision time — this audit deliberately does not assume either way, since the feature landscape changes over time |
+| REST vs HTTP API | Resolved | ADR-010 (revision, 2026-07-21): REST API, required for full API key/usage-plan/quota/throttling support |
 | CORS decided implicitly by whichever engineer implements TECH-131 first | Low–Medium | Flagged explicitly in §10 as a blocking question, not left to be improvised |
 | Secrets management tool decided ad hoc per story (130 vs 132) | Medium | Same decision affects both stories — resolve once (Q6, §10), not twice |
 
@@ -476,40 +488,59 @@ determined above — but TECH-130/131/132 cannot be implemented, and should not 
 
 1. **¿La autenticación de integraciones máquina-a-máquina será exclusivamente
    `client_credentials`, o también se necesita un flujo `authorization_code` con hosted
-   UI para operadores humanos?** (Affects TECH-130's app-client count and Cognito hosted
-   UI/domain setup.)
+   UI para operadores humanos?** — **Resuelto por [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
+   (Accepted, 2026-07-21): ambos.** Dos contratos separados, sin app client compartido:
+   M2M vía `client_credentials` (app client confidencial, con secreto), y usuarios humanos
+   vía Authorization Code + PKCE (app client público, sin secreto, sin implicit flow).
 2. **¿Cuántas integraciones M2M distintas existen hoy o están planeadas, y qué scopes
-   necesita cada una?** (Determines how many `client_credentials` app clients TECH-130
-   provisions.)
+   necesita cada una?** — **Aún abierto.** ADR-010 aprueba "un app client por integración
+   cuando sea posible" como principio, pero el conteo real y sus scopes específicos se
+   determinan al implementar TECH-130, no aquí.
 3. **¿Se usará Terraform, CDK, CloudFormation, o infraestructura administrada por otro
-   equipo/repositorio?** No IaC tool exists in this repository today — this blocks
-   producing any actual infrastructure artifact for all three stories. **Addressed in
-   [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Proposed, 2026-07-21):
-   Terraform recommended, conditional on confirming this team — not a platform team —
-   owns AWS provisioning.** Status stays `Proposed` until that ownership question and the
-   account/region/environment questions (also listed there) are answered by someone with
-   the authority to answer them.
+   equipo/repositorio?** — **Resuelto por ADR-010 (Accepted, 2026-07-21): Terraform, en
+   este repositorio** (`infra/terraform/`), con el propietario del repositorio como dueño
+   del aprovisionamiento AWS.
 4. **¿Quién administra Cognito y el dominio hosted UI (si aplica) — este equipo o un
-   equipo de plataforma/identidad centralizado?**
+   equipo de plataforma/identidad centralizado?** — **Resuelto: el propietario de este
+   repositorio, inicialmente** (ADR-010).
 5. **¿Existe ya una VPC objetivo (compartida con otros servicios) o se provisiona una
-   nueva exclusiva para SIPSA?**
+   nueva exclusiva para SIPSA?** — **Resuelto: VPC nueva y dedicada, 2 AZ** (ADR-010; la
+   cuenta AWS es nueva, no hay nada que compartir).
 6. **¿Dónde se almacenarán los secretos (`DB_PASSWORD`, cualquier client secret de
    Cognito): AWS Secrets Manager, Parameter Store (SecureString), o un vault externo ya
-   adoptado por la organización?**
-7. **¿La base de datos PostgreSQL correrá en RDS, o es autoadministrada (EC2/otro)?**
-8. **¿API Gateway será REST API o HTTP API?** (Verify current AWS feature parity for
-   usage plans/API keys on HTTP API before deciding — do not assume either way.)
+   adoptado por la organización?** — **Resuelto: AWS Secrets Manager** para credenciales
+   RDS y client secrets de Cognito; **SSM Parameter Store** o variables de entorno para
+   configuración no sensible (ADR-010).
+7. **¿La base de datos PostgreSQL correrá en RDS, o es autoadministrada (EC2/otro)?** —
+   **Resuelto: Amazon RDS for PostgreSQL, Single-AZ inicialmente** (Multi-AZ documentado
+   como mejora futura, no implementada ahora) (ADR-010).
+8. **¿API Gateway será REST API o HTTP API?** — **Resuelto: REST API** (ADR-010,
+   revisión 2026-07-21). Motivo: se requieren API keys, usage plans, cuotas por
+   consumidor y throttling asociado a la API key — REST API tiene soporte completo y
+   maduro para las cuatro; el soporte de HTTP API para esta combinación ha sido
+   históricamente parcial. Las API keys **no son autenticación** — identifican al
+   consumidor para throttling/cuota; Cognito sigue siendo la única autoridad de identidad
+   y autorización.
 9. **¿Se requiere el path IAM/SigV4 para automatización AWS-nativa, o Cognito
-   `client_credentials` cubre todos los consumidores conocidos hoy?**
+   `client_credentials` cubre todos los consumidores conocidos hoy?** — **Aún abierto.**
+   No mencionado en las decisiones aprobadas; se resuelve al implementar TECH-131 si surge
+   un consumidor AWS-nativo real.
 10. **¿Existe ya un dominio y certificado ACM para el endpoint público de API Gateway, o
-    debe provisionarse?** (Also determines whether a custom domain name is needed for the
-    Cognito hosted UI, if Q1 requires one.)
+    debe provisionarse?** — **Resuelto para la primera versión: no existe dominio propio
+    ni ACM; se usa el endpoint administrado por defecto de API Gateway** (`execute-api`).
+    Route 53/ACM no se crean en esta fase; la arquitectura permite agregarlos después
+    (ADR-010).
 
-Additional, non-numbered but still open: whether any browser-based client will ever call
-`GET /api/sipsa/**` directly (determines the CORS decision), whether TLS is required
-end-to-end inside the VPC, whether ECS Fargate or EC2 is preferred, and what real
-throttling/quota tiers `TECH-131`'s usage plans should use (the backlog's `basic`/
-`partner` figures are illustrative, not decided values).
+Additional, previously non-numbered:
+- **CORS** (si algún cliente basado en navegador llamará `GET /api/sipsa/**`
+  directamente): **aún abierto**, no mencionado en las decisiones aprobadas.
+- **TLS end-to-end dentro de la VPC**: **aún abierto**, no mencionado en las decisiones
+  aprobadas.
+- **ECS Fargate vs EC2**: **Resuelto: Fargate** (ADR-010).
+- **Throttling/quota tiers reales de TECH-131**: **Resuelto**, valores iniciales
+  aprobados — 10 req/s / burst 20 / 100,000 req mensuales por consumidor (general);
+  1 req/s / burst 2 para endpoints que disparan ingestiones (ADR-010). Estos reemplazan
+  los valores `basic`/`partner` ilustrativos previos.
 
 ---
 

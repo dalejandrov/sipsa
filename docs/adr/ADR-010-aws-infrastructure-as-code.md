@@ -1,163 +1,515 @@
-# ADR-010 — AWS Infrastructure-as-Code Tooling
+# ADR-010 — AWS Infrastructure-as-Code Tooling and Initial Production Topology
 
-**Status:** Proposed (2026-07-21) — tool choice requires human approval; no AWS resource
-exists yet and none is created by this ADR
-**Date:** 2026-07-21
+**Status:** Accepted (2026-07-21) — Terraform approved as the IaC tool; the initial
+production topology, ownership model, and operational limits below are approved and
+ready for phased implementation. No AWS resource exists yet; this ADR records the
+decisions, not the resources themselves — those are created story by story, starting
+with [TECH-137](../backlog/technical-backlog.md#tech-137) (bootstrap).
+**Date:** 2026-07-21 (Proposed) · 2026-07-21 (Accepted, same day — decisions confirmed by
+the repository owner) · 2026-07-21 (revised — toolchain corrections applied before the
+first `apply`: S3-native state locking replaces the originally-provisioned DynamoDB lock
+table, Terraform pinned to 1.15.7 / AWS provider to 6.55.0, Trivy replaces tfsec, OIDC
+trust-policy contract and role separation documented, API Gateway REST API decided
+outright rather than deferred — see Terraform Toolchain and API Gateway sections below)
 **Backlog:** [TECH-130](../backlog/technical-backlog.md#tech-130),
 [TECH-131](../backlog/technical-backlog.md#tech-131),
-[TECH-132](../backlog/technical-backlog.md#tech-132)
+[TECH-132](../backlog/technical-backlog.md#tech-132),
+[TECH-137](../backlog/technical-backlog.md#tech-137) (Terraform bootstrap)
 **Depends on:** [ADR-002](ADR-002-internal-endpoint-security.md) (Option E, layered
 security model — this ADR provisions the infrastructure ADR-002 already assumes; it does
 not revisit that decision), [aws-production-readiness.md](../architecture/aws-production-readiness.md)
-(the audit this ADR builds on, §10 Q3 in particular)
+(the audit this ADR builds on)
 
 ---
 
 ## Context
 
 `aws-production-readiness.md` (2026-07-20 audit) confirmed by grep that this repository
-has **zero existing IaC tooling and zero prior tooling decision** — no `.tf`, no CDK app,
-no CloudFormation template anywhere in the tree. That audit deliberately did not choose a
-tool, flagging it as its own blocking question (§10 Q3), since it is a decision, not a
-fact derivable from the codebase.
+had **zero existing IaC tooling and zero prior tooling decision**. A first version of
+this ADR (2026-07-21, `Proposed`) recommended Terraform conditional on confirming
+ownership, and left 14 blocking decisions open, deliberately not inventing answers to
+organizational questions the repository alone could not resolve.
 
-TECH-130, TECH-131, and TECH-132 each require provisioning real AWS resources (Cognito,
-API Gateway, VPC/ECS/ALB respectively). None of the three can produce a reviewable,
-repeatable infrastructure artifact — as opposed to ad hoc console clicks — until this
-decision is made. This is why it is addressed here, once, rather than three times.
-
-There is no evidence anywhere in the repository of prior team experience with Terraform,
-CDK, or CloudFormation, and no stated organizational standard. That absence is itself
-reported transparently below rather than assumed in either direction — the recommendation
-is deliberately conservative because of it, not in spite of it.
+The repository owner has since confirmed all of the decisions this ADR needed. This
+revision records them, resolves every previously-open blocking decision from the
+`Proposed` version, and moves the ADR to `Accepted`.
 
 ---
 
-## Alternatives Considered
+## Alternatives Considered (unchanged from the `Proposed` version, kept for the record)
 
 | Criterion | Terraform | AWS CDK | CloudFormation (raw) | Externally-managed (platform/infra team) |
 |---|---|---|---|---|
-| Team experience (this repo) | None found | None found | None found | Unknown — depends on that team |
-| Language | HCL (declarative, AWS-agnostic syntax) | TypeScript/Python/Java (imperative, generates CFN) | YAML/JSON (declarative, AWS-only) | N/A to this repo |
-| Reusability across providers | High (same tool works for non-AWS resources, e.g. any future DNS/CDN outside AWS) | Low (AWS-only, though CDK for Terraform exists) | None (AWS-only) | N/A |
-| Remote state | Built-in (S3 + DynamoDB lock, or Terraform Cloud) — must be set up explicitly | CDK bootstrap creates its own S3/ECR staging bucket per account/region | CloudFormation itself is the state store (no separate backend needed) | Owned by that team |
-| CI/CD fit | Mature (`terraform plan`/`apply` in GitHub Actions, matches this repo's existing TECH-120 pipeline pattern) | Mature (`cdk diff`/`deploy`, same CI shape) | Mature but verbose (raw template diff is harder to review than plan output) | Depends entirely on that team's own pipeline — this repo would only consume outputs |
-| Drift detection | `terraform plan` against real state | `cdk diff` against deployed stack | CloudFormation drift detection (native, but coarser-grained) | Owned by that team |
-| Complexity to start (single service, 3 stories) | Low–Medium — one state file, modules optional at this scale | Medium — CDK bootstrap, construct library learning curve on top of AWS concepts | Low, but templates get verbose fast for VPC + ECS + API Gateway + Cognito together | Lowest for this repo (nothing to write) but highest coordination cost |
-| Ownership fit | This team owns the code and the infra definition together, in the same repo, matching this repo's existing single-team, single-repo pattern (app + Flyway migrations + ArchUnit + CI already co-located) | Same as Terraform, but ties infra definitions to a programming language this repo doesn't otherwise use for infra (Java is used for the app, not IaC here) | Same ownership fit as Terraform, weaker ergonomics | Only fits if a platform team already exists and already owns AWS account/network boundaries — **not confirmed for this project** |
-
-**Option D — externally-managed infrastructure** is not rejected outright; it is
-**contingent on a fact this document cannot verify**: whether a platform/infra team
-already owns AWS account and network provisioning for this organization. If yes, TECH-132
-in particular (VPC, ECS, ALB) may partly or fully belong to that team's existing tooling,
-and this ADR's recommendation would apply only to the resources this team owns directly
-(Cognito app-client config, API Gateway routes). This is listed as Blocking Decision 1
-below, not assumed.
+| Team experience (this repo) | None found | None found | None found | N/A — ownership decision below rules this out |
+| Language | HCL (declarative, AWS-agnostic syntax) | TypeScript/Python/Java (imperative, generates CFN) | YAML/JSON (declarative, AWS-only) | N/A |
+| Reusability across providers | High | Low (AWS-only) | None (AWS-only) | N/A |
+| Remote state | Built-in (S3 + locking) — set up explicitly (see Bootstrap Strategy below) | CDK-managed bootstrap bucket | CloudFormation is its own state store | N/A |
+| CI/CD fit | Mature, matches this repo's existing GitHub Actions pattern (TECH-120) | Mature, same CI shape | Mature but verbose | N/A |
+| Complexity to start | Low–Medium | Medium (construct-library learning curve) | Low, but verbose for this resource set | Lowest for this repo, highest coordination cost |
+| Ownership fit | Matches this repo's existing single-team, single-repo pattern | Ties infra to a language this repo doesn't otherwise use for infra | Same fit as Terraform, weaker ergonomics | Ruled out — see Ownership decision |
 
 ---
 
-## Decision
+## Decision — Approved
 
-**Recommend Terraform**, conditional on Blocking Decision 1 (below) confirming this team
-owns its own AWS provisioning rather than consuming a platform team's existing stack.
+**Terraform is approved** as the IaC tool. Infrastructure code lives **in this
+repository** (`infra/terraform/`), not a separate repository, unless a real constraint
+discovered during implementation forces a split — none is known today, and none should be
+assumed preemptively.
 
-Rationale, in order of weight:
+All decisions below are **Accepted**, not recommendations awaiting approval:
 
-1. **No prior tooling or team experience exists in either direction** — this is explicitly
-   not a case where CDK's "use the language you already know" advantage applies, since
-   this repository's infra surface (VPC, ECS, ALB, API Gateway, Cognito) has no existing
-   Java-specific reason to prefer CDK, and Terraform's HCL is the more widely-documented
-   option for exactly this AWS resource set (VPC + ECS + ALB + API Gateway + Cognito is a
-   well-trodden Terraform path with abundant reference modules).
-2. **This repository already has a working, team-relevant CI pattern** (TECH-120, GitHub
-   Actions) that a `terraform plan`/`apply` step fits into with no new CI platform
-   decision required.
-3. **Single service, three stories, one AWS account (pending Blocking Decision 2)** — this
-   is a small-to-medium infra surface where Terraform's module system is enough structure
-   without CDK's additional abstraction layer paying for itself yet.
-4. **Explicitly not chosen for "technical preference."** If Blocking Decision 1 reveals an
-   existing platform team already standardized on CDK or CloudFormation, or already owns
-   the VPC/network layer, that fact overrides this recommendation — this ADR's
-   recommendation is scoped to "no other constraint is known," which is the actual,
-   verified state of this repository today, not a general endorsement of Terraform over
-   the alternatives.
+### Ownership
 
-**Status stays `Proposed`, not `Accepted`**, because Blocking Decision 1 is a
-organizational fact this document cannot verify from the repository alone, and because no
-one with authority over AWS account/tooling standards has confirmed this choice yet.
+The owner of this repository is the initial owner of the AWS infrastructure: creation,
+maintenance, operation, change approval, Cognito administration (including app clients),
+cost accountability, and first-line incident response. This is a single-person
+responsibility today — the implementation must not assume a larger team exists (no
+multi-approver workflows beyond what GitHub Environment protection rules already give a
+single approving owner).
+
+### IaC tool and repository location
+
+Terraform, in this repository, under `infra/terraform/`. Re-evaluate only if
+implementation surfaces a concrete blocker (e.g., a platform team requirement discovered
+later) — not preemptively.
+
+### AWS account
+
+**A single AWS account.** Only `production` exists initially. Multi-account separation
+(e.g., a distinct account per environment) is explicitly **not implemented** in this
+phase — Terraform's environment structure (`environments/production/`) exists so that a
+future environment can be added without restructuring, but no `dev`/`staging` account or
+workspace is created now.
+
+### Region
+
+**`us-east-1`**, parameterized as a Terraform variable (`aws_region`), never hardcoded
+into individual resource blocks.
+
+### Environments
+
+**`production` only.** Modules and variables are structured to accept an `environment`
+value so a future environment does not require duplicating module code — but no `dev` or
+`staging` environment is created in this or the immediately following stories.
+
+### Network
+
+A **new, dedicated VPC** (the AWS account is new — there is nothing to share yet).
+
+- **2 Availability Zones** — public and private subnets in each, even though some
+  cost-bearing resources (see NAT Gateway below) are not duplicated per AZ yet. Using 2
+  AZs from the start avoids a subnet-layout rewrite when high availability is added later.
+- Internal ALB, ECS tasks in **private subnets only** — ECS is never placed in a public
+  subnet to avoid needing a NAT Gateway; that would remove the private-network boundary
+  ADR-002 (Option E, layer 4) requires.
+- **One NAT Gateway initially** (not one per AZ). This is a deliberate cost/availability
+  trade-off:
+  - **Benefit:** roughly halves NAT cost (one hourly charge instead of two) at a stage
+    with no production traffic yet and a single ECS task.
+  - **Accepted risk:** the single NAT Gateway's AZ is a point of failure for all outbound
+    internet egress (DANE SOAP calls, Cognito JWKS fetches) — if that AZ's NAT fails, the
+    ECS tasks in the *other* AZ lose egress even though the AZ itself may be healthy.
+    There is **no full high-availability egress path** in this initial topology.
+  - **Future migration:** add a NAT Gateway per AZ (one in each public subnet, private
+    subnets in each AZ routing to the NAT in the same AZ) once traffic, criticality, or
+    incident history justifies the doubled cost. This is a route-table change plus one
+    additional NAT Gateway resource — not a VPC redesign — precisely because the subnet
+    layout is already 2-AZ from the start.
+
+### Compute
+
+**ECS Fargate.** Initial sizing, oriented at low/near-zero traffic:
+
+- `desired_count = 1`, minimum healthy tasks = 1 (no redundancy yet — a single-task
+  outage is an accepted risk at this stage, consistent with the single-NAT trade-off
+  above).
+- CPU and memory are **Terraform variables**, not hardcoded. Proposed starting values —
+  **256 CPU units (.25 vCPU) / 512 MiB memory**, the smallest valid Fargate combination —
+  are a starting point only and **must be verified against real ingestion-job memory/CPU
+  consumption** before the first production deploy; SOAP response parsing and batch
+  upserts are the parts of this workload most likely to need more than the Fargate
+  minimum.
+- **No autoscaling** in this phase beyond declaring `desired_count` as a variable capable
+  of being raised manually. A minimal autoscaling policy (e.g., target-tracking on CPU)
+  is deferred until there is real utilization data to size thresholds against — adding one
+  now would be tuned on guesses, not evidence.
+
+### Database
+
+**Amazon RDS for PostgreSQL.**
+
+- **Single-AZ** initially (no Multi-AZ) — documented explicitly as a future upgrade, not
+  a permanent decision: promote to Multi-AZ once usage or criticality justifies the
+  roughly-doubled instance cost Multi-AZ carries.
+- Encryption at rest **enabled**.
+- Automated backups **enabled**, retention **7 days** initially.
+- `publicly_accessible = false` — reachable only from the private subnets (ECS tasks),
+  never from the internet, consistent with ADR-002's layered model.
+- **Deletion protection enabled** in production.
+- Instance class, allocated storage, and PostgreSQL engine version are **Terraform
+  variables**, not hardcoded — defaults must be small/inexpensive (e.g., `db.t4g.micro`
+  class as a starting default, not a larger class), never a costly default chosen for
+  headroom that hasn't been justified by real usage.
+
+### Identity — Cognito
+
+Two separate, non-overlapping contracts — **no app client is shared between them**:
+
+**Machine-to-machine:**
+- OAuth2 `client_credentials` grant.
+- Confidential app clients (client secret required).
+- Scopes drawn from the resource server this repo's `SecurityConfig` already enforces
+  (`sipsa/ingestion.execute`, `sipsa/ingestion.cancel`, `sipsa/ingestion.read`,
+  `sipsa/audit.read`).
+- One app client per integration where practical, so a single integration's credential
+  can be rotated or revoked without affecting others.
+
+**Human users:**
+- Authorization Code grant **with PKCE**.
+- Public app client — **no client secret** (PKCE replaces the confidential-client secret
+  for a flow where the client can't keep a secret safe, e.g. a browser or CLI).
+- **Implicit flow is not used** (deprecated, unnecessary with PKCE available).
+- Hosted UI (or an equivalent Cognito-managed login surface) — exact integration depth
+  is scoped to what's actually needed when TECH-130 is implemented, not decided in full
+  here.
+
+The repository owner administers Cognito and its app clients initially (see Ownership,
+above) — no separate identity team exists to hand this off to yet.
+
+### Domain
+
+**No custom domain and no ACM certificate exist.** The first version uses **API
+Gateway's own managed endpoint** (the default `execute-api` URL). Route 53 and ACM are
+**not created** in this phase. The architecture must not preclude adding a custom domain
+later (API Gateway custom domain names attach without requiring a redesign of the
+underlying REST/HTTP API or VPC Link).
+
+### API Gateway and protection
+
+**Decision: API Gateway REST API, not HTTP API.** REST API is required because this
+story's protection model depends on **API keys, usage plans, per-consumer quotas, and
+usage-plan-associated throttling** — REST API has full, mature support for all four; HTTP
+API's support for this combination has historically been partial and should not be
+assumed equivalent without re-verifying AWS's current feature matrix at implementation
+time, which is exactly the risk choosing REST API now avoids. This is a resolved
+decision, not deferred — see Approved Decision 11 below (the `Proposed` version of this
+ADR had left it open).
+
+**Purpose: protect against overload and abuse — not restrict legitimate consumers.**
+
+**Responsibility split, restated precisely (do not blur this):**
+
+```
+Cognito:              identity and authorization (who is calling, what they're allowed to do)
+API key + usage plan: operational identification of the consumer, throttling, and quota
+                       (NOT identity, NOT authorization)
+```
+
+An API key identifies a *consumer* for metering purposes; it proves nothing about *who*
+is using it — anyone holding the key can present it. Cognito remains the sole authority
+answering "is this caller allowed to do this." Never describe an API key as
+authentication in code, IaC, or runbook documentation.
+
+**Usage-plan throttling is best-effort, not an absolute defense.** Rate/burst/quota
+limits reduce the chance of runaway cost or accidental overload from a misbehaving
+consumer; they are not a guarantee against cost spikes (a consumer can still be replaced
+by many consumers each under-quota, or a determined attacker can still generate billable
+requests up to the configured ceiling) and not a substitute for the account-level
+throttling safety net or for WAF if that becomes necessary later. Treat these limits as
+one layer, not the whole defense.
+
+Initial values (unchanged from the `Proposed` version):
+
+| Scope | Rate limit | Burst | Monthly quota |
+|---|---|---|---|
+| General, per consumer | 10 req/s | 20 | 100,000 requests |
+| Ingestion-triggering endpoints (`POST /api/internal/ingestion/run`, `/cancel/{runId}`) | 1 req/s | 2 | (covered by the general quota; not separately capped) |
+
+These map to distinct, independently-configurable API Gateway mechanisms — implementation
+must not collapse them into one setting:
+
+- **Account-level throttling** — a per-region, per-account ceiling across every API;
+  a safety net, not the primary control.
+- **Stage throttling** — default rate/burst for an entire deployed stage; the fallback
+  for any method without a more specific override.
+- **Route/method throttling** — per-method overrides (this is where the stricter
+  ingestion-trigger limits above are actually enforced).
+- **Usage plan** — associates one or more API keys with a rate/burst/quota triple; this
+  is the mechanism that implements the "per consumer" values in the table above.
+- **API key** — an identifier bound to a usage plan for metering/throttling. **Not an
+  authentication mechanism** — Cognito remains the sole authority on identity and
+  authorization; the API key controls consumption and operational protection only. A
+  distinct API key is issued per M2M consumer where the contract allows it.
+
+**WAF is out of scope for this first implementation.** Documented here as a future
+hardening step if the endpoint becomes broadly publicly accessible and abuse patterns
+beyond simple rate-limiting emerge (e.g., needing to block by IP reputation, geography, or
+request-signature patterns that usage plans can't express).
+
+### Logs
+
+Explicit retention — **no log group is left at infinite retention**:
+
+| Log group | Retention |
+|---|---|
+| Application logs (ECS/CloudWatch) | 30 days |
+| API Gateway access logs | 30 days |
+| Infrastructure logs (VPC flow logs, etc., if enabled) | 30 days |
+| Audit logs (ingestion audit trail, if/when exported to CloudWatch) | 90 days |
+
+**Known limitation:** this application's audit trail (`IngestionAuditController`,
+persisted in PostgreSQL) is not physically separated from application logs at the
+infrastructure layer today. Until a genuine separation exists (e.g., a distinct log group
+or export pipeline for audit events specifically), the **more conservative 90-day
+retention applies to any log stream that could contain audit-relevant content**, rather
+than assuming the 30-day application-log retention is safe for all of it.
+
+### Secrets
+
+**AWS Secrets Manager** for:
+- RDS credentials.
+- Cognito M2M client secrets.
+- Any other genuinely sensitive external credential — none is invented here that doesn't
+  exist.
+
+**Non-sensitive configuration** goes in environment variables or **SSM Parameter Store**
+(`String`/`StringList` types), not Secrets Manager — reserving Secrets Manager for values
+that are actually secret keeps cost and rotation scope meaningful.
+
+**Never stored in:** versioned Terraform variables, committed `.tfvars` files, permanent
+GitHub Secrets holding long-lived AWS access keys (GitHub Actions uses OIDC instead — see
+CI/CD below), plaintext task-definition environment values, or documentation.
+
+**Rotation:**
+- RDS credential rotation via Secrets Manager's native rotation **should be evaluated**
+  during TECH-132 implementation (native PostgreSQL rotation Lambda is a well-supported
+  path) — not committed to here as done, since it hasn't been implemented yet.
+- **Cognito M2M client-secret rotation is explicitly not automated** until there is a
+  designed mechanism for how each consumer receives the new secret — automatic rotation
+  without a distribution plan would silently break every M2M integration at once.
+
+### Costs and availability
+
+**Priority: lowest cost**, consistent with every decision above:
+
+- One ECS task, RDS Single-AZ, one NAT Gateway, no custom domain, no WAF, no additional
+  environments, no RDS Multi-AZ, no fully redundant egress path.
+- The VPC still spans 2 AZs (subnet layout only) to make future high-availability
+  upgrades additive rather than a redesign.
+
+**Before the first `terraform apply` against real resources**, a cost estimate must be
+produced — either via Infracost against the actual `terraform plan`, or, if Infracost
+isn't wired into CI yet, a manual listing of every fixed-cost resource (NAT Gateway,
+internal ALB, RDS instance, ECS Fargate baseline) for human review. **No specific dollar
+figures are invented in this ADR** — none exist without real Infracost output or current
+AWS pricing data for `us-east-1`.
+
+### Terraform Toolchain
+
+**Terraform:** `required_version = ">= 1.14.0, < 2.0.0"` in every stack; **1.15.7** pinned
+concretely in CI and in the Docker commands this repository's docs use for local
+validation. The floor of `1.14.0` is not arbitrary — it is the version line where
+S3-native state locking (below) becomes available; there is **no deliberate support for
+older Terraform clients**.
+
+**AWS provider:** `required_version = ">= 6.0.0, < 7.0.0"`; the committed
+`.terraform.lock.hcl` files currently pin **`hashicorp/aws` 6.55.0**. Adopted at TECH-137
+time deliberately, since no AWS state or `apply` existed yet — the correct moment to move
+onto the v6 major series rather than starting on v5 and migrating state later. The
+official v6 upgrade guide documents no breaking change affecting the S3 bucket resource
+family this repository currently uses, beyond a deprecated
+`s3_us_east_1_regional_endpoint = "legacy"` provider setting this repository never sets.
+`terraform validate` was re-confirmed clean against 6.55.0 for both existing stacks;
+any future module (starting with TECH-132's network module) must use v6-compatible
+argument names from the outset, not v5 patterns carried forward by habit.
+
+**State locking: S3-native, not DynamoDB.** No DynamoDB table exists anywhere in this
+repository's Terraform code. Current Terraform documentation marks the DynamoDB-lock
+pattern as legacy in favor of the S3-native lockfile (`use_lockfile = true`, declared in
+`environments/production/versions.tf`'s partial backend block). Provisioning a DynamoDB
+table for a backend that didn't exist yet, on the strength of a mechanism already
+superseded in current guidance, would have added infrastructure this repository would
+need to un-provision shortly after — so TECH-137's original DynamoDB table was removed
+before any stack ever depended on it, not migrated away from later.
+
+**IaC scanning: Trivy, not tfsec.** `trivy config infra/terraform` is the sole
+misconfiguration scanner. tfsec's checks have been folded into Trivy upstream; running
+both would be redundant tooling for the same class of finding. Documented exceptions use
+`# trivy:ignore:<AVD-ID>` comments directly above the resource block, each with an inline
+rationale — never a blanket suppression file.
+
+| Finding | Resource | Risk | Justification | Exception |
+|---|---|---|---|---|
+| AVD-AWS-0089 (Bucket has logging disabled) | `aws_s3_bucket.terraform_state` | Low — no access-logging trail for the state bucket | A dedicated logging bucket + lifecycle policy for a bucket only the manual, single-owner bootstrap process ever touches is complexity disproportionate to the risk at this stage | `# trivy:ignore:AVD-AWS-0089`, revisit if ownership model changes |
+| AVD-AWS-0132 (Bucket does not encrypt with a customer-managed key) | `aws_s3_bucket_server_side_encryption_configuration.terraform_state` | Low — AWS-owned key instead of a customer-managed KMS key | A dedicated KMS key/policy for a bucket that only holds Terraform state, applied manually and rarely, is complexity this stage doesn't need; AES256 (AWS-owned key) still encrypts at rest | `# trivy:ignore:AVD-AWS-0132`, revisit if compliance requirements change |
+
+Both exceptions were reassessed for this revision (not carried forward mechanically from
+the removed tfsec annotations) — DynamoDB's own two prior exceptions (customer-managed
+key, encryption-not-enabled) no longer apply at all, since the DynamoDB table itself no
+longer exists.
+
+### CI/CD
+
+**GitHub Actions**, authenticating to AWS via **GitHub Actions OIDC** — no long-lived
+AWS access keys stored as GitHub Secrets. Third-party actions in every workflow are
+pinned by **immutable commit SHA** (never a tag, never `@main`/`@master`), each with a
+comment stating the human-readable version it corresponds to — this applies regardless of
+any specific incident, as a standing supply-chain practice for this repository's CI.
+
+Four separate pipelines (not one monolithic workflow):
+
+| Pipeline | Responsibility |
+|---|---|
+| `infra-plan.yml` | `terraform fmt -check`, `terraform validate`, TFLint, Trivy config scan, `terraform plan` — runs on PRs touching `infra/terraform/`, no apply |
+| `infra-apply.yml` | Manual or approval-gated; uses a GitHub Environment named `production` requiring the owner's approval; applies only a previously-reviewed plan where feasible |
+| `application-ci.yml` | The existing build/test pipeline (TECH-120) — unchanged by this ADR |
+| `application-deploy.yml` | Builds the image, pushes to ECR, updates the ECS service, waits for stability, runs a health smoke test, fails/rolls back if the service doesn't stabilize |
+
+**No automatic production deploy on every push to `main` without approval** — both
+`infra-apply.yml` and `application-deploy.yml` are gated, not fire-and-forget.
+
+**OIDC trust-policy contract.** `infra-plan.yml` declares `permissions: { contents: read,
+id-token: write }` — never `write-all`. `id-token: write` alone authenticates nothing
+without a matching IAM role trust policy on the AWS side, which does not exist yet (see
+Consequences) but must, when created, require:
+
+- `token.actions.githubusercontent.com` as the OIDC provider, with audience
+  `sts.amazonaws.com` (`aud` claim).
+- The `sub` claim restricted to **this exact repository**, never a wildcard such as
+  `repo:dalejandrov/*:*`.
+
+GitHub Actions' OIDC token `sub` claim has historically used the format
+`repo:OWNER/REPO:ref:refs/heads/BRANCH` (for a branch-triggered run) or
+`repo:OWNER/REPO:environment:NAME` (for a run gated by a GitHub Environment). For the
+`production` Environment this ADR requires on `infra-apply.yml`, the expected subject is
+conceptually:
+
+```
+repo:dalejandrov/sipsa:environment:production
+```
+
+GitHub has also introduced immutable repository/owner-ID-based claims as an alternative
+to the name-based subject above (names can be renamed; IDs cannot). **Before creating any
+real IAM role**, decode an actual OIDC token from a run in this repository (or consult
+GitHub's current OIDC documentation at that time) to confirm which claim shape this
+repository's tokens actually carry, and write the trust policy's `sub` condition against
+that confirmed shape — not against whichever format seems more modern. Do not configure
+both formats speculatively; configure the one the real token uses.
+
+**Role separation — three distinct roles, never one administrator role:**
+
+| Role (name only — no ARN exists yet) | Purpose | Access shape |
+|---|---|---|
+| `terraform-plan` | `infra-plan.yml`'s `plan` job | Primarily read-only: read access to the resources being planned, plus read/write to the Terraform state backend (`plan` needs to read current state; S3-native locking needs write access to acquire/release the lockfile) |
+| `terraform-apply` | `infra-apply.yml` | Read/write on the resource types this repository's modules actually manage (S3, VPC/networking, ECS, RDS, Cognito, API Gateway, IAM for resources it creates) — scoped to those services, not `AdministratorAccess` |
+| `application-deploy` | `application-deploy.yml` | ECR push, ECS service update, nothing else — no Terraform state access at all |
+
+No ARN for any of these three roles is invented in this document — creating them is a
+prerequisite for whichever of TECH-130/TECH-132 first needs a real `plan`/`apply`, and
+each must be created with the trust-policy contract above, scoped to its own purpose.
+
+### Alerts
+
+**Amazon SNS → email** as the initial channel. **Only alerts that require human
+intervention** — avoid alerting on isolated, transient events; use windows/thresholds
+that suppress noise rather than raw instantaneous breaches.
+
+Minimum alert set:
+- ECS: zero healthy tasks.
+- ALB: zero healthy targets.
+- Application health (`/actuator/health`) reporting `DOWN`.
+- Sustained elevated 5xx rate.
+- RDS connection failures.
+- RDS free storage running low.
+- Sustained CPU > 85%.
+- Sustained memory > 85%.
+- Ingestion jobs failing repeatedly.
+- Consecutive SOAP call failures.
+- Async executor saturated / task rejections.
+- Abnormal growth in `429` responses.
+- An expected ingestion window that produced no run (silence, not just failure).
+
+**Slack, Teams, and PagerDuty are explicitly not integrated initially** — a single email
+channel is the full initial surface; add a chat/paging integration only once the alert
+volume or on-call structure justifies it.
 
 ---
 
 ## Target Architecture (reference, unchanged from the readiness audit)
 
 ```
-Cliente → API Gateway → VPC Link → ALB interno → ECS privado → aplicación Spring Boot
-Identidad: Cliente M2M → Cognito → access token → API Gateway / Spring Security
-Dependencias externas: ECS privado → NAT Gateway → SOAP público DANE
-Datos: ECS privado → PostgreSQL/RDS (RDS vs. externally-managed: open, Blocking Decision 7 below)
+Cliente → API Gateway → VPC Link → ALB interno → ECS privado (Fargate) → aplicación Spring Boot
+Identidad: Cliente M2M → Cognito (client_credentials) → access token → API Gateway / Spring Security
+           Usuario humano → Cognito (Authorization Code + PKCE) → access token
+Dependencias externas: ECS privado → NAT Gateway (único, us-east-1) → SOAP público DANE
+Datos: ECS privado → RDS PostgreSQL (Single-AZ, privado, cifrado, backups 7 días)
+Red: VPC nueva, 2 AZ, subnets públicas/privadas, 1 NAT Gateway (riesgo aceptado)
 ```
 
 See `aws-production-readiness.md` §5 for the full ASCII diagram this summarizes.
 
 ---
 
-## Blocking Decisions
+## Approved Decisions (resolves every Blocking Decision from the `Proposed` version)
 
-| # | Decision | Recommendation | Responsible | Blocks | Required value |
-|---|---|---|---|---|---|
-| 1 | IaC tool + who owns AWS provisioning (this team vs. platform team) | Terraform, if this team owns provisioning (see Decision above) | Engineering lead / platform team (if one exists) | All of TECH-130/131/132 | Tool name + ownership boundary |
-| 2 | AWS account(s) | Not determinable here | Whoever owns AWS billing/org today | All three stories | Account ID(s) per environment |
-| 3 | Region | Not determinable here | Same as above | VPC, Cognito, API Gateway all region-scoped | AWS region code |
-| 4 | Environments (dev/staging/prod, or fewer) | Not determinable here | Engineering lead | State layout, naming, budget | List of environment names |
-| 5 | New VPC vs. existing shared VPC | Not determinable here (readiness audit Q5) | Platform/network owner | TECH-132 | New or existing VPC ID |
-| 6 | ECS Fargate vs. EC2 launch type | Fargate (no instance management, matches this repo's operationally-light footprint — Docker-based dev/CI already assumes no host management) | Engineering lead | TECH-132 | Launch type |
-| 7 | RDS vs. externally-managed PostgreSQL | Not determinable here (readiness audit Q7) — flagged again as still open | DB owner | TECH-132, data layer | RDS or external endpoint |
-| 8 | Cognito ownership (this team vs. platform/identity team) | Not determinable here (readiness audit Q4) | Identity owner | TECH-130 | Ownership boundary |
-| 9 | Domain + ACM certificate | Not determinable here (readiness audit Q10) | Domain owner | TECH-131 public endpoint, Cognito hosted UI if Q1 needs it | Domain name + cert ARN or provisioning plan |
-| 10 | NAT Gateway | Required — already resolved by evidence, not open (readiness audit §7: DANE SOAP endpoint is public internet, VPC endpoints cannot reach it) | N/A | TECH-132 | N/A (confirmed, not blocking) |
-| 11 | API Gateway REST vs. HTTP API | Not determinable here (readiness audit Q8 — verify current AWS feature parity for usage plans/API keys before deciding) | Engineering lead | TECH-131 | REST or HTTP |
-| 12 | Logging retention (CloudWatch Logs) | Not determinable here — no compliance requirement stated anywhere in the repo | Engineering lead / compliance owner if one exists | TECH-131, TECH-132 log groups | Retention period (days) |
-| 13 | Secrets management (Secrets Manager vs. Parameter Store vs. external vault) | Not determinable here (readiness audit Q6) | Engineering lead | TECH-130 (client secrets), TECH-132 (DB credentials) | Tool name |
-| 14 | Operational ownership post-deploy (who is on-call, who rotates secrets/certs) | Not determinable here | Engineering lead | Go-live readiness for all three | Named owner or rotation |
+| # | Decision | Approved value | Owner | Unblocks |
+|---|---|---|---|---|
+| 1 | IaC tool + ownership | Terraform, in this repository; this team owns provisioning | Repository owner | All of TECH-130/131/132/137 |
+| 2 | AWS account(s) | Single account, production only | Repository owner | All stories |
+| 3 | Region | `us-east-1`, parameterized | Repository owner | VPC, Cognito, API Gateway |
+| 4 | Environments | `production` only; structure supports future environments | Repository owner | State layout, naming |
+| 5 | VPC | New, dedicated | Repository owner | TECH-132 |
+| 6 | ECS launch type | Fargate | Repository owner | TECH-132 |
+| 7 | Database | RDS for PostgreSQL, Single-AZ | Repository owner | TECH-132, data layer |
+| 8 | Cognito ownership | Repository owner, initially | Repository owner | TECH-130 |
+| 9 | Domain + ACM | None yet; API Gateway managed endpoint | Repository owner | TECH-131 (deferred, not blocking) |
+| 10 | NAT Gateway | One initially (accepted risk); NAT per AZ deferred | Repository owner | TECH-132 (resolved, not blocking) |
+| 11 | API Gateway REST vs. HTTP API | **REST API** — required for full API key/usage-plan/quota/throttling support | Repository owner | TECH-131 (resolved, not blocking) |
+| 12 | Logging retention | 30 days (app/API GW/infra), 90 days (audit-adjacent) | Repository owner | TECH-131, TECH-132 |
+| 13 | Secrets management | AWS Secrets Manager (sensitive) + SSM Parameter Store (non-sensitive) | Repository owner | TECH-130, TECH-132 |
+| 14 | Operational ownership | Repository owner, first-line | Repository owner | Go-live readiness |
 
 ---
 
 ## Implementation Phases
 
-**Fase 0 — Decisiones.** Resolve all Blocking Decisions above: IaC tool (this ADR), AWS
-account(s), region, environment list, resource naming/tagging convention, ownership
-boundaries, and budget expectations. No AWS resource is created in this phase.
+Unchanged in sequence from the `Proposed` version, refined with the approved specifics
+above. **Each phase is implemented as small, independently reviewable branches — no
+attempt to land TECH-130/131/132 whole in a single branch.**
 
-**Fase 1 — Base de red.** VPC (new or existing, per Blocking Decision 5), public and
-private subnets, route tables, NAT Gateway (confirmed required), security groups
-(baseline, refined further in Fase 3), and only the VPC endpoints actually needed (none
-identified as required beyond standard AWS-service HTTPS reachability via NAT — see
-readiness audit §7).
+**Fase 0 — Bootstrap y estado Terraform.** Terraform project structure, S3 backend with
+S3-native locking (no DynamoDB), provider/version constraints (Terraform `~> 1.15`, AWS
+provider `~> 6.x`), common variables/tags, GitHub Actions `fmt`/`validate`/Trivy/plan-only
+CI, OIDC contract preparation (trust-policy shape documented, no real role created).
+**This is TECH-137**, the subject of the first implementation branch
+(`infra/terraform-bootstrap`). No Cognito, ECS, ALB, RDS, API Gateway, or NAT Gateway is
+created in this phase.
 
-**Fase 2 — Identidad.** Cognito user pool, resource server, scopes (per the existing
-Spring Security scope names already enforced in `SecurityConfig`), `client_credentials`
-M2M app client(s) (count per Blocking Decision from the earlier readiness audit — how many
-M2M integrations exist), secrets storage for any client secret (per Blocking Decision 13),
-and a manual token-issuance verification before moving on.
+**Fase 1 — TECH-132 (parcial): base de red y cómputo mínimo.** VPC, 2 AZ, public/private
+subnets, route tables, single NAT Gateway, baseline security groups, ECR repository,
+minimal ECS cluster — no ALB/service traffic yet, just the substrate.
 
-**Fase 3 — Cómputo.** ECR repository, ECS cluster/task definition/service (Fargate, per
-Blocking Decision 6) in the private subnets from Fase 1, internal ALB with a security
-group admitting only the future VPC Link's ENIs, `/actuator/health` wired as the ALB
-target-group health check, CloudWatch log group (retention per Blocking Decision 12),
-secrets injected via the tool chosen in Blocking Decision 13 — never as plain task-
-definition environment values.
+**Fase 2 — TECH-130: Cognito.** User pool, resource server, scopes, M2M app client(s),
+human-user app client (Authorization Code + PKCE), secrets storage for M2M client
+secrets, manual token-issuance verification.
 
-**Fase 4 — Gateway.** API Gateway (REST or HTTP per Blocking Decision 11), Cognito JWT
-authorizer wired to the Fase 2 pool, API keys and usage plans for `GET /api/sipsa/**`
-consumers, throttling limits, access logging, VPC Link to the Fase 3 ALB.
+**Fase 3 — TECH-132 (completar): ECS, ALB, RDS.** ECS service (Fargate, `desired_count=1`)
+in the Fase 1 private subnets, internal ALB (security group scoped to the future VPC
+Link), RDS PostgreSQL (Single-AZ, encrypted, 7-day backups, `publicly_accessible=false`,
+deletion protection), CloudWatch log groups per the retention table above, secrets wired
+via Secrets Manager/SSM.
 
-**Fase 5 — E2E.** Issue a real Cognito token and confirm the full call path
-(`API Gateway → VPC Link → ALB → ECS → Spring Security`); confirm 401 (no token), 403
-(wrong scope), 429 (throttle exceeded), and 2xx (valid token + scope) all behave as
-`InternalEndpointSecurityTest` already asserts against the mock issuer; confirm the SOAP
-egress path to DANE works through the NAT Gateway; confirm `/actuator/health` and
-`/actuator/metrics` are reachable operationally; confirm the backend is **not** reachable
-by bypassing API Gateway (readiness audit §7's gateway-bypass requirement).
+**Fase 4 — TECH-131: API Gateway y VPC Link.** API Gateway **REST API** (Approved
+Decision 11), Cognito JWT authorizer wired to the Fase 2 pool, API keys + usage plans
+(general and ingestion-trigger tiers from the table above), access logging, VPC Link to
+the Fase 3 ALB.
+
+**Fase 5 — CI/CD, observabilidad y E2E.** `infra-apply.yml` and `application-deploy.yml`
+pipelines completed and gated; SNS email alerting wired for the minimum alert set above;
+full end-to-end verification (real token issuance, 401/403/429/2xx matrix against the
+deployed stack, SOAP egress through the NAT Gateway, gateway-bypass check, health/metrics
+reachability).
 
 ---
 
@@ -165,60 +517,64 @@ by bypassing API Gateway (readiness audit §7's gateway-bypass requirement).
 
 **TECH-130 (Cognito):** user pool created; resource server configured with the scopes
 `SecurityConfig` already enforces; M2M app client(s) created per the confirmed integration
-count; a real token issued and validated end-to-end (`iss`, `exp`, `token_use=access`,
-`client_id` allowlist, scopes — the same checks `SipsaJwtValidatorsTest` already covers
-against a mock issuer); JWKS rotation confirmed reachable; no secret committed to the
-repository.
+count; human-user app client created (Authorization Code + PKCE, no secret); a real token
+issued and validated end-to-end (`iss`, `exp`, `token_use=access`, `client_id` allowlist,
+scopes — the same checks `SipsaJwtValidatorsTest` already covers against a mock issuer);
+JWKS rotation confirmed reachable; no secret committed to the repository.
 
 **TECH-132 (private networking):** ECS service in private subnets with no public IP;
 internal ALB with a security group scoped to VPC Link ENIs only; NAT egress confirmed
-working for the DANE SOAP call and for Cognito JWKS HTTPS; PostgreSQL reachable from the
-private subnet; CloudWatch logs flowing; secrets injected via the chosen secrets tool, not
-plaintext; `/actuator/health` green from the ALB target group; **the ALB is not reachable
-from the public internet** — confirmed by attempting a direct connection and observing it
-fail.
+working for the DANE SOAP call and for Cognito JWKS HTTPS through the single NAT Gateway;
+RDS reachable from the private subnet only; CloudWatch logs flowing with the approved
+retention; secrets injected via Secrets Manager/SSM, not plaintext; `/actuator/health`
+green from the ALB target group; **the ALB is not reachable from the public internet**.
 
 **TECH-131 (API Gateway):** API Gateway created with the Cognito JWT authorizer wired to
-the TECH-130 pool; API key + usage plan issued for at least one `GET /api/sipsa/**`
-consumer; throttling configured and confirmed to return `429` past the limit; access logs
-enabled with request-ID propagation into the application's own logs; VPC Link integration
-to the TECH-132 ALB confirmed working; full 401/403/429/2xx matrix re-verified end-to-end
-against the real deployed stack (not just the existing mock-issuer test suite).
+the TECH-130 pool; per-consumer API keys + usage plans issued matching the approved
+rate/burst/quota table; ingestion-trigger routes carry the stricter 1 req/s limit; access
+logs enabled with request-ID propagation; VPC Link integration to the TECH-132 ALB
+confirmed working; full 401/403/429/2xx matrix re-verified end-to-end against the real
+deployed stack.
+
+**TECH-137 (Terraform bootstrap):** see the backlog entry — structure, backend, CI
+validation all in place, no real AWS apply performed.
 
 ---
 
 ## Costs and Risks
 
-Costed by category, not by exact figure — no region or consumption data exists yet to
-price this accurately, and inventing numbers here would be misleading rather than useful.
-
 | Resource | Cost type | Notes |
 |---|---|---|
-| NAT Gateway | Coste fijo + coste por transferencia | Hourly charge regardless of traffic, plus per-GB data processing — required, not optional (§7 of the readiness audit) |
-| Internal ALB | Coste fijo + coste por uso | Hourly charge plus LCU-based usage pricing |
-| API Gateway | Coste por uso | Per-request pricing; usage-plan throttling limits also bound worst-case cost |
-| ECS Fargate | Coste por uso | Billed per vCPU/memory-second while tasks run; scales with desired task count |
-| CloudWatch Logs | Coste por uso + coste operativo | Ingestion + storage cost scales with retention (Blocking Decision 12) and log verbosity |
-| RDS (if chosen over external DB) | Coste fijo + coste por uso | Instance-hour plus storage; multi-AZ (if required for HA) roughly doubles the instance cost |
-| Egress traffic (DANE SOAP, JWKS) | Coste por transferencia | Bounded by ingestion frequency (daily/monthly jobs, not high-volume streaming) |
-| High availability (multi-AZ NAT/ALB/RDS) | Coste fijo (multiplies the above) | Not assumed by default; a deliberate decision once environment count (Blocking Decision 4) is known |
-| Duplicated environments (dev/staging/prod) | Multiplies every row above | Environment count is itself Blocking Decision 4 — cost scales roughly linearly with environment count, not sub-linearly, since NAT/ALB/ECS/RDS don't share across environments in a typical setup |
+| NAT Gateway (×1) | Coste fijo + coste por transferencia | Single NAT — accepted point of failure, see Network decision above |
+| Internal ALB | Coste fijo + coste por uso | |
+| API Gateway | Coste por uso | Bounded by usage-plan throttling |
+| ECS Fargate (1 task, minimal size) | Coste por uso | Sizing must be verified against real ingestion workload |
+| CloudWatch Logs | Coste por uso + coste operativo | 30/90-day retention bounds growth, does not eliminate cost |
+| RDS (Single-AZ, small class) | Coste fijo + coste por uso | Multi-AZ deferred — doubling this cost is a deliberate future decision, not assumed |
+| Egress traffic (DANE SOAP, JWKS) | Coste por transferencia | Bounded by ingestion frequency (daily/monthly jobs) |
+| Secrets Manager | Coste fijo (por secreto) | Scoped to genuinely sensitive values only, per the Secrets decision above |
 
-**Risks** (in addition to those already listed in `aws-production-readiness.md` §9, not
-repeated here): committing to Terraform before Blocking Decision 1 is resolved could waste
-setup effort if a platform team already owns provisioning; choosing environment count
-before knowing the budget could over- or under-provision fixed-cost resources (NAT, ALB)
-that scale per environment.
+**Accepted risks** (explicit, not oversights): single NAT Gateway (no HA egress); RDS
+Single-AZ (no automatic failover); `desired_count=1` ECS (no task redundancy); no WAF; no
+custom domain yet; Cognito client-secret rotation not automated. Each has a documented
+future-improvement path above rather than being silently deferred.
+
+**No dollar figures are invented anywhere in this document** — an Infracost estimate or
+manual fixed-cost-resource review is required before the first real `apply` (see Costs
+and availability, above).
 
 ---
 
 ## Consequences
 
-- No AWS resource, credential, or IaC file is created by this ADR — it is a decision
-  record and execution plan only.
-- TECH-130, TECH-131, TECH-132 remain `Pending` in the backlog; none becomes
-  `In progress` as a result of this document.
-- Once Blocking Decision 1 (and ideally 2–4) are answered by someone with the authority to
-  answer them, this ADR's status can move to `Accepted` and a follow-up story can
-  introduce the actual Terraform module skeleton (Fase 0 tail-end / Fase 1 start) as its
-  own reviewable change — not bundled into this document.
+- No AWS resource, credential, or IaC file existed before this ADR's implementation
+  began; **TECH-137 (bootstrap)** is the first branch that introduces actual Terraform
+  code, and it creates no AWS resource requiring `apply` either — only structure,
+  validation, and CI.
+- TECH-130, TECH-131, TECH-132 remain `Pending` until their respective phases (Fase 2–4)
+  are actually implemented and verified against their acceptance criteria — this ADR does
+  not mark any of them `Done` or `In progress`.
+- Every decision in this ADR is revisitable — in particular the single-NAT-Gateway,
+  RDS-Single-AZ, and no-autoscaling choices are explicitly framed as initial,
+  cost-driven trade-offs with a documented upgrade path, not permanent architectural
+  commitments.

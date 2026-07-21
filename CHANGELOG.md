@@ -10,6 +10,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **TECH-137 (Terraform bootstrap) corrected against current official documentation
+  before its first `apply`** (ADR-010 revision, 2026-07-21). DynamoDB state locking
+  removed entirely (table, variable, output, and docs) in favor of Terraform's S3-native
+  lockfile (`use_lockfile = true`) — current Terraform documentation marks the
+  DynamoDB-lock pattern as legacy, and this repository never had any state depending on
+  the DynamoDB table, so nothing needed migrating away from it. Terraform pinned to
+  `>= 1.14.0, < 2.0.0` (S3-native locking's floor), `1.15.7` concretely in CI/Docker. AWS
+  provider moved to `>= 6.0.0, < 7.0.0` (`6.55.0` in the committed lock files) — adopted
+  before any AWS state existed, confirmed against the official v6 upgrade guide as
+  carrying no breaking change for this repository's S3 bucket resources. `tfsec` replaced
+  outright by `trivy config` (tfsec's checks are now part of Trivy upstream); the two
+  surviving S3-only exceptions were re-justified under Trivy's own check IDs
+  (`AVD-AWS-0089`, `AVD-AWS-0132`), not copied mechanically — DynamoDB's two prior
+  exceptions no longer apply since that resource is gone. `infra-plan.yml`'s third-party
+  actions pinned by immutable commit SHA (not tag, not `@main`) with a human-readable
+  version comment on each. ADR-010 gained an explicit OIDC trust-policy contract
+  (audience, repository-scoped `sub`, three separate roles for plan/apply/deploy — no
+  ARN invented) and resolved the API Gateway REST-vs-HTTP-API decision outright (**REST
+  API**, required for full API key/usage-plan/quota/throttling support; API keys
+  documented explicitly as consumer identification/throttling, never authentication).
+  Still no AWS resource created, no `terraform apply` run, no AWS credential added.
+
 - **Consolidated the daily/monthly ingestion-method classification into a single source
   of truth** (TECH-056, closing the drift risk TECH-055's SPIKE found: ADR-006 now
   `Accepted`, Option D). `WindowPolicy` gains a public `isMonthlyMethod(String

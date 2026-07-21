@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored — never commit this file) and fill in
+# real, non-secret values. No credential or secret belongs in a .tfvars file
+# regardless of gitignore status — those go in AWS Secrets Manager / SSM
+# Parameter Store (ADR-010).
+
+owner       = "<repository owner name or identifier>"
+cost_center = "<real cost center, once one exists — do not invent a value>"
+
+# The rest have defaults matching ADR-010 (project_name = "sipsa",
+# environment = "production", aws_region = "us-east-1", managed_by =
+# "terraform", repository = "dalejandrov/sipsa") and only need to be listed
+# here if a specific apply must override them.
