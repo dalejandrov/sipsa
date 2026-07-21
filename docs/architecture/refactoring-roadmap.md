@@ -259,3 +259,4 @@ authorized by this acceptance. TECH-093 (F5) encodes exactly this non-authorizat
 | RF-08 | Refactor `ThreadLocal` | Deferred | WebFlux or reactive adoption |
 | RF-09 | Adopt RFC 9457 `ProblemDetail` | Deferred | External API contract requirement |
 | RF-10 | Adopt DDD tactical patterns | **Not recommended** | Only if domain complexity increases significantly |
+| RF-11 | Consolidate daily/monthly ingestion classification: expose `WindowPolicy.isMonthlyMethod(String)` publicly; refactor `SipsaHealthIndicator` to consult it instead of its own independent `DAILY_METHODS` set | **Recommended** (TECH-055, [ADR-006](../adr/ADR-006-ingestion-handler-contract.md) `Accepted`, Option D) — not yet implemented, no story number assigned | Prioritize when `SipsaHealthIndicator` or the classification logic is next touched, or immediately if the drift risk (see [SPIKE report](spikes/TECH-055-is-monthly-contract.md)) is judged worth fixing proactively |
