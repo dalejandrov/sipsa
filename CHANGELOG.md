@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Production VPC foundation defined as Terraform code** (TECH-138, ADR-010 Fase 1 —
+  `infra/terraform/modules/network/`). VPC `10.40.0.0/16` across 2 deterministically
+  selected AZs; 2 public + 2 private-application + 2 private-database subnets; a shared
+  public route table and per-AZ private-application/database route tables; a single NAT
+  Gateway (accepted cost/availability trade-off, documented migration path to one NAT per
+  AZ); an S3 Gateway VPC Endpoint (no hourly cost, keeps S3/future-ECR traffic off the
+  NAT); configurable VPC Flow Logs (`REJECT` traffic, 30-day retention by default, never
+  infinite). No security group is created — those are added alongside the resources that
+  consume them, in later stories. `environments/production` now consumes this module.
+  Verified with 16 `terraform test` cases against a fully mocked AWS provider — **no real
+  AWS account is contacted by the tests, and no `terraform apply` has been run against any
+  account.** TECH-132 (private networking) moves to `In progress`: its network substrate
+  is done, ECS/ALB/RDS are not.
+
 ### Changed
 
 - **TECH-137 (Terraform bootstrap) corrected against current official documentation

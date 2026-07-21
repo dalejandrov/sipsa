@@ -1,9 +1,11 @@
-# Infra plan (TECH-137, ADR-010): validates every Terraform change on pull
-# requests touching infra/terraform/ — format, syntax, lint, a Trivy IaC
-# security scan, and (only once the OIDC role below exists) a real
-# `terraform plan`.
+# Infra plan (TECH-137/TECH-138, ADR-010): validates every Terraform change
+# on pull requests touching infra/terraform/ — format, syntax, module tests,
+# lint, a Trivy IaC security scan, and (only once the OIDC role below exists)
+# a real `terraform plan`.
 #
-# fmt/validate/lint/scan need no AWS credentials and always run. The plan step
+# fmt/validate/test/lint/scan need no AWS credentials and always run — every
+# module's own `terraform test` suite (TECH-138: infra/terraform/modules/
+# network/tests/) uses a mocked AWS provider, never a real account. The plan step
 # is conditioned on the `AWS_TERRAFORM_PLAN_ROLE_ARN` repository variable
 # being set — that role does not exist yet (see infra/terraform/README.md and
 # ADR-010's OIDC trust-policy contract); creating it is a prerequisite for
@@ -39,7 +41,7 @@ env:
 
 jobs:
   fmt-validate:
-    name: fmt, validate, lint, Trivy scan
+    name: fmt, validate, test, lint, Trivy scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -67,6 +69,17 @@ jobs:
         run: |
           terraform init -backend=false
           terraform validate
+
+      # Mocked AWS provider (mock_provider "aws" {} in the .tftest.hcl file)
+      # — no real AWS account is contacted. Add one step per module as more
+      # modules gain their own tests/*.tftest.hcl (TECH-130/TECH-132's later
+      # phases), rather than a single find-and-loop that hides which module
+      # failed.
+      - name: terraform test — modules/network
+        working-directory: infra/terraform/modules/network
+        run: |
+          terraform init -backend=false
+          terraform test
 
       - name: TFLint
         uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6.3.0
