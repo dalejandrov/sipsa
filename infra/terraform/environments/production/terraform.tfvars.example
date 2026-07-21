@@ -9,4 +9,9 @@ cost_center = "<real cost center, once one exists — do not invent a value>"
 # The rest have defaults matching ADR-010 (project_name = "sipsa",
 # environment = "production", aws_region = "us-east-1", managed_by =
 # "terraform", repository = "dalejandrov/sipsa") and only need to be listed
-# here if a specific apply must override them.
+# here if a specific apply must override them. This includes the network
+# (TECH-138) variables — vpc_cidr, public_subnet_cidrs,
+# private_app_subnet_cidrs, private_database_subnet_cidrs,
+# enable_vpc_flow_logs, flow_log_traffic_type, flow_log_retention_days — all
+# default to ADR-010's approved topology (10.40.0.0/16, 2 AZs, Flow Logs on
+# with REJECT/30-day retention).
