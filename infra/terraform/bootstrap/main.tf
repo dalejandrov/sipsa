@@ -18,7 +18,10 @@ locals {
 }
 
 # Remote state bucket. Every other Terraform stack in this repository (starting
-# with environments/production) configures its backend to point here.
+# with environments/production) configures its backend to point here, using
+# the S3-native lockfile mechanism (`use_lockfile = true`) rather than a
+# DynamoDB lock table — no separate locking resource is provisioned by this
+# stack. See README.md for why.
 #
 # No access-logging bucket: it would require its own bucket and lifecycle
 # policy purely to log access to a bucket only the manual bootstrap process
@@ -67,30 +70,30 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
   restrict_public_buckets = true
 }
 
-# State locking. DynamoDB is used here (rather than S3-native locking) for the
-# widest compatibility with the pinned Terraform 1.9 line and with any CI
-# tooling that expects the traditional DynamoDB-lock pattern.
-#
-# server_side_encryption uses the AWS-owned key (not a customer-managed KMS
-# key): this table only ever holds lock records for the manual bootstrap
-# process (a single owner, per ADR-010) — a dedicated KMS key/policy is
-# complexity this stage doesn't need. Revisit if that changes.
-# tfsec:ignore:aws-dynamodb-table-customer-key
-resource "aws_dynamodb_table" "terraform_locks" {
-  name         = var.lock_table_name
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
+# Ownership controls: this account is the sole writer to this bucket (the
+# manual bootstrap process), so ACLs are disabled outright rather than left
+# in an ambiguous default state.
+resource "aws_s3_bucket_ownership_controls" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
 
-  attribute {
-    name = "LockID"
-    type = "S"
+  rule {
+    object_ownership = "BucketOwnerEnforced"
   }
+}
 
-  server_side_encryption {
-    enabled = true
-  }
+# Old state versions are cleared out after 90 days rather than kept forever —
+# versioning above protects against accidental overwrite/delete in the near
+# term (the scenario it exists for); indefinite retention of every historical
+# state version has no corresponding benefit once that window has passed.
+resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
 
-  point_in_time_recovery {
-    enabled = true
+  rule {
+    id     = "expire-noncurrent-state-versions"
+    status = "Enabled"
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
   }
 }

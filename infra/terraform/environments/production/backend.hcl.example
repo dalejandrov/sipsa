@@ -6,9 +6,13 @@
 # Then initialize this stack with:
 #
 #   terraform init -backend-config=backend.hcl
+#
+# use_lockfile is NOT set here — it's a literal, not an environment-specific
+# value, so it's declared directly in versions.tf's backend "s3" block and
+# committed to version control. No dynamodb_table value exists: this
+# repository uses S3-native state locking, not a DynamoDB lock table.
 
-bucket         = "sipsa-terraform-state-<bootstrap-output:state_bucket_name>"
-key            = "environments/production/terraform.tfstate"
-region         = "us-east-1"
-dynamodb_table = "sipsa-terraform-locks"
-encrypt        = true
+bucket  = "sipsa-terraform-state-<bootstrap-output:state_bucket_name>"
+key     = "sipsa/production/terraform.tfstate"
+region  = "us-east-1"
+encrypt = true

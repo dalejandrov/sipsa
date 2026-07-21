@@ -47,9 +47,3 @@ variable "state_bucket_name" {
   EOT
   type        = string
 }
-
-variable "lock_table_name" {
-  description = "Name of the DynamoDB table used for Terraform state locking."
-  type        = string
-  default     = "sipsa-terraform-locks"
-}

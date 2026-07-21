@@ -7,8 +7,3 @@ output "state_bucket_arn" {
   description = "ARN of the Terraform state bucket."
   value       = aws_s3_bucket.terraform_state.arn
 }
-
-output "lock_table_name" {
-  description = "DynamoDB table name to use as the backend \"dynamodb_table\" value in every other stack."
-  value       = aws_dynamodb_table.terraform_locks.name
-}
