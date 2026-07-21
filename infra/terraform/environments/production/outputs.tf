@@ -175,3 +175,56 @@ output "container_port" {
   description = "Port the container listens on."
   value       = module.ecs_task.container_port
 }
+
+# --- Internal ALB and ECS Service (TECH-141) --------------------------------
+
+output "alb_arn" {
+  description = "ARN of the internal ALB."
+  value       = module.ecs_service.alb_arn
+}
+
+output "alb_dns_name" {
+  description = "DNS name of the internal ALB. Sensitive by defensive posture (see modules/ecs-service/README.md)."
+  value       = module.ecs_service.alb_dns_name
+  sensitive   = true
+}
+
+output "alb_zone_id" {
+  description = "Route 53 hosted zone ID of the ALB."
+  value       = module.ecs_service.alb_zone_id
+}
+
+output "alb_security_group_id" {
+  description = "Security group ID of the ALB — TECH-131 references this to add the VPC Link ingress rule."
+  value       = module.ecs_service.alb_security_group_id
+}
+
+output "target_group_arn" {
+  description = "ARN of the target group the ECS Service registers into."
+  value       = module.ecs_service.target_group_arn
+}
+
+output "listener_arn" {
+  description = "ARN of the HTTP listener."
+  value       = module.ecs_service.listener_arn
+}
+
+output "ecs_service_name" {
+  description = "ECS Service name."
+  value       = module.ecs_service.ecs_service_name
+}
+
+output "ecs_service_id" {
+  description = "ECS Service ID."
+  value       = module.ecs_service.ecs_service_id
+}
+
+output "ecs_service_security_group_id" {
+  description = "Security group ID of the ECS Service."
+  value       = module.ecs_service.ecs_service_security_group_id
+}
+
+output "ecs_desired_count" {
+  description = "Configured desired task count. Must not be raised above 1 without addressing the scheduler's multi-replica risk first (see modules/ecs-service/README.md)."
+  value       = module.ecs_service.ecs_desired_count
+}

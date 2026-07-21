@@ -137,3 +137,49 @@ module "ecs_task" {
 
   log_retention_days = var.ecs_log_retention_days
 }
+
+# TECH-141 (ADR-010, partial TECH-132): internal ALB and ECS Service. No
+# API Gateway, VPC Link, or Cognito exists yet — the ALB has no ingress
+# rule until TECH-131 populates alb_allowed_ingress_security_group_ids with
+# its VPC Link security group. desired_count stays at 1 — the in-process
+# ingestion scheduler is not safe for multiple replicas (see
+# modules/ecs-service/README.md).
+module "ecs_service" {
+  source = "../../modules/ecs-service"
+
+  project_name = var.project_name
+  environment  = var.environment
+  common_tags  = local.common_tags
+
+  vpc_id                 = module.network.vpc_id
+  private_app_subnet_ids = module.network.private_app_subnet_ids
+
+  ecs_cluster_id      = module.ecs_task.ecs_cluster_id
+  task_definition_arn = module.ecs_task.task_definition_arn
+  container_name      = module.ecs_task.container_name
+  container_port      = module.ecs_task.container_port
+
+  rds_security_group_id = module.database.db_security_group_id
+  rds_port              = module.database.db_port
+
+  alb_allowed_ingress_security_group_ids = var.alb_allowed_ingress_security_group_ids
+  alb_allowed_ingress_cidr_blocks        = var.alb_allowed_ingress_cidr_blocks
+  alb_deletion_protection                = var.alb_deletion_protection
+  enable_alb_access_logs                 = var.enable_alb_access_logs
+  alb_access_logs_bucket                 = var.alb_access_logs_bucket
+  alb_access_logs_prefix                 = var.alb_access_logs_prefix
+  desync_mitigation_mode                 = var.alb_desync_mitigation_mode
+
+  health_check_path                = var.health_check_path
+  health_check_matcher             = var.health_check_matcher
+  health_check_interval_seconds    = var.health_check_interval_seconds
+  health_check_timeout_seconds     = var.health_check_timeout_seconds
+  health_check_healthy_threshold   = var.health_check_healthy_threshold
+  health_check_unhealthy_threshold = var.health_check_unhealthy_threshold
+
+  desired_count                      = var.ecs_service_desired_count
+  deployment_minimum_healthy_percent = var.ecs_deployment_minimum_healthy_percent
+  deployment_maximum_percent         = var.ecs_deployment_maximum_percent
+  enable_execute_command             = var.ecs_enable_execute_command
+  health_check_grace_period_seconds  = var.ecs_health_check_grace_period_seconds
+}
