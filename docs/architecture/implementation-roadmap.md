@@ -88,9 +88,9 @@ Also outside the phase sequence (see the backlog for full stories):
 | Story | Title | Status |
 |---|---|---|
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | **Done** (2026-07-14, merged via PR #16; first run green — `FlywayMigrationsTest` executed with `tests=4`, `skipped=0`) |
-| TECH-130 | Cognito resource server, scopes and app clients | Pending — audited 2026-07-20, see [aws-production-readiness.md](aws-production-readiness.md) |
-| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | Pending — audited 2026-07-20, blocked on TECH-130 + decisions |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB | Pending — audited 2026-07-20, blocked on decisions |
+| TECH-130 | Cognito resource server, scopes and app clients | Pending — audited 2026-07-20, decision/execution plan added 2026-07-21, see [aws-production-readiness.md](aws-production-readiness.md) and [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) |
+| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | Pending — audited 2026-07-20, blocked on TECH-130 + decisions (ADR-010) |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB | Pending — audited 2026-07-20, blocked on decisions (ADR-010) |
 
 ---
 

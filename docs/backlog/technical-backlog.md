@@ -2853,6 +2853,12 @@ account access) plus 3 open decisions (**D**): how many `client_credentials` app
 and their scopes, whether a human-operator `authorization_code` flow is needed at all,
 and where client secrets are stored. **Cannot be marked Done** until those are resolved.
 
+**Decision/execution plan (2026-07-21, `docs/aws-iac-decision`, docs-only):**
+[ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) addresses the IaC-tool blocker
+(Terraform recommended, `Proposed` pending ownership confirmation) and lays out the phased
+Fase 0–5 plan and blocking-decisions table this story depends on. **Still Pending** — no
+implementation started.
+
 **Origin:** [ADR-002](../adr/ADR-002-internal-endpoint-security.md) (Accepted, Option E),
 layer 2. The application side (Resource Server, TECH-001) is already implemented and
 validated against a local mock OIDC issuer (e2e re-validated 2026-07-15 post-merge, 9/9
@@ -2904,6 +2910,11 @@ whether an IAM/SigV4 authorizer path is needed, real usage-plan tiers (the backl
 (**D**, all four — CORS in particular has zero prior mention anywhere in this repo).
 **Cannot be marked Done** until those are resolved.
 
+**Decision/execution plan (2026-07-21, `docs/aws-iac-decision`, docs-only):**
+[ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) — Fase 4 covers this story's
+gateway provisioning; REST-vs-HTTP-API, IAM/SigV4 necessity, and CORS remain open per the
+readiness audit. **Still Pending** — no implementation started.
+
 **Origin:** ADR-002 (Accepted, Option E), layer 1.
 
 **Scope:**
@@ -2952,6 +2963,12 @@ ECS Fargate vs EC2, RDS vs self-managed PostgreSQL, VPC-internal TLS policy, and
 Cloud Map service discovery is needed (likely not, for a single API-Gateway-fronted
 service — not yet confirmed). Every provisioning step itself is **C** (real AWS access).
 **Cannot be marked Done** until the D items are resolved.
+
+**Decision/execution plan (2026-07-21, `docs/aws-iac-decision`, docs-only):**
+[ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) — Fase 1 (network) and Fase 3
+(compute) cover this story; ECS Fargate recommended over EC2 there, RDS-vs-external and
+VPC-internal TLS remain open per the readiness audit. **Still Pending** — no
+implementation started.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 4.
 
