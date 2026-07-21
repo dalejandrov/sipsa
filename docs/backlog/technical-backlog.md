@@ -1501,6 +1501,10 @@ and since (a) no existing test locked in the old fallback as an intentional cont
 (b) all 5 real, registered methods classify identically before and after — this is
 treated as a deliberate, narrow, fully-tested refinement, not a hidden behavior change.
 
+> **Cambio funcional intencional para métodos no registrados. No afecta los cinco
+> métodos actualmente soportados. El nuevo comportamiento coincide con la convención
+> explícita de `WindowPolicy`.**
+
 **Acceptance Criteria:**
 - [x] `WindowPolicy.isMonthlyMethod(String)` is public, delegates to the existing rule
       table, no change to `validateAndGetKey`'s own behavior.

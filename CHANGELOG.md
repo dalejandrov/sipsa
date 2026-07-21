@@ -43,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   source-of-truth consolidation, not a business-rule or contract change. No scheduler,
   window-validation, cron, metrics, audit, endpoint, HTTP contract, SOAP, security, or
   persistence change. No Flyway migration; V1–V4 unchanged.
+  **Cambio funcional intencional para métodos no registrados. No afecta los cinco
+  métodos actualmente soportados. El nuevo comportamiento coincide con la convención
+  explícita de `WindowPolicy`.**
 
 - **CXF-generated SOAP classes relocated to a distinguishable package** ([ADR-007](docs/adr/ADR-007-package-boundaries-and-internal-models.md)
   §F3, TECH-092, unblocked by TECH-094's SPIKE). All 22 `cxf-codegen-plugin`-generated
