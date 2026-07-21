@@ -90,9 +90,10 @@ Also outside the phase sequence (see the backlog for full stories):
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | **Done** (2026-07-14, merged via PR #16; first run green — `FlywayMigrationsTest` executed with `tests=4`, `skipped=0`) |
 | TECH-137 | Terraform bootstrap and GitHub OIDC validation | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — corrected same day: S3-native locking, Terraform 1.15.7/AWS provider 6.55.0, Trivy, OIDC contract, REST API decision; no AWS resource created) |
 | TECH-138 | Provision production VPC foundation | **Done** (2026-07-21, branch `infra/production-vpc-foundation` — `modules/network`, 16/16 `terraform test` green; no AWS resource created) |
+| TECH-139 | Define production RDS PostgreSQL foundation | **Done** (2026-07-21, branch `infra/production-rds-foundation` — `modules/database`, 20/20 `terraform test` green; no AWS resource created) |
 | TECH-130 | Cognito resource server, scopes and app clients | Pending — decisions approved 2026-07-21 (ADR-010 Accepted) — not started |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | Pending — blocked on TECH-130 + TECH-132 |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB | **In progress** — VPC foundation done (TECH-138); ECS/ALB/RDS not yet implemented |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB | **In progress** — VPC and RDS foundations done (TECH-138, TECH-139); ECS/ALB not yet implemented |
 
 ---
 

@@ -1,13 +1,15 @@
 # AWS Production Readiness — TECH-130 / TECH-131 / TECH-132
 
-**Version:** 1.3 (2026-07-21 — [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
+**Version:** 1.4 (2026-07-21 — [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
 now **Accepted**: the repository owner resolved IaC tool, ownership, account, region,
 environments, VPC, ECS launch type, database, Cognito ownership, domain, NAT Gateway,
 logging retention, secrets management, and (in a same-day revision) API Gateway
 REST-vs-HTTP-API (Q8 — **REST API**, required for API key/usage-plan/quota/throttling
 support). §10 below is annotated per-item with each resolution; §9 Risks updated
-accordingly. Still open: exact M2M integration count/scopes (Q2), IAM/SigV4 path
-necessity (Q9), and CORS/end-to-end-VPC-TLS — see the annotations below, not assumed
+accordingly. TECH-132's network foundation (TECH-138) and RDS PostgreSQL foundation
+(TECH-139) are now implemented as Terraform code — no AWS resource created, no
+`terraform apply` run. Still open: exact M2M integration count/scopes (Q2), IAM/SigV4
+path necessity (Q9), and CORS/end-to-end-VPC-TLS — see the annotations below, not assumed
 resolved just because most of §10 now is)
 **Date:** 2026-07-20
 **Author:** Repository audit (branch `docs/production-aws-readiness-plan`), read-only —
@@ -221,36 +223,39 @@ ingestion-trigger 1 req/s / burst 2), replacing the previously-illustrative
 
 ### TECH-132 — Private networking
 
-**Progress (2026-07-21, [TECH-138](../backlog/technical-backlog.md#tech-138)):** the
-network foundation row below (private subnets, NAT Gateway) is now implemented as
-Terraform code (`infra/terraform/modules/network/`) — VPC, 2 AZs, 3 subnet tiers, routing,
-a single NAT Gateway, an S3 Gateway VPC Endpoint, and configurable VPC Flow Logs, all
+**Progress (2026-07-21, [TECH-138](../backlog/technical-backlog.md#tech-138) +
+[TECH-139](../backlog/technical-backlog.md#tech-139)):** the network foundation row below
+(private subnets, NAT Gateway) and the PostgreSQL-location row are now implemented as
+Terraform code — `infra/terraform/modules/network/` (VPC, 2 AZs, 3 subnet tiers, routing,
+a single NAT Gateway, an S3 Gateway VPC Endpoint, configurable VPC Flow Logs) and
+`infra/terraform/modules/database/` (RDS PostgreSQL 18, Single-AZ, DB subnet group,
+security group with no ingress rule yet, encrypted, RDS-managed master password) — both
 verified via `terraform test` against a mocked provider. **No AWS resource has been
-created** — no `terraform apply` has run. This does not change any classification below;
-it changes the story's status to `In progress` (see the backlog entry).
+created** — no `terraform apply` has run for either. This does not change any other
+classification below; the story's status is `In progress` (see the backlog entry).
 
 | Criterion | Class | Note |
 |---|---|---|
 | App's health-check endpoint is ALB-ready | E | `/actuator/health`, unauthenticated, `probes.enabled: true` |
 | App accepts `DB_HOST`/`DB_PORT` pointing anywhere in-VPC | E | Already fully environment-driven |
 | App logs to stdout (CloudWatch-Logs-ready) | E | Default Spring Boot behavior, no config needed |
-| ECS Fargate vs ECS EC2 | D | **Undecided** — not specified anywhere in the repo |
-| Private subnets, NAT Gateway for DANE SOAP egress | C + D-resolved | **Decision already made by evidence, not open**: NAT (or NAT instance) is required — VPC endpoints alone cannot reach the public DANE SOAP endpoint. See §7. |
-| VPC endpoints for AWS-service-only traffic (ECR, CloudWatch Logs, Secrets Manager) | D | Optional cost/security optimization, not required — decide independently of the NAT requirement above |
-| Internal ALB + target group | C | — |
-| Security groups (ALB admits only VPC Link ENIs) | C + D | Design is expressible now (§7), AWS action to implement |
+| ECS Fargate vs ECS EC2 | Resolved | ADR-010: Fargate |
+| Private subnets, NAT Gateway for DANE SOAP egress | Resolved (TECH-138) | Implemented as Terraform code — see §7. Not yet applied to a real account. |
+| VPC endpoints for AWS-service-only traffic (ECR, CloudWatch Logs, Secrets Manager) | D | Optional cost/security optimization, not required — S3 Gateway Endpoint done (TECH-138); Interface endpoints (ECR/Logs/Secrets Manager) remain deferred pending real NAT traffic volume |
+| Internal ALB + target group | C | Not yet implemented (TECH-132's remaining ECS/ALB phase) |
+| Security groups (ALB admits only VPC Link ENIs) | C + D | Design is expressible now (§7); the ALB's own security group is not yet implemented (created alongside the ALB itself) |
 | VPC Link | C | Depends on the ALB and API Gateway (TECH-131) existing |
-| PostgreSQL location (RDS vs self-managed) | D + C | **Explicitly undecided** — flagged in blocking questions |
+| PostgreSQL location (RDS vs self-managed) | Resolved (TECH-139) | RDS for PostgreSQL 18, Single-AZ — implemented as Terraform code, not yet applied to a real account |
 | Cognito/JWKS reachability from the VPC | E (app side, standard HTTPS via NAT) | No separate VPC endpoint needed — Cognito's JWKS is public HTTPS, same NAT path as DANE egress |
-| CloudWatch Logs | C | ECS task definition `awslogs` driver config; app side already correct |
-| Secrets in the task definition | C + D | Same store decision as TECH-130 |
+| CloudWatch Logs | C (ECS task definition) / Resolved (RDS, TECH-139) | ECS side still needs the `awslogs` driver config once the task definition exists; RDS's `postgresql`/`upgrade` log exports are already implemented |
+| Secrets in the task definition | C + D | RDS's own master password is resolved (Secrets Manager, TECH-139); the future ECS task definition's own secret injection is not yet designed |
 | Service discovery (Cloud Map) | D | Likely unnecessary for a single API-Gateway-fronted service — confirm, don't assume |
 | Gateway-bypass prevention | D (design known) + C (implement) | Security group scoped to VPC Link ENIs only — see §7 |
 | TLS between API Gateway, VPC Link, ALB, ECS | D | **Undecided** — TLS-terminated-at-gateway-only vs end-to-end TLS inside the VPC is a real security/compliance decision, not resolved by anything in this repo |
 
-**TECH-132 cannot be marked Done**: ECS launch type, RDS decision, VPC-internal TLS
-policy, and service discovery are all open **D** items, plus every **C** item needs a
-real AWS account.
+**TECH-132 cannot be marked Done**: ECS/ALB are not yet implemented, VPC-internal TLS
+policy and service discovery remain open **D** items, and every remaining **C** item
+needs a real AWS account.
 
 ---
 

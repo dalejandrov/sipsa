@@ -68,3 +68,46 @@ output "flow_log_group_name" {
   description = "CloudWatch Logs group name for VPC Flow Logs, or null when disabled."
   value       = module.network.flow_log_group_name
 }
+
+# --- Database (TECH-139) ---------------------------------------------------
+
+output "db_instance_id" {
+  description = "RDS instance identifier."
+  value       = module.database.db_instance_id
+}
+
+output "db_instance_arn" {
+  description = "ARN of the RDS instance."
+  value       = module.database.db_instance_arn
+}
+
+output "db_endpoint" {
+  description = "RDS connection endpoint (host:port). Sensitive by defensive posture — see modules/database/README.md."
+  value       = module.database.db_endpoint
+  sensitive   = true
+}
+
+output "db_port" {
+  description = "PostgreSQL port."
+  value       = module.database.db_port
+}
+
+output "db_name" {
+  description = "Initial database name."
+  value       = module.database.db_name
+}
+
+output "db_security_group_id" {
+  description = "Security group ID for the RDS instance — no ingress rule exists yet (TECH-139); TECH-132's compute phase adds one via the database module's allowed_security_group_ids."
+  value       = module.database.db_security_group_id
+}
+
+output "db_subnet_group_name" {
+  description = "Name of the DB subnet group."
+  value       = module.database.db_subnet_group_name
+}
+
+output "master_secret_arn" {
+  description = "ARN of the Secrets Manager secret RDS manages for the master password — never the secret's value (see modules/database/README.md)."
+  value       = module.database.master_secret_arn
+}

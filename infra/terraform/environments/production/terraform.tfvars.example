@@ -14,4 +14,11 @@ cost_center = "<real cost center, once one exists — do not invent a value>"
 # private_app_subnet_cidrs, private_database_subnet_cidrs,
 # enable_vpc_flow_logs, flow_log_traffic_type, flow_log_retention_days — all
 # default to ADR-010's approved topology (10.40.0.0/16, 2 AZs, Flow Logs on
-# with REJECT/30-day retention).
+# with REJECT/30-day retention). Also includes the database (TECH-139)
+# variables — postgres_engine_version, db_instance_class, db_allocated_storage,
+# db_multi_az, and the rest — all default to ADR-010/TECH-139's approved
+# configuration (PostgreSQL 18, Single-AZ, gp3/20 GiB, 7-day backups,
+# deletion protection on). db_instance_class ("db.t3.micro") and
+# postgres_engine_version ("18") are PROPOSALS requiring AWS-side
+# availability validation before the first real apply — see
+# modules/database/README.md.
