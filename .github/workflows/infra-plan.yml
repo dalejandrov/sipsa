@@ -5,8 +5,9 @@
 #
 # fmt/validate/test/lint/scan need no AWS credentials and always run — every
 # module's own `terraform test` suite (TECH-138: modules/network/tests/;
-# TECH-139: modules/database/tests/) uses a mocked AWS provider, never a
-# real account. The plan step
+# TECH-139: modules/database/tests/; TECH-140: modules/ecr/tests/,
+# modules/ecs-task/tests/) uses a mocked AWS provider, never a real account.
+# The plan step
 # is conditioned on the `AWS_TERRAFORM_PLAN_ROLE_ARN` repository variable
 # being set — that role does not exist yet (see infra/terraform/README.md and
 # ADR-010's OIDC trust-policy contract); creating it is a prerequisite for
@@ -84,6 +85,18 @@ jobs:
 
       - name: terraform test — modules/database
         working-directory: infra/terraform/modules/database
+        run: |
+          terraform init -backend=false
+          terraform test
+
+      - name: terraform test — modules/ecr
+        working-directory: infra/terraform/modules/ecr
+        run: |
+          terraform init -backend=false
+          terraform test
+
+      - name: terraform test — modules/ecs-task
+        working-directory: infra/terraform/modules/ecs-task
         run: |
           terraform init -backend=false
           terraform test

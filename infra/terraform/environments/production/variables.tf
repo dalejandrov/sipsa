@@ -216,3 +216,85 @@ variable "db_log_retention_days" {
   type        = number
   default     = 30
 }
+
+# --- Container registry (TECH-140) ------------------------------------------
+
+variable "ecr_encryption_type" {
+  description = "ECR encryption type. Default AES256."
+  type        = string
+  default     = "AES256"
+}
+
+variable "ecr_kms_key_id" {
+  description = "KMS key ID/ARN for ECR encryption, only used when ecr_encryption_type is \"KMS\". No default."
+  type        = string
+  default     = null
+}
+
+variable "ecr_keep_last_tagged_images" {
+  description = "Number of tagged images to retain in ECR. Default 20."
+  type        = number
+  default     = 20
+}
+
+variable "ecr_expire_untagged_after_days" {
+  description = "Days after which an untagged ECR image expires. Default 7."
+  type        = number
+  default     = 7
+}
+
+# --- ECS cluster and task definition (TECH-140) -----------------------------
+
+variable "ecs_enable_container_insights" {
+  description = "Whether ECS Container Insights is enabled. Default true (see modules/ecs-task/README.md for the cost/observability trade-off)."
+  type        = bool
+  default     = true
+}
+
+variable "ecs_image_tag" {
+  description = "Immutable image tag for the application container. No default — must be supplied explicitly; \"latest\" is rejected by the ecs-task module. For offline Terraform validation only, a placeholder such as \"unreleased\" may be used."
+  type        = string
+  default     = "unreleased"
+}
+
+variable "ecs_container_name" {
+  description = "Container name within the task definition."
+  type        = string
+  default     = "sipsa-app"
+}
+
+variable "ecs_container_port" {
+  description = "Port the application listens on. Default 8080, confirmed from application.yaml and the Dockerfile."
+  type        = number
+  default     = 8080
+}
+
+variable "ecs_task_cpu" {
+  description = "Task-level CPU units (Fargate). Default 256 — a PROPOSAL requiring validation against real ingestion workload consumption before the first real deployment (see modules/ecs-task/README.md)."
+  type        = number
+  default     = 256
+}
+
+variable "ecs_task_memory" {
+  description = "Task-level memory, in MiB (Fargate). Default 512 — a PROPOSAL requiring the same validation as ecs_task_cpu."
+  type        = number
+  default     = 512
+}
+
+variable "ecs_cpu_architecture" {
+  description = "Fargate CPU architecture. Default \"X86_64\" — this repository's CI builds x86_64 images today; ARM64 is a future optimization requiring evidence first (see modules/ecs-task/README.md)."
+  type        = string
+  default     = "X86_64"
+}
+
+variable "ecs_spring_profile" {
+  description = "SPRING_PROFILES_ACTIVE for the container. Default \"docker\" — this repository has no dedicated production profile; \"docker\" is the closest existing, already-safe analog (see modules/ecs-task/README.md)."
+  type        = string
+  default     = "docker"
+}
+
+variable "ecs_log_retention_days" {
+  description = "CloudWatch Logs retention, in days, for the application log group. Default 30 — never infinite."
+  type        = number
+  default     = 30
+}

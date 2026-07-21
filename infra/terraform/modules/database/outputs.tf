@@ -19,6 +19,11 @@ output "db_port" {
   value       = aws_db_instance.main.port
 }
 
+output "db_address" {
+  description = "Database hostname only (no port) — for wiring into a consumer's DB_HOST-style environment variable (TECH-140's ecs-task module). Not marked sensitive: a bare hostname, without the port or any credential, is treated the same as this module's other infrastructure-identifier outputs (e.g. db_subnet_group_name)."
+  value       = aws_db_instance.main.address
+}
+
 output "db_name" {
   description = "Initial database name."
   value       = aws_db_instance.main.db_name

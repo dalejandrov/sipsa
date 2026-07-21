@@ -1,14 +1,15 @@
 # AWS Production Readiness — TECH-130 / TECH-131 / TECH-132
 
-**Version:** 1.4 (2026-07-21 — [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
+**Version:** 1.5 (2026-07-21 — [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
 now **Accepted**: the repository owner resolved IaC tool, ownership, account, region,
 environments, VPC, ECS launch type, database, Cognito ownership, domain, NAT Gateway,
 logging retention, secrets management, and (in a same-day revision) API Gateway
 REST-vs-HTTP-API (Q8 — **REST API**, required for API key/usage-plan/quota/throttling
 support). §10 below is annotated per-item with each resolution; §9 Risks updated
-accordingly. TECH-132's network foundation (TECH-138) and RDS PostgreSQL foundation
-(TECH-139) are now implemented as Terraform code — no AWS resource created, no
-`terraform apply` run. Still open: exact M2M integration count/scopes (Q2), IAM/SigV4
+accordingly. TECH-132's network foundation (TECH-138), RDS PostgreSQL foundation
+(TECH-139), and ECR/ECS-cluster/task-definition foundation (TECH-140) are now
+implemented as Terraform code — no AWS resource created, no `terraform apply` run, no
+image published. Still open: exact M2M integration count/scopes (Q2), IAM/SigV4
 path necessity (Q9), and CORS/end-to-end-VPC-TLS — see the annotations below, not assumed
 resolved just because most of §10 now is)
 **Date:** 2026-07-20
@@ -224,15 +225,20 @@ ingestion-trigger 1 req/s / burst 2), replacing the previously-illustrative
 ### TECH-132 — Private networking
 
 **Progress (2026-07-21, [TECH-138](../backlog/technical-backlog.md#tech-138) +
-[TECH-139](../backlog/technical-backlog.md#tech-139)):** the network foundation row below
-(private subnets, NAT Gateway) and the PostgreSQL-location row are now implemented as
-Terraform code — `infra/terraform/modules/network/` (VPC, 2 AZs, 3 subnet tiers, routing,
-a single NAT Gateway, an S3 Gateway VPC Endpoint, configurable VPC Flow Logs) and
-`infra/terraform/modules/database/` (RDS PostgreSQL 18, Single-AZ, DB subnet group,
-security group with no ingress rule yet, encrypted, RDS-managed master password) — both
-verified via `terraform test` against a mocked provider. **No AWS resource has been
-created** — no `terraform apply` has run for either. This does not change any other
-classification below; the story's status is `In progress` (see the backlog entry).
+[TECH-139](../backlog/technical-backlog.md#tech-139) +
+[TECH-140](../backlog/technical-backlog.md#tech-140)):** the network foundation row below
+(private subnets, NAT Gateway), the PostgreSQL-location row, and the ECS-launch-type row
+are now implemented as Terraform code — `infra/terraform/modules/network/` (VPC, 2 AZs,
+3 subnet tiers, routing, a single NAT Gateway, an S3 Gateway VPC Endpoint, configurable
+VPC Flow Logs), `infra/terraform/modules/database/` (RDS PostgreSQL 18, Single-AZ, DB
+subnet group, security group with no ingress rule yet, encrypted, RDS-managed master
+password), and `infra/terraform/modules/ecr/` + `infra/terraform/modules/ecs-task/` (ECR
+repository, Fargate ECS cluster, task definition with CPU/memory proposed at 256/512 —
+unverified against real load — X86_64, separate execution/task IAM roles, no ECS
+Service, no ALB) — all verified via `terraform test` against a mocked provider. **No AWS
+resource has been created, no image published** — no `terraform apply` has run for any
+of the three. This does not change any other classification below; the story's status is
+`In progress` (see the backlog entry).
 
 | Criterion | Class | Note |
 |---|---|---|
@@ -247,8 +253,8 @@ classification below; the story's status is `In progress` (see the backlog entry
 | VPC Link | C | Depends on the ALB and API Gateway (TECH-131) existing |
 | PostgreSQL location (RDS vs self-managed) | Resolved (TECH-139) | RDS for PostgreSQL 18, Single-AZ — implemented as Terraform code, not yet applied to a real account |
 | Cognito/JWKS reachability from the VPC | E (app side, standard HTTPS via NAT) | No separate VPC endpoint needed — Cognito's JWKS is public HTTPS, same NAT path as DANE egress |
-| CloudWatch Logs | C (ECS task definition) / Resolved (RDS, TECH-139) | ECS side still needs the `awslogs` driver config once the task definition exists; RDS's `postgresql`/`upgrade` log exports are already implemented |
-| Secrets in the task definition | C + D | RDS's own master password is resolved (Secrets Manager, TECH-139); the future ECS task definition's own secret injection is not yet designed |
+| CloudWatch Logs | Resolved (TECH-139 RDS + TECH-140 ECS) | RDS's `postgresql`/`upgrade` exports and the ECS task definition's `awslogs` driver (30-day retention) are both implemented as Terraform code |
+| Secrets in the task definition | Resolved as a temporary wiring (TECH-140) | The task definition resolves `DB_USERNAME`/`DB_PASSWORD` from RDS's master secret via the `secrets` block — explicitly flagged as temporary; a real minimum-privilege application DB user must replace it before any real deployment |
 | Service discovery (Cloud Map) | D | Likely unnecessary for a single API-Gateway-fronted service — confirm, don't assume |
 | Gateway-bypass prevention | D (design known) + C (implement) | Security group scoped to VPC Link ENIs only — see §7 |
 | TLS between API Gateway, VPC Link, ALB, ECS | D | **Undecided** — TLS-terminated-at-gateway-only vs end-to-end TLS inside the VPC is a real security/compliance decision, not resolved by anything in this repo |
