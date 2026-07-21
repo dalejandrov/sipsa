@@ -39,7 +39,7 @@ When a story is implemented:
 | TECH-052 | `getRun()` returns `Optional<IngestionRun>` | Low | 1 | **Done** (2026-07-19, branch `refactor/optional-ingestion-run`) |
 | TECH-053 | Make scheduler dispatch async | Medium | 2 | Done |
 | TECH-054 | Add pagination to `GET /api/internal/ingestion/runs` | Low | 2 | Done |
-| TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | Low | 6 | Pending |
+| TECH-055 | SPIKE: `isMonthly()` in `IngestionHandler` contract | Low | 6 | **Done** (2026-07-20, `spike/evaluate-is-monthly-contract`) |
 | TECH-060 | Fix N+1 in `upsertFallbackBatch` | Medium | 4 | Done |
 | TECH-070 | Bean Validation on `SoapProperties` | Low | 1 | **Done** (2026-07-19, branch `refactor/validate-soap-properties`) |
 | TECH-071 | Align `batch-size` defaults | Low | 1 | **Done** (2026-07-16 — single typed source of truth, canonical 500) |
@@ -1360,17 +1360,78 @@ migration; V1–V4 unchanged; no `V5`.
 **Type:** SPIKE  
 **Priority:** Low  
 **Phase:** 6  
-**Status:** Pending  
+**Status:** Done
 **Complexity:** S  
-**Branch:** `spike/ingestion-handler-contract`
+**Branch:** `spike/evaluate-is-monthly-contract` (the originally-listed
+`spike/ingestion-handler-contract` name was not reused)
 **Dependencies:** None (SPIKE — investigation only).
 
-**Problem:** `WindowPolicy.isMonthlyMethod()` uses string matching (`contains("mesmadr")`, `contains("abas")`).
+**Problem (before):** `WindowPolicy.isMonthlyMethod()` uses string matching (`contains("mesmadr")`, `contains("abas")`).
 New monthly handlers with different naming patterns will silently use daily scheduling.
 
 **Objective:** Decide whether to add `boolean isMonthly()` to `IngestionHandler` interface or document the naming convention. See [ADR-006](../adr/ADR-006-ingestion-handler-contract.md).
 
-**Completed:** —
+**Correcting the premise (found during the audit, before answering the objective):**
+`isMonthly()` does not exist anywhere in the codebase today — not on `IngestionHandler`,
+not on any implementation. The real current mechanism is
+`WindowPolicy.resolveMonthlyRule(String)`, which has evolved (TECH-111) into something
+**richer than a boolean**: it returns `Optional<MonthlyRule>`, a 3-field record
+(principal day, grace day, window-key suffix) — a bare boolean was already insufficient
+for `WindowPolicy`'s own internal use before this SPIKE started.
+
+**A second, independent classification site was found, not identified by ADR-006's
+original problem statement:** `SipsaHealthIndicator.DAILY_METHODS` — a hardcoded `Set` of
+exact method names, used to pick daily-vs-monthly staleness thresholds, with **zero
+shared source of truth** with `WindowPolicy`. This is the actual, concrete drift risk
+found by this SPIKE, not the hypothetical one ADR-006 originally described.
+
+**Decision: Recommended — Option D ("move the decision out of the handler," i.e., keep
+it out of `IngestionHandler` and consolidate the two existing independent
+implementations into one).** A literal `boolean isMonthly()` on `IngestionHandler`
+(ADR-006's original Option A) would be insufficient (loses day/key information for the
+monthly case) and would not fix the actual duplication found (`SipsaHealthIndicator`
+never touches `IngestionHandler`). Full comparison of all 5 options (A–E), the boolean-
+blindness analysis (concluding `WindowPolicy`'s own daily/monthly split is *not*
+boolean-blind — `false` is a single coherent category, confirmed by reading the two
+validation branches directly), the reverted working prototype, and the weighted decision
+matrix are in the
+[full SPIKE report](../architecture/spikes/TECH-055-is-monthly-contract.md).
+[ADR-006](../adr/ADR-006-ingestion-handler-contract.md) updated from `Proposed` to
+`Accepted` (Option D), reversing its original tentative Option A recommendation.
+
+**Follow-up (separate story, not implemented here):** add `public boolean
+isMonthlyMethod(String)` to `WindowPolicy` (delegating to the existing private rule
+resolution, no behavior change); inject `WindowPolicy` into `SipsaHealthIndicator` and
+remove its independent `DAILY_METHODS` set; add one contract test asserting the two call
+sites cannot silently disagree. `IngestionHandler` and its 5 implementations are
+untouched by this follow-up.
+
+**Acceptance Criteria:**
+- [x] Inventory of all 5 `IngestionHandler` implementations and every consumer of the
+      daily/monthly classification.
+- [x] Explicit recommendation among A/B/C/D/E, not "it depends": **D**.
+- [x] A controlled experiment verified the recommendation, then was fully reverted
+      (`git status --short` clean before the final commit — confirmed).
+- [x] No source code changed as part of this SPIKE's final commit.
+- [x] ADR-006 updated to `Accepted`.
+
+**Completed:** Full report at
+[docs/architecture/spikes/TECH-055-is-monthly-contract.md](../architecture/spikes/TECH-055-is-monthly-contract.md) —
+inventory (5 handlers, their real method names, and what actually consumes the
+classification), the corrected premise (`isMonthly()` doesn't exist; the real mechanism
+is richer than a boolean), the second independent classification site found
+(`SipsaHealthIndicator.DAILY_METHODS`), the boolean-blindness analysis (not blind for
+`WindowPolicy`'s own decision; would become blind if Option A were implemented
+literally), all 5 options compared against the requested weighted criteria, a reverted
+working prototype (`WindowPolicy.isMonthlyMethod(String)` + `SipsaHealthIndicator`
+refactored to consume it — all 6 existing `SipsaHealthIndicatorTest` cases passed
+unmodified, proving zero behavior change, then fully reverted via `git checkout --`), the
+existing-test coverage matrix (one real gap identified: no test today asserts
+`WindowPolicy` and `SipsaHealthIndicator` can't drift), and the scoped follow-up story
+definition. `IngestionHandler` and all 5 handler implementations are completely
+untouched — this story changed no production code. No scheduler, window, metrics,
+audit, repository, API, security, SOAP, database, or AWS infrastructure change. No
+Flyway migration; V1–V4 unchanged.
 
 ---
 
