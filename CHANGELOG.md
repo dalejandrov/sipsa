@@ -75,6 +75,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   been run.** TECH-132 remains `In progress`: its network, database, and ECS-task
   substrate are all done now; the ECS Service and internal ALB are not.
 
+- **Internal ALB and ECS Service foundation defined as Terraform code** (TECH-141,
+  ADR-010, the remainder of TECH-132's compute/network scope —
+  `infra/terraform/modules/ecs-service/`). Three security-group relationships: the ALB
+  security group with **no ingress rule by default** (populated only once TECH-131's VPC
+  Link security group exists; a documented CIDR fallback rejects `0.0.0.0/0` outright by
+  variable validation); the ECS service security group admitting ingress only from the
+  ALB on port 8080, with egress scoped to RDS (5432), HTTPS (443, necessary for the
+  public DANE SOAP endpoint), and DNS (53, scoped to the VPC CIDR); and the actual
+  ECS→RDS ingress rule, added here since `modules/database`'s security group carries
+  none of its own. An internal ALB (`internal = true`, private-application subnets, HTTP
+  listener only — no ACM certificate exists, and the ALB is unreachable outside the VPC
+  regardless of listener protocol) with deletion protection on by default, invalid-header
+  dropping, defensive desync mitigation, and access logs off by default (no S3 bucket
+  exists for them). A target group (`target_type = ip`) whose health check
+  (`/actuator/health`, matcher `200`) was confirmed safe to call unauthenticated by
+  reading `SecurityConfig` and `application.yaml`'s `show-details: when-authorized`, not
+  invented. An ECS Service (`desired_count = 1`, Fargate, deployment circuit breaker with
+  rollback, `health_check_grace_period_seconds = 120` — an unmeasured, conservative
+  proposal) that reuses the existing task definition by ARN rather than rebuilding it.
+  Two explicitly documented, unresolved risks carried forward, not fixed by this story:
+  a rolling deployment can briefly run two tasks that could both attempt Flyway migration
+  (mitigated by Flyway's own database-level lock, not verified empirically here), and the
+  application's in-process ingestion scheduler is not safe for more than one replica
+  (`desired_count` must stay at 1 until leader election, an external scheduler, or a
+  distributed lock exists) — autoscaling is therefore not implemented at all. Two Trivy
+  CRITICAL findings addressed with individually-justified exceptions (an HTTP-only
+  listener on an ALB with zero internet-facing exposure by construction; a single-port
+  HTTPS egress rule to `0.0.0.0/0` that is unavoidable because the destination, DANE's
+  SOAP endpoint, is a public third-party URL, not an AWS resource with a scopable range).
+  Verified with 17 `terraform test` cases against a fully mocked AWS provider — **no real
+  AWS account is contacted, and no `terraform apply` has been run.** TECH-132 remains
+  `In progress`: its network, database, ECS-task, and internal-service substrate are all
+  done now; API Gateway and VPC Link (TECH-131) are not.
+
 ### Changed
 
 - **TECH-137 (Terraform bootstrap) corrected against current official documentation

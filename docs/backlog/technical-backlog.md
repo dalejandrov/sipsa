@@ -57,11 +57,12 @@ When a story is implemented:
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
 | TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending — decisions approved 2026-07-21 ([ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) Accepted), blocked on TECH-137 |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-130 + TECH-132 |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC, RDS and ECS task foundations complete (TECH-138, TECH-139, TECH-140, 2026-07-21); ECS Service/ALB not yet implemented |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC, RDS, ECS task and internal service foundations complete (TECH-138, TECH-139, TECH-140, TECH-141, 2026-07-21); API Gateway/VPC Link (TECH-131) not yet implemented |
 | TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — corrected same day: S3-native locking, Terraform 1.15.7/AWS provider 6.55.0, Trivy scanning, OIDC contract, REST API decision) |
 | TECH-138 | Provision production VPC foundation | High | — | **Done** (2026-07-21, branch `infra/production-vpc-foundation` — `modules/network`, 16/16 `terraform test` green, no AWS resource created) |
 | TECH-139 | Define production RDS PostgreSQL foundation | High | — | **Done** (2026-07-21, branch `infra/production-rds-foundation` — `modules/database`, 20/20 `terraform test` green, no AWS resource created) |
 | TECH-140 | Define production ECR and ECS task foundation | High | — | **Done** (2026-07-21, branch `infra/production-ecs-task-foundation` — `modules/ecr` + `modules/ecs-task`, 26/26 `terraform test` green, no AWS resource created, no image published) |
+| TECH-141 | Define internal ALB and ECS service foundation | High | — | **Done** (2026-07-21, branch `infra/internal-alb-ecs-service` — `modules/ecs-service`, 17/17 `terraform test` green, no AWS resource created) |
 | TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
@@ -2959,13 +2960,15 @@ Pending**, blocked on TECH-130 and TECH-132.
 **Type:** Infrastructure / Security
 **Priority:** High
 **Phase:** —
-**Status:** **In progress** — VPC, RDS and ECS task foundations complete (TECH-138,
-TECH-139, TECH-140); ECS Service/ALB not yet implemented
+**Status:** **In progress** — VPC, RDS, ECS task and internal service foundations
+complete (TECH-138, TECH-139, TECH-140, TECH-141); API Gateway/VPC Link (TECH-131) not
+yet implemented
 **Complexity:** M
 **Branch:** — (infrastructure work; VPC foundation landed via
 `infra/production-vpc-foundation` (TECH-138), RDS foundation via
 `infra/production-rds-foundation` (TECH-139), ECR/ECS task foundation via
-`infra/production-ecs-task-foundation` (TECH-140))
+`infra/production-ecs-task-foundation` (TECH-140), internal ALB/ECS Service via
+`infra/internal-alb-ecs-service` (TECH-141))
 
 **Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
 code changed):** full classification, gateway-bypass-prevention design, and evidence in
@@ -2977,12 +2980,14 @@ default assumption). App-side readiness confirmed **E**: `/actuator/health` is
 unauthenticated with Spring Boot's liveness/readiness probe groups already enabled, the
 app is fully environment-driven for `DB_HOST`/`DB_PORT`, and it logs to stdout
 (CloudWatch-Logs-ready) — no code change needed for any of this. **Resolved (ADR-010,
-implemented via TECH-138/TECH-139):** ECS Fargate (over EC2); RDS for PostgreSQL (over
-self-managed), Single-AZ, PostgreSQL 18. Still open (**D**): VPC-internal TLS policy, and
-whether Cloud Map service discovery is needed (likely not, for a single
-API-Gateway-fronted service — not yet confirmed). Every real provisioning step itself is
-**C** (real AWS access) — **Cannot be marked Done** until ECS/ALB are implemented and the
-remaining D items are resolved.
+implemented via TECH-138/TECH-139/TECH-140/TECH-141, all as Terraform code, none applied
+to a real account):** ECS Fargate (over EC2); RDS for PostgreSQL (over self-managed),
+Single-AZ, PostgreSQL 18; internal ALB + ECS Service, with the ECS→RDS security-group
+rule in place. Still open (**D**): VPC-internal TLS policy, and whether Cloud Map service
+discovery is needed (TECH-141 evaluated it and found no justification yet — a single
+ALB-fronted service has no inter-service DNS need). Every real provisioning step itself is
+**C** (real AWS access) — **Cannot be marked Done** until API Gateway/VPC Link (TECH-131)
+are implemented, a real image exists, and the remaining D items are resolved.
 
 **Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
 (**Accepted**, 2026-07-21) — Fase 1 (network) and Fase 3 (compute/data) cover this story.
@@ -3027,8 +3032,26 @@ task definition's `secrets` block from the RDS master secret, explicitly flagged
 all in `infra/terraform/modules/ecr/` and `infra/terraform/modules/ecs-task/`, consumed
 by `environments/production`. **No ECS Service, no ALB, no image push.** **No AWS
 resource has been created** (no `terraform apply` run); validated via `terraform test`
-against a mocked provider. ECS Service and the internal ALB — the remainder of this
-story's scope — are **not yet implemented**.
+against a mocked provider.
+
+**Progress (2026-07-21, [TECH-141](#tech-141), branch `infra/internal-alb-ecs-service`):**
+the internal ALB and ECS Service this story's remaining scope depends on are now
+implemented — three security-group relationships (ALB SG with no ingress by default,
+populated only via `alb_allowed_ingress_security_group_ids`/TECH-131; ECS service SG
+admitting only the ALB SG on port 8080, egress scoped to RDS/HTTPS/DNS; the ECS→RDS
+ingress rule added directly on the RDS security group, since `modules/database` creates
+it with none); an internal ALB (`internal = true`, private-application subnets, HTTP
+listener only — no ACM certificate exists, and the ALB is unreachable outside the VPC
+regardless); a target group (`target_type = ip`, health check
+`/actuator/health`/`200`, confirmed safe unauthenticated by reading `SecurityConfig` and
+`application.yaml`'s `show-details: when-authorized`); an ECS Service
+(`desired_count = 1`, `FARGATE`, deployment circuit breaker with rollback,
+`health_check_grace_period_seconds = 120` — unmeasured, flagged for validation) — all in
+`infra/terraform/modules/ecs-service/`, consumed by `environments/production`. **No
+image exists, no task ever runs, no AWS resource has been created** (no `terraform
+apply` run); validated via `terraform test` against a mocked provider. TECH-131 (API
+Gateway/VPC Link) — the only remaining piece of the full private-networking picture — is
+**not yet implemented**.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 4.
 
@@ -3644,6 +3667,218 @@ historia, todos explícitamente pendientes):
 - Crear el ECS Service y el ALB interno — resto del alcance de TECH-132.
 - Configurar Cognito (TECH-130).
 - Configurar API Gateway (TECH-131).
+
+---
+
+### TECH-141
+
+**Title:** Define internal ALB and ECS service foundation
+**Type:** Infrastructure
+**Priority:** High
+**Phase:** —
+**Status:** **Done**
+**Complexity:** M
+**Branch:** `infra/internal-alb-ecs-service`
+
+**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) — the
+remainder of [TECH-132](#tech-132)'s compute/network scope (internal ALB, ECS Service).
+Scoped narrowly: no API Gateway, VPC Link, Cognito, WAF, Route 53, ACM, custom domain,
+production autoscaling, real deployment, image publication, task execution, or
+definitive DB user.
+
+**Topología:**
+
+```
+API Gateway futuro → VPC Link futuro → ALB interno (este módulo)
+  → ECS Service en subnets privadas-app (este módulo)
+    → RDS en subnets privadas-DB (TECH-139)
+```
+
+`internal = true` en el ALB — nunca internet-facing. Ubicado en las mismas subnets
+privadas-app que las tareas ECS (evaluado y descartado tener una capa dedicada: ningún
+otro workload existe ahí hoy, así que una capa separada añadiría complejidad de
+subredes/route tables sin un beneficio de aislamiento correspondiente).
+
+**Security groups — tres relaciones, cada una acotada:**
+- **ALB SG:** sin regla de ingress por defecto — ningún VPC Link existe aún;
+  `alb_allowed_ingress_security_group_ids` (preferido) queda vacío hasta TECH-131;
+  `alb_allowed_ingress_cidr_blocks` es un fallback documentado con `0.0.0.0/0` rechazado
+  explícitamente por validación de variable. Egress acotado al SG de ECS en el puerto de
+  la aplicación únicamente.
+- **ECS Service SG:** ingress solo desde el SG del ALB, puerto 8080. Egress acotado:
+  PostgreSQL (5432) al SG de RDS; HTTPS (443) a `0.0.0.0/0` — necesario porque el
+  endpoint SOAP de DANE es una URL pública de internet (excepción Trivy documentada,
+  `AVD-AWS-0104`, egress-only, nunca ingress); DNS (53 TCP/UDP) acotado al CIDR de la
+  VPC, no `0.0.0.0/0`.
+- **RDS SG:** este módulo agrega la regla real `ECS → RDS` (`modules/database` crea el
+  SG sin ninguna regla de ingress propia, por diseño) — puerto 5432, origen exclusivo el
+  SG de ECS, nunca un CIDR.
+
+**ALB:** `enable_deletion_protection=true` por defecto, `drop_invalid_header_fields=true`,
+`desync_mitigation_mode="defensive"`, `enable_http2=true`. Access logs deshabilitados por
+defecto (`enable_alb_access_logs=false`) — habilitarlos requiere un bucket S3 real con
+política, cifrado y retención correctos, que esta historia no crea; los access logs de
+API Gateway serán obligatorios en TECH-131 independientemente de esto.
+
+**Listener:** HTTP únicamente — sin dominio ni certificado ACM (ADR-010), no se simula
+HTTPS con un certificado inexistente. Aceptable específicamente porque el ALB es interno,
+alcanzable solo dentro de la VPC; API Gateway (TECH-131) será el único punto de entrada
+público. Excepción Trivy documentada (`AVD-AWS-0054`, CRITICAL): el propio SG del ALB no
+tiene ingress desde internet y `internal=true` significa que AWS nunca le asigna un
+DNS/IP público resoluble fuera de la VPC — HTTPS cifraría tráfico que nunca sale de un
+límite de red privado.
+
+**Target group:** `target_type=ip` (requerido para tareas Fargate con `awsvpc`),
+`protocol=HTTP`, `port=8080`. Health check: `path=/actuator/health`, `matcher=200` —
+confirmado seguro sin autenticación, no inventado: `SecurityConfig` lo permite
+explícitamente (`permitAll()`) y `application.yaml` fija
+`management.endpoint.health.show-details: when-authorized`, es decir, un llamador no
+autenticado (el ALB) solo recibe el estado `UP`/`DOWN`, nunca detalles de componentes.
+
+**ECS Service:** `launch_type=FARGATE`, `desired_count=1` (ver riesgo del scheduler
+abajo), `enable_execute_command=false` por defecto (ECS Exec requiere IAM/logging/
+auditoría deliberados antes de habilitarse). `deployment_minimum_healthy_percent=100` /
+`deployment_maximum_percent=200` — con `desired_count=1`, esto permite iniciar una tarea
+nueva antes de detener la anterior, confirmado por test. `deployment_circuit_breaker`
+habilitado con `rollback=true`. `health_check_grace_period_seconds=120` — propuesta
+conservadora sin medir, cubre conexión a RDS, Flyway, inicialización de Spring y carga de
+seguridad, pendiente de validación con un arranque real.
+
+**Flyway y despliegues rolling — riesgo documentado, no resuelto aquí:** con
+`minimum_healthy_percent=100`/`maximum_percent=200`, un despliegue rolling puede correr
+brevemente dos tareas simultáneas, y ambas ejecutarían Flyway al arrancar. El mecanismo
+propio de Flyway (lock a nivel de base de datos sobre la tabla de historial de esquema
+para PostgreSQL) es la mitigación documentada para exactamente este escenario — no
+personalizado por este repositorio, y **no verificado empíricamente** contra un
+despliegue rolling concurrente real por esta historia (TECH-141 no se conecta a RDS ni
+ejecuta ninguna tarea). Criterios explícitos previos al despliegue real: validar el
+comportamiento de migración concurrente, medir tiempos, validar rollback, y considerar un
+job de migración separado solo si aparece evidencia real de que el lock de Flyway es
+insuficiente.
+
+**Scheduler y múltiples réplicas — riesgo crítico documentado:** el scheduler de
+ingestión vive dentro del proceso de la aplicación, sin leader election ni lock
+distribuido. `desired_count` debe permanecer en 1 hasta que exista leader election, un
+scheduler externo, un lock distribuido, o una separación scheduler/API — de lo contrario,
+múltiples réplicas dispararían cada job de ingestión programado múltiples veces. Este
+servicio **explícitamente no está listo** para múltiples réplicas ni autoscaling —
+ninguna de esas dos cosas se implementa en esta historia.
+
+**Credenciales de RDS:** sin cambios respecto a TECH-140 — el wiring al secreto maestro
+de RDS sigue siendo un placeholder Terraform, no el diseño final. Gap explícito, sin
+resolver: crear un usuario de aplicación de mínimo privilegio, crear un secreto dedicado,
+migrar la task definition a ese secreto — requiere conectividad real a la base de datos,
+no intentado aquí.
+
+**Imagen inexistente:** ningún despliegue real es posible todavía — la task definition
+referenciada no tiene una imagen real con tag inmutable en ECR (TECH-140 creó el
+repositorio, no una imagen).
+
+**Autoscaling:** no implementado. Criterios documentados para cuando el riesgo del
+scheduler esté resuelto y existan datos de uso reales: CPU, memoria, ALB request count, y
+duración/profundidad de cola de ingestiones — específico de esta carga de trabajo, ya que
+un policy basado solo en request count no captura "una ingestión está tardando". Nunca
+escalar a cero en producción.
+
+**Trivy exceptions** (reevaluadas para este módulo, ninguna copiada mecánicamente):
+
+| Finding | Resource | Risk | Justification | Exception |
+|---|---|---|---|---|
+| AVD-AWS-0054 (CRITICAL — Listener sin HTTPS) | `aws_lb_listener.http` | Bajo en la práctica pese a la severidad reportada — el ALB es interno, sin ingress desde internet en su propio SG, y sin DNS/IP público resoluble fuera de la VPC | Simular HTTPS sin un certificado ACM real no es una alternativa válida; el cifrado protegería tráfico que nunca sale del límite de red privado | `# trivy:ignore:AVD-AWS-0054`, revisitar si TLS interno se decide como requisito real, junto con una estrategia de certificado |
+| AVD-AWS-0104 (CRITICAL — Egress sin restricción `0.0.0.0/0`) | `aws_security_group_rule.ecs_service_egress_https` | Bajo — regla de un solo puerto (443), solo egress, sin ingress correspondiente desde internet en el mismo SG | El destino (endpoint SOAP de DANE) es una URL pública de internet, no un recurso AWS con rango fijo — el mismo hecho que ya justificó el NAT Gateway de TECH-138 | `# trivy:ignore:AVD-AWS-0104`, ningún destino más acotado es técnicamente expresable para un endpoint público de terceros |
+
+Ninguna excepción toca ALB público real, SG con ingress abierto, ECS con IP pública,
+logs sin retención, o IAM excesivo — ambas son sobre exposición de red ya mitigada por
+otros controles (SG del ALB sin ingress; el listener HTTP nunca es alcanzable desde
+fuera de la VPC).
+
+**Módulo:** `infra/terraform/modules/ecs-service/` (`main.tf`, `variables.tf`,
+`outputs.tf`, `versions.tf`, `README.md`, `tests/`) — ALB y Service en el mismo módulo
+deliberadamente ("servicio interno balanceado" es una sola responsabilidad, usada solo
+por este servicio; separar el ALB añadiría complejidad de límites de archivo sin reuso
+que lo justifique). Sin módulos públicos de terceros. `environments/production/main.tf`
+consume el módulo, encadenando outputs de `module.network`, `module.ecs_task`, y
+`module.database` — nunca reconstruye la task definition dentro de este módulo.
+
+**Outputs:** `alb_arn`, `alb_dns_name` (`sensitive=true`, misma postura defensiva que
+`db_endpoint`), `alb_zone_id`, `alb_security_group_id`, `target_group_arn`,
+`listener_arn`, `ecs_service_name`, `ecs_service_id`, `ecs_service_security_group_id`,
+`ecs_desired_count`. Ningún secreto expuesto.
+
+**Tests:** `infra/terraform/modules/ecs-service/tests/ecs-service.tftest.hcl` — 17 casos,
+todos verdes, `terraform test` con proveedor AWS completamente mockeado, cero cuenta AWS
+real contactada. Cobertura: ALB interno en subnets privadas-app, nunca internet-facing;
+target type `ip`; listener HTTP interno; health check correcto (`path`/`matcher`/
+`protocol`); ECS Service Fargate con `desired_count=1`; circuit breaker con rollback;
+grace period 120s; ECS en subnets privadas sin IP pública; ingress de ECS solo desde el
+SG del ALB (puerto 8080); ingress de RDS solo desde el SG de ECS (puerto 5432); ALB sin
+ingress por defecto, y exactamente una regla creada por SG configurado; rechazo de
+`0.0.0.0/0` en el fallback CIDR por validación de variable; puerto 8080 en target
+group/service; la task definition se reutiliza por ARN, no se reconstruye; ECS Exec
+deshabilitado por defecto; tags comunes aplicadas. Ausencia de autoscaling, API Gateway,
+Cognito y VPC Link confirmada por inspección del código fuente (ningún recurso
+`aws_appautoscaling_*`/`aws_api_gateway_*`/`aws_cognito_*` declarado en el módulo), no
+como aserción en tiempo de ejecución.
+
+**Acceptance Criteria:**
+- [x] Security groups del ALB y del ECS Service creados, con la regla ECS→RDS agregada
+      sobre el SG de RDS existente.
+- [x] ALB interno (`internal=true`), en subnets privadas-app, nunca en subnets públicas.
+- [x] Listener HTTP interno (sin HTTPS simulado sin certificado real), documentado como
+      aceptable dado que el ALB nunca es alcanzable fuera de la VPC.
+- [x] Target group `target_type=ip`, health check en el endpoint real y ya-seguro de
+      Actuator.
+- [x] ECS Service Fargate, `desired_count=1`, circuit breaker con rollback, grace period
+      parametrizado.
+- [x] Sin ECS Service adicional, sin ALB adicional, sin API Gateway, sin Cognito, sin
+      VPC Link, sin autoscaling productivo — confirmado por inspección y por tests.
+- [x] Riesgo de Flyway en despliegue rolling documentado explícitamente, no resuelto.
+- [x] Riesgo de scheduler con múltiples réplicas documentado explícitamente como crítico.
+- [x] Gap de credencial de RDS (usuario mínimo privilegio) reiterado explícitamente, sin
+      resolver.
+- [x] `terraform test` pasa (17/17) contra un proveedor mockeado.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (los seis Terraform
+      roots), TFLint, y `trivy config` están todos limpios (2 excepciones CRITICAL,
+      ambas individualmente justificadas, ninguna sobre ALB público real, SG abierto sin
+      justificación, IP pública en ECS, o IAM excesivo).
+- [x] `./mvnw -q -DskipTests compile` pasa; cero cambio en `src`/`pom.xml`.
+- [x] Sin `terraform apply`, `terraform import`, AWS CLI, `docker push`, login ECR, ni
+      ejecución de tareas ECS.
+- [x] TECH-132 actualizado a `In progress — VPC, RDS, ECS task and internal service
+      foundations complete` (no `Done`).
+
+**Completed:** `infra/terraform/modules/ecs-service/` creado (6 archivos incl. tests) y
+conectado a `environments/production` junto a los módulos existentes. Verificado
+localmente vía las imágenes Docker oficiales `hashicorp/terraform:1.15.7`,
+`terraform-linters/tflint`, y `aquasec/trivy` (ninguna instalada en esta máquina):
+`fmt -check -recursive` limpio; `terraform init -backend=false && terraform validate`
+limpio para los seis Terraform roots (`bootstrap/`, `environments/production`,
+`modules/network/`, `modules/database/`, `modules/ecr/`, `modules/ecs-task/`,
+`modules/ecs-service/`); `terraform test` 17/17 pasando para el módulo nuevo (16/16,
+20/20, 9/9, 17/17 de network/database/ecr/ecs-task re-confirmados sin afectar — 79 tests
+en total en el árbol); TFLint 0 issues; `trivy config` 0 hallazgos sin resolver en todo
+el árbol (2 excepciones nuevas CRITICAL, cada una justificada individualmente).
+`.github/workflows/infra-plan.yml` ganó un paso `terraform test — modules/ecs-service`
+(proveedor mockeado, sin credenciales). `./mvnw -q -DskipTests compile` pasó; cero
+cambio en `src`/`pom.xml`. Ningún `terraform apply`, `terraform import`, comando AWS CLI,
+`docker push`, login ECR, ni ejecución de tareas ECS en ningún momento; ningún recurso
+AWS de ningún tipo existe; ninguna credencial AWS fue agregada. TECH-132 actualizado a
+`In progress — VPC, RDS, ECS task and internal service foundations complete`.
+
+**Gaps documentados, previos a cualquier despliegue real** (ninguno resuelto por esta
+historia):
+- Imagen no publicada en ECR (TECH-140 creó el repositorio, no una imagen).
+- Backend remoto real no creado (bootstrap sigue sin aplicarse).
+- Roles OIDC (`terraform-plan`, `terraform-apply`, `application-deploy`) no creados.
+- PostgreSQL 18 no validado contra RDS `us-east-1` real.
+- Clase `db.t3.micro` no validada.
+- CPU/memoria de la task definition (256/512) no medidas contra carga real.
+- Usuario de base de datos de mínimo privilegio pendiente — wiring al secreto maestro
+  sigue siendo temporal.
+- Scheduler no apto para múltiples réplicas — `desired_count` debe permanecer en 1.
+- API Gateway y VPC Link (TECH-131) pendientes.
+- Cognito (TECH-130) pendiente.
+- Ningún `terraform apply` ejecutado en ningún momento de esta secuencia de historias.
 
 ---
 
