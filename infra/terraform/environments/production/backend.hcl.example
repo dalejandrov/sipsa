@@ -1,0 +1,14 @@
+# Copy to backend.hcl (gitignored — never commit this file with real values)
+# and fill in the values from the bootstrap stack's outputs:
+#
+#   cd ../../bootstrap && terraform output
+#
+# Then initialize this stack with:
+#
+#   terraform init -backend-config=backend.hcl
+
+bucket         = "sipsa-terraform-state-<bootstrap-output:state_bucket_name>"
+key            = "environments/production/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "sipsa-terraform-locks"
+encrypt        = true

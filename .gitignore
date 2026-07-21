@@ -88,3 +88,32 @@ Thumbs.db
 # User-local Claude Code settings (permissions, personal overrides).
 # Project-level .claude/settings.json can be committed if needed.
 .claude/settings.local.json
+
+### Terraform (infra/terraform/, ADR-010) ###
+# State and lock info: never committed, may contain resource attribute values.
+*.tfstate
+*.tfstate.*
+# Local plugin/module cache.
+**/.terraform/*
+# Saved plan output: may contain sensitive values from resource attributes.
+*.tfplan
+crash.log
+crash.*.log
+# Variable files: may contain values that shouldn't be public. Only *.example
+# files (committed, no secrets) document the expected shape.
+*.auto.tfvars
+*.auto.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+# Partial backend config: real bucket/table names, filled in locally per
+# infra/terraform/environments/production/backend.hcl.example.
+backend.hcl
+# terraform.tfvars is committed only as terraform.tfvars.example (see that
+# file per stack) — the real file, if a contributor creates one, stays local.
+terraform.tfvars
+terraform.tfvars.json
+# CLI history that can leak workspace/variable names.
+.terraformrc
+terraform.rc
