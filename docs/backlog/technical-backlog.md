@@ -57,8 +57,9 @@ When a story is implemented:
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
 | TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending — decisions approved 2026-07-21 ([ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) Accepted), blocked on TECH-137 |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-130 + TECH-132 |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | Pending — decisions approved 2026-07-21 (ADR-010 Accepted), blocked on TECH-137 |
-| TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — scaffolding + CI only, no AWS resource created) |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC foundation complete (TECH-138, 2026-07-21); ECS/ALB/RDS not yet implemented |
+| TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — corrected same day: S3-native locking, Terraform 1.15.7/AWS provider 6.55.0, Trivy scanning, OIDC contract, REST API decision) |
+| TECH-138 | Provision production VPC foundation | High | — | **Done** (2026-07-21, branch `infra/production-vpc-foundation` — `modules/network`, 16/16 `terraform test` green, no AWS resource created) |
 | TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
@@ -2956,9 +2957,11 @@ Pending**, blocked on TECH-130 and TECH-132.
 **Type:** Infrastructure / Security
 **Priority:** High
 **Phase:** —
-**Status:** Pending
+**Status:** **In progress** — VPC foundation complete (TECH-138); ECS/ALB/RDS not yet
+implemented
 **Complexity:** M
-**Branch:** — (infrastructure work)
+**Branch:** — (infrastructure work; VPC foundation landed via
+`infra/production-vpc-foundation`, TECH-138)
 
 **Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
 code changed):** full classification, gateway-bypass-prevention design, and evidence in
@@ -2982,8 +2985,17 @@ Terraform variables, small starting values to be verified against real ingestion
 one NAT Gateway initially (accepted single point of failure for egress, documented
 upgrade path to one NAT per AZ), RDS for PostgreSQL Single-AZ (encrypted, 7-day backups,
 `publicly_accessible=false`, deletion protection — Multi-AZ deferred as a future
-upgrade), secrets via AWS Secrets Manager. VPC-internal TLS policy remains open. **Still
-Pending**, blocked on [TECH-137](#tech-137) (Terraform bootstrap) landing first.
+upgrade), secrets via AWS Secrets Manager. VPC-internal TLS policy remains open.
+
+**Progress (2026-07-21, [TECH-138](#tech-138), branch `infra/production-vpc-foundation`):**
+the network foundation this story depends on is now implemented — VPC (`10.40.0.0/16`),
+2 AZs selected deterministically, 2 public + 2 private-application + 2 private-database
+subnets, route tables, a single NAT Gateway (accepted risk, documented), an S3 Gateway
+VPC Endpoint, and configurable VPC Flow Logs — all in
+`infra/terraform/modules/network/`, consumed by `environments/production`. **No AWS
+resource has been created** (no `terraform apply` run); this is Terraform code only,
+validated via `terraform test` against a mocked provider. ECS, the internal ALB, and RDS
+— the remainder of this story's scope — are **not yet implemented**.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 4.
 
@@ -3093,6 +3105,138 @@ bucket for a single-owner, manually-run bootstrap stack, each with an inline rat
 not blanket-suppressed). No `terraform apply` was run against AWS at any point; no
 Cognito, ECS, ALB, RDS, API Gateway, VPC, or NAT Gateway resource exists. TECH-130/131/132
 remain `Pending`.
+
+**Correction (2026-07-21, same branch, before merge):** four follow-up commits brought
+this story in line with current official documentation ahead of the first real `apply`:
+DynamoDB state locking removed entirely in favor of Terraform's S3-native lockfile
+(`use_lockfile = true` — current Terraform docs mark DynamoDB-locking as legacy);
+Terraform raised to `>= 1.14.0, < 2.0.0` (pinned to `1.15.7` in CI/Docker, the floor
+S3-native locking requires); AWS provider raised to `>= 6.0.0, < 7.0.0` (pinned to
+`6.55.0`) — adopted before any AWS state existed, confirmed against the official v6
+upgrade guide as carrying no breaking change for this repository's S3 resources; `tfsec`
+replaced outright by `trivy config` (its checks are now part of Trivy upstream), with the
+two surviving S3-only exceptions re-justified under Trivy's own `AVD-AWS-0089`/
+`AVD-AWS-0132` IDs rather than copied mechanically; `infra-plan.yml`'s third-party actions
+pinned by immutable commit SHA with a human-readable version comment on each; ADR-010
+gained an explicit OIDC trust-policy contract (audience, repository-scoped `sub`, three
+separate plan/apply/deploy roles, no ARN invented) and resolved API Gateway
+REST-vs-HTTP-API outright (**REST API**). Re-validated: `fmt` clean, both stacks
+`validate` clean under Terraform 1.15.7/AWS provider 6.55.0, TFLint 0 issues, `trivy
+config` 0 unresolved findings. Merged to `main` at commit `9e4f7da`. Still no AWS
+resource created, no `terraform apply` run.
+
+---
+
+### TECH-138
+
+**Title:** Provision production VPC foundation
+**Type:** Infrastructure
+**Priority:** High
+**Phase:** —
+**Status:** **Done**
+**Complexity:** M
+**Branch:** `infra/production-vpc-foundation`
+
+**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) Fase 1 —
+the network substrate [TECH-132](#tech-132) depends on. Scoped narrowly to networking
+only: VPC, subnets, routing, NAT, the S3 Gateway Endpoint, and VPC Flow Logs. **Does not**
+implement ECS, ALB, RDS, Cognito, API Gateway, VPC Link, Secrets Manager, ECR, WAF,
+Route 53, or ACM — those remain separate, later stories against this one's outputs.
+
+**Topology:** VPC `10.40.0.0/16`, two Availability Zones selected deterministically via
+`data.aws_availability_zones` (never hardcoded), three subnet tiers × 2 AZs:
+
+| Tier | AZ A | AZ B | Route table |
+|---|---|---|---|
+| Public | `10.40.0.0/24` | `10.40.1.0/24` | One shared table → Internet Gateway |
+| Private application | `10.40.10.0/24` | `10.40.11.0/24` | Per-AZ table → the single NAT Gateway |
+| Private database | `10.40.20.0/24` | `10.40.21.0/24` | Per-AZ table, no default route at all |
+
+All CIDRs are Terraform variables with `cidrhost`-based validation, not literals inside
+any resource block.
+
+**NAT Gateway:** exactly one, in the first public subnet — a deliberate cost/availability
+trade-off (ADR-010), documented in `modules/network/README.md`: roughly half the cost of
+one-per-AZ, at the cost of (a) a single point of failure for all private-application
+egress and (b) cross-AZ data-transfer charges for traffic originating in the second AZ.
+Private-application route tables are kept **per-AZ** specifically so the future
+NAT-per-AZ migration only requires re-pointing one AZ's table, not restructuring subnets.
+No NAT Instance is used.
+
+**S3 Gateway VPC Endpoint:** associated with the two private-application route tables
+only. No hourly/per-GB charge (unlike an Interface endpoint) — added outright to keep S3
+traffic (and, once TECH-132 introduces ECS, ECR image-layer pulls) off the NAT Gateway.
+Interface endpoints for ECR API/DKR, CloudWatch Logs, Secrets Manager, and STS are
+deliberately not added yet — each carries an hourly + per-GB charge; reconsider once real
+NAT traffic volume or a specific security requirement justifies it.
+
+**VPC Flow Logs:** configurable (`enable_vpc_flow_logs`, default `true`), `REJECT`
+traffic only by default (diagnostically useful signal without `ALL`'s volume), 30-day
+CloudWatch Logs retention by default — never infinite. A dedicated IAM role/policy scoped
+to exactly the three log actions needed, against this module's own log group ARN only.
+
+**Security groups:** none created — ALB/ECS/RDS security groups are added alongside the
+resources that actually consume their rules (TECH-132's later phases), not speculatively
+here. No `0.0.0.0/0` ingress rule exists anywhere in this story.
+
+**Module:** `infra/terraform/modules/network/` (`main.tf`, `variables.tf`, `outputs.tf`,
+`versions.tf`, `README.md`) — no third-party/public module used; small and auditable by
+design. `environments/production/main.tf` consumes it; `environments/production`'s own
+`variables.tf`/`outputs.tf` gained pass-through variables (defaults matching the topology
+above) and re-exposed outputs.
+
+**Outputs:** `vpc_id`, `vpc_cidr`, `availability_zones`, `public_subnet_ids`,
+`private_app_subnet_ids`, `private_database_subnet_ids`, `public_route_table_id`,
+`private_app_route_table_ids`, `database_route_table_ids`, `internet_gateway_id`,
+`nat_gateway_id`, `s3_gateway_endpoint_id`, `flow_log_group_name` (null when Flow Logs
+are disabled). No sensitive value is exposed.
+
+**Tests:** `infra/terraform/modules/network/tests/network.tftest.hcl` — native
+`terraform test`, AWS provider fully mocked (`mock_provider "aws" {}`), **no real AWS
+account contacted**. 16 cases, all passing: VPC DNS support/hostnames; exactly 2 AZs
+selected deterministically; 2 public/2 private-app/2 private-database subnets with
+correct CIDRs; exactly 1 NAT Gateway in the first public subnet; private-application
+route tables route to the NAT; database route tables have no default route at all; the
+public route table routes to the Internet Gateway; private subnets never
+auto-assign public IPs; the S3 Gateway Endpoint has the correct type and service name;
+Flow Logs are on by default with `REJECT`/30-day retention *and* can be deliberately
+disabled via variable (output goes `null`); common tags are applied; two negative tests
+confirm malformed input (wrong subnet count, invalid CIDR) is rejected by variable
+validation. `command = apply` is used against the mocked provider (not `command = plan`)
+because computed attributes like resource IDs stay unresolved under `plan` even when
+mocked — `apply` here never touches real infrastructure, it only lets the mock provider
+finish resolving those values.
+
+**Acceptance Criteria:**
+- [x] VPC, Internet Gateway, 2 public + 2 private-app + 2 private-database subnets, route
+      tables and associations, 1 NAT Gateway + EIP, S3 Gateway VPC Endpoint, configurable
+      VPC Flow Logs, and every required output all exist in Terraform code.
+- [x] All CIDRs are validated Terraform variables, not hardcoded literals.
+- [x] AZ selection is deterministic via `data.aws_availability_zones`, never a hardcoded
+      AZ name.
+- [x] Database subnets have no route to the NAT Gateway or the Internet Gateway.
+- [x] No security group is created in this story.
+- [x] `terraform test` passes (16/16) against a mocked provider — no AWS account
+      contacted.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (both stacks + module),
+      TFLint, and `trivy config` are all clean.
+- [x] `./mvnw -q -DskipTests compile` passes; zero `src`/`pom.xml` change.
+- [x] No `terraform apply` run; no AWS resource created; no AWS credential added.
+- [x] TECH-132 updated to `In progress` (not `Done`) — ECS/ALB/RDS remain unimplemented.
+
+**Completed:** `infra/terraform/modules/network/` created (5 files) and wired into
+`environments/production`. Verified locally via the official `hashicorp/terraform:1.15.7`,
+`terraform-linters/tflint`, and `aquasec/trivy` Docker images (none installed on this
+machine): `fmt -check -recursive` clean; `terraform init -backend=false && terraform
+validate` clean for `bootstrap/`, `environments/production` (now including the module),
+and the module standalone; `terraform test` 16/16 passing; TFLint 0 issues; `trivy config`
+0 unresolved findings across all four Terraform roots (2 pre-existing S3 exceptions from
+TECH-137 plus 2 new, module-specific exceptions — AWS-owned-key CloudWatch Logs
+encryption, and the public subnet tier's intentional `map_public_ip_on_launch = true`,
+each justified inline). `.github/workflows/infra-plan.yml` gained a `terraform test —
+modules/network` step (mocked provider, no credentials). `./mvnw -q -DskipTests compile`
+passed; zero `src`/`pom.xml` change. No `terraform apply` executed against AWS at any
+point; no AWS resource of any kind exists. TECH-132 updated to `In progress`.
 
 ---
 

@@ -221,6 +221,14 @@ ingestion-trigger 1 req/s / burst 2), replacing the previously-illustrative
 
 ### TECH-132 — Private networking
 
+**Progress (2026-07-21, [TECH-138](../backlog/technical-backlog.md#tech-138)):** the
+network foundation row below (private subnets, NAT Gateway) is now implemented as
+Terraform code (`infra/terraform/modules/network/`) — VPC, 2 AZs, 3 subnet tiers, routing,
+a single NAT Gateway, an S3 Gateway VPC Endpoint, and configurable VPC Flow Logs, all
+verified via `terraform test` against a mocked provider. **No AWS resource has been
+created** — no `terraform apply` has run. This does not change any classification below;
+it changes the story's status to `In progress` (see the backlog entry).
+
 | Criterion | Class | Note |
 |---|---|---|
 | App's health-check endpoint is ALB-ready | E | `/actuator/health`, unauthenticated, `probes.enabled: true` |

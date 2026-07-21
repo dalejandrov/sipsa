@@ -4,7 +4,9 @@
 production topology, ownership model, and operational limits below are approved and
 ready for phased implementation. No AWS resource exists yet; this ADR records the
 decisions, not the resources themselves — those are created story by story, starting
-with [TECH-137](../backlog/technical-backlog.md#tech-137) (bootstrap).
+with [TECH-137](../backlog/technical-backlog.md#tech-137) (bootstrap, Done) and
+[TECH-138](../backlog/technical-backlog.md#tech-138) (VPC foundation, Done — Terraform
+code only, no `apply` run).
 **Date:** 2026-07-21 (Proposed) · 2026-07-21 (Accepted, same day — decisions confirmed by
 the repository owner) · 2026-07-21 (revised — toolchain corrections applied before the
 first `apply`: S3-native state locking replaces the originally-provisioned DynamoDB lock
@@ -13,8 +15,9 @@ trust-policy contract and role separation documented, API Gateway REST API decid
 outright rather than deferred — see Terraform Toolchain and API Gateway sections below)
 **Backlog:** [TECH-130](../backlog/technical-backlog.md#tech-130),
 [TECH-131](../backlog/technical-backlog.md#tech-131),
-[TECH-132](../backlog/technical-backlog.md#tech-132),
-[TECH-137](../backlog/technical-backlog.md#tech-137) (Terraform bootstrap)
+[TECH-132](../backlog/technical-backlog.md#tech-132) (In progress),
+[TECH-137](../backlog/technical-backlog.md#tech-137) (Terraform bootstrap, Done),
+[TECH-138](../backlog/technical-backlog.md#tech-138) (VPC foundation, Done)
 **Depends on:** [ADR-002](ADR-002-internal-endpoint-security.md) (Option E, layered
 security model — this ADR provisions the infrastructure ADR-002 already assumes; it does
 not revisit that decision), [aws-production-readiness.md](../architecture/aws-production-readiness.md)
@@ -487,8 +490,11 @@ CI, OIDC contract preparation (trust-policy shape documented, no real role creat
 created in this phase.
 
 **Fase 1 — TECH-132 (parcial): base de red y cómputo mínimo.** VPC, 2 AZ, public/private
-subnets, route tables, single NAT Gateway, baseline security groups, ECR repository,
-minimal ECS cluster — no ALB/service traffic yet, just the substrate.
+subnets, route tables, single NAT Gateway, S3 Gateway VPC Endpoint, VPC Flow Logs —
+**done, [TECH-138](../backlog/technical-backlog.md#tech-138), 2026-07-21,
+`infra/production-vpc-foundation`**. Baseline security groups, ECR repository, and a
+minimal ECS cluster remain unimplemented — no ALB/service traffic exists yet, just the
+network substrate.
 
 **Fase 2 — TECH-130: Cognito.** User pool, resource server, scopes, M2M app client(s),
 human-user app client (Authorization Code + PKCE), secrets storage for M2M client
@@ -568,13 +574,15 @@ and availability, above).
 ## Consequences
 
 - No AWS resource, credential, or IaC file existed before this ADR's implementation
-  began; **TECH-137 (bootstrap)** is the first branch that introduces actual Terraform
-  code, and it creates no AWS resource requiring `apply` either — only structure,
-  validation, and CI.
-- TECH-130, TECH-131, TECH-132 remain `Pending` until their respective phases (Fase 2–4)
-  are actually implemented and verified against their acceptance criteria — this ADR does
-  not mark any of them `Done` or `In progress`.
+  began. **TECH-137 (bootstrap)** and **TECH-138 (VPC foundation)** are both merged and
+  both create **no AWS resource requiring `apply`** — only structure, a real (but
+  unapplied) network module, validation, tests, and CI.
+- TECH-130 and TECH-131 remain `Pending`. **TECH-132 is `In progress`**: its network
+  substrate (Fase 1) is done via TECH-138, but ECS, the internal ALB, and RDS (the rest
+  of its scope) are not yet implemented — this ADR does not mark it `Done`.
 - Every decision in this ADR is revisitable — in particular the single-NAT-Gateway,
   RDS-Single-AZ, and no-autoscaling choices are explicitly framed as initial,
   cost-driven trade-offs with a documented upgrade path, not permanent architectural
-  commitments.
+  commitments. TECH-138's implementation followed through on the single-NAT-Gateway and
+  per-AZ route-table structure exactly as this ADR specified, including the documented
+  future migration path.
