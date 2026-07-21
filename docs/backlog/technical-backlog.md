@@ -55,9 +55,10 @@ When a story is implemented:
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
-| TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending — audited 2026-07-20, blocked on decisions (see [aws-production-readiness.md](../architecture/aws-production-readiness.md)) |
-| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — audited 2026-07-20, blocked on TECH-130 + decisions |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | Pending — audited 2026-07-20, blocked on decisions |
+| TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending — decisions approved 2026-07-21 ([ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) Accepted), blocked on TECH-137 |
+| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-130 + TECH-132 |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | Pending — decisions approved 2026-07-21 (ADR-010 Accepted), blocked on TECH-137 |
+| TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | In progress — branch `infra/terraform-bootstrap`, [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) Accepted |
 | TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
@@ -2853,11 +2854,14 @@ account access) plus 3 open decisions (**D**): how many `client_credentials` app
 and their scopes, whether a human-operator `authorization_code` flow is needed at all,
 and where client secrets are stored. **Cannot be marked Done** until those are resolved.
 
-**Decision/execution plan (2026-07-21, `docs/aws-iac-decision`, docs-only):**
-[ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) addresses the IaC-tool blocker
-(Terraform recommended, `Proposed` pending ownership confirmation) and lays out the phased
-Fase 0–5 plan and blocking-decisions table this story depends on. **Still Pending** — no
-implementation started.
+**Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
+(**Accepted**, 2026-07-21) resolves the IaC-tool and Cognito-ownership blockers —
+Terraform, this repository, repository owner administers Cognito initially — and approves
+the two-contract identity model (M2M `client_credentials` with confidential app clients;
+human users via Authorization Code + PKCE, public app client, no implicit flow, no shared
+app client between the two). Implementation is blocked on
+[TECH-137](#tech-137) (Terraform bootstrap) landing first. **Still Pending** — no real
+Cognito resource created yet; only decisions and Terraform scaffolding exist.
 
 **Origin:** [ADR-002](../adr/ADR-002-internal-endpoint-security.md) (Accepted, Option E),
 layer 2. The application side (Resource Server, TECH-001) is already implemented and
@@ -2910,10 +2914,14 @@ whether an IAM/SigV4 authorizer path is needed, real usage-plan tiers (the backl
 (**D**, all four — CORS in particular has zero prior mention anywhere in this repo).
 **Cannot be marked Done** until those are resolved.
 
-**Decision/execution plan (2026-07-21, `docs/aws-iac-decision`, docs-only):**
-[ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) — Fase 4 covers this story's
-gateway provisioning; REST-vs-HTTP-API, IAM/SigV4 necessity, and CORS remain open per the
-readiness audit. **Still Pending** — no implementation started.
+**Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
+(**Accepted**, 2026-07-21) — Fase 4 covers this story's gateway provisioning. Approved
+throttling values: general 10 req/s / burst 20 / 100,000 req per month per consumer;
+ingestion-trigger routes 1 req/s / burst 2 (replacing the illustrative `basic`/`partner`
+figures below). No custom domain/ACM for the first version — API Gateway's managed
+`execute-api` endpoint is used. REST-vs-HTTP-API and IAM/SigV4 necessity remain open,
+deferred to this story's own implementation by design (see readiness audit §10 Q8/Q9);
+CORS also remains open. **Still Pending**, blocked on TECH-130 and TECH-132.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 1.
 
@@ -2964,11 +2972,15 @@ Cloud Map service discovery is needed (likely not, for a single API-Gateway-fron
 service — not yet confirmed). Every provisioning step itself is **C** (real AWS access).
 **Cannot be marked Done** until the D items are resolved.
 
-**Decision/execution plan (2026-07-21, `docs/aws-iac-decision`, docs-only):**
-[ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) — Fase 1 (network) and Fase 3
-(compute) cover this story; ECS Fargate recommended over EC2 there, RDS-vs-external and
-VPC-internal TLS remain open per the readiness audit. **Still Pending** — no
-implementation started.
+**Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
+(**Accepted**, 2026-07-21) — Fase 1 (network) and Fase 3 (compute/data) cover this story.
+Approved: new dedicated VPC, 2 AZ, ECS Fargate (`desired_count=1`, CPU/memory as
+Terraform variables, small starting values to be verified against real ingestion load),
+one NAT Gateway initially (accepted single point of failure for egress, documented
+upgrade path to one NAT per AZ), RDS for PostgreSQL Single-AZ (encrypted, 7-day backups,
+`publicly_accessible=false`, deletion protection — Multi-AZ deferred as a future
+upgrade), secrets via AWS Secrets Manager. VPC-internal TLS policy remains open. **Still
+Pending**, blocked on [TECH-137](#tech-137) (Terraform bootstrap) landing first.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 4.
 
@@ -2988,6 +3000,68 @@ implementation started.
 - [ ] The metrics collection path is decided and documented.
 
 **Completed:** —
+
+---
+
+### TECH-137
+
+**Title:** Terraform bootstrap and GitHub OIDC validation
+**Type:** Infrastructure
+**Priority:** High
+**Phase:** —
+**Status:** In progress
+**Complexity:** S
+**Branch:** `infra/terraform-bootstrap`
+**Note on numbering:** `TECH-133` was already assigned (Centralize and validate monthly
+ingestion window configuration, Done 2026-07-17) — this story deliberately does not reuse
+that ID, taking the next free number instead.
+
+**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (**Accepted**,
+2026-07-21) Fase 0 — the repository owner approved Terraform, in this repository, single
+AWS account, `us-east-1`, `production`-only environment, and the rest of ADR-010's
+initial topology. This story is the first implementation branch: it introduces the
+Terraform project structure, remote-state bootstrap, and CI validation — no AWS resource
+requiring a real `apply` is created.
+
+**Scope:**
+- Terraform directory structure: `infra/terraform/bootstrap/` (creates the S3 state
+  bucket + locking mechanism) and `infra/terraform/environments/production/` (the
+  production root module — no child modules yet; those are added with each real story,
+  starting with TECH-132's network module).
+- Provider and version constraints (`required_version`, `required_providers`, pinned AWS
+  provider version — no floating versions).
+- Common variables (`project_name`, `environment`, `aws_region`, `owner`, `cost_center`,
+  `repository`, `managed_by`) and a common tags convention
+  (`Project`/`Environment`/`Owner`/`ManagedBy`/`Repository`/`CostCenter`) every future
+  resource must apply.
+- Remote-state bootstrap strategy documented and implemented as a **separate bootstrap
+  stack** (resolves the chicken-and-egg problem of Terraform needing a backend before one
+  exists): the bootstrap stack itself uses local state (a one-time, manually-run
+  exception, documented as such) to create the S3 bucket (versioned, encrypted, public
+  access blocked) and locking mechanism; `environments/production` then points at that
+  bucket as its real backend.
+- GitHub Actions `infra-plan.yml`: `terraform fmt -check`, `terraform validate`, lint,
+  security scan (`tfsec`), `terraform plan` — plan step conditioned on the OIDC role
+  existing (documented as a prerequisite, not invented here); `fmt`/`validate` run without
+  any AWS credentials.
+- `.gitignore` rules for `*.tfstate`, `*.tfstate.backup`, `*.tfplan`, `.terraform/`, and
+  any `*.auto.tfvars` that could carry secrets; `.terraform.lock.hcl` is committed
+  (provider checksums, not a secret).
+- No Cognito, ECS, ALB, RDS, API Gateway, VPC, or NAT Gateway resource is created by this
+  story.
+
+**Acceptance Criteria:**
+- [ ] `terraform fmt -check -recursive infra/terraform` passes.
+- [ ] `terraform init -backend=false` + `terraform validate` pass for both the bootstrap
+      and `environments/production` configurations.
+- [ ] No AWS resource is created (`terraform apply` is never run against a real account).
+- [ ] `infra-plan.yml` runs `fmt`/`validate` without requiring AWS credentials.
+- [ ] Every future resource's tagging convention is defined and documented, even though
+      no resource exists yet to apply it to.
+- [ ] TECH-130/131/132 remain `Pending` — this story is a prerequisite, not part of their
+      own acceptance criteria.
+
+**Completed:** (filled in once the implementation below is verified)
 
 ---
 
