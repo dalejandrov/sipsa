@@ -50,6 +50,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   remains `In progress`: its network and database substrate are both done now, ECS/ALB
   are not.
 
+- **Production ECR and ECS task foundation defined as Terraform code** (TECH-140,
+  ADR-010, the ECR/cluster/task-definition portion of TECH-132's Fase 3 —
+  `infra/terraform/modules/ecr/` + `infra/terraform/modules/ecs-task/`). ECR: immutable
+  tags, scan-on-push, AES256 encryption by default, a two-rule lifecycle policy (untagged
+  images expire after 7 days; tagged images capped at the last 20 — a count, not a time
+  window, so the currently-deployed image is never deleted out from under a long release
+  cycle). ECS: a Fargate-only cluster (no EC2, no `FARGATE_SPOT` — a Spot interruption
+  mid-ingestion is a real risk for this single production task) with Container Insights
+  on by default; a task definition (`awsvpc`, CPU/memory at 256/512 — explicitly flagged
+  as proposals requiring validation against real ingestion load, GC behavior, and OOM risk
+  before any real deployment — `X86_64` architecture, since this repository's CI has no
+  multi-arch build pipeline or ARM64 compatibility evidence yet) with a single essential
+  container, port 8080 (confirmed from `application.yaml`/`Dockerfile`, not assumed),
+  `readonlyRootFilesystem = true` with a `/tmp` tmpfs mount, no privileged mode, no extra
+  Linux capabilities. A separate execution role (ECR pull + Logs write + scoped secret
+  read — never `Resource = "*"`, never `AdministratorAccess`) and task role (empty
+  permissions — the application calls no AWS API directly today). Database credentials
+  resolve via the task definition's `secrets` block from RDS's master secret — **an
+  explicitly temporary wiring**, not the final design; no application-specific,
+  minimum-privilege database user is created by this story. No ECS Service, no ALB, no
+  image is ever pushed. Verified with 26 `terraform test` cases (9 + 17) against a fully
+  mocked AWS provider — **no real AWS account is contacted, and no `terraform apply` has
+  been run.** TECH-132 remains `In progress`: its network, database, and ECS-task
+  substrate are all done now; the ECS Service and internal ALB are not.
+
 ### Changed
 
 - **TECH-137 (Terraform bootstrap) corrected against current official documentation

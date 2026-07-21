@@ -57,10 +57,11 @@ When a story is implemented:
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
 | TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending — decisions approved 2026-07-21 ([ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) Accepted), blocked on TECH-137 |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-130 + TECH-132 |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC and RDS foundations complete (TECH-138, TECH-139, 2026-07-21); ECS/ALB not yet implemented |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC, RDS and ECS task foundations complete (TECH-138, TECH-139, TECH-140, 2026-07-21); ECS Service/ALB not yet implemented |
 | TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — corrected same day: S3-native locking, Terraform 1.15.7/AWS provider 6.55.0, Trivy scanning, OIDC contract, REST API decision) |
 | TECH-138 | Provision production VPC foundation | High | — | **Done** (2026-07-21, branch `infra/production-vpc-foundation` — `modules/network`, 16/16 `terraform test` green, no AWS resource created) |
 | TECH-139 | Define production RDS PostgreSQL foundation | High | — | **Done** (2026-07-21, branch `infra/production-rds-foundation` — `modules/database`, 20/20 `terraform test` green, no AWS resource created) |
+| TECH-140 | Define production ECR and ECS task foundation | High | — | **Done** (2026-07-21, branch `infra/production-ecs-task-foundation` — `modules/ecr` + `modules/ecs-task`, 26/26 `terraform test` green, no AWS resource created, no image published) |
 | TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
@@ -2958,12 +2959,13 @@ Pending**, blocked on TECH-130 and TECH-132.
 **Type:** Infrastructure / Security
 **Priority:** High
 **Phase:** —
-**Status:** **In progress** — VPC and RDS foundations complete (TECH-138, TECH-139);
-ECS/ALB not yet implemented
+**Status:** **In progress** — VPC, RDS and ECS task foundations complete (TECH-138,
+TECH-139, TECH-140); ECS Service/ALB not yet implemented
 **Complexity:** M
 **Branch:** — (infrastructure work; VPC foundation landed via
 `infra/production-vpc-foundation` (TECH-138), RDS foundation via
-`infra/production-rds-foundation` (TECH-139))
+`infra/production-rds-foundation` (TECH-139), ECR/ECS task foundation via
+`infra/production-ecs-task-foundation` (TECH-140))
 
 **Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
 code changed):** full classification, gateway-bypass-prevention design, and evidence in
@@ -3009,8 +3011,24 @@ yet (the future ECS security group, once it exists, is added via
 `publicly_accessible=false`, 7-day backups, deletion protection, RDS-managed master
 password via Secrets Manager) — all in `infra/terraform/modules/database/`, consumed by
 `environments/production`. **No AWS resource has been created** (no `terraform apply`
-run); validated via `terraform test` against a mocked provider. ECS and the internal ALB
-— the remainder of this story's scope — are **not yet implemented**.
+run); validated via `terraform test` against a mocked provider.
+
+**Progress (2026-07-21, [TECH-140](#tech-140), branch
+`infra/production-ecs-task-foundation`):** the ECR repository and ECS cluster/task
+definition foundation this story depends on are now implemented — an immutable-tag,
+scan-on-push ECR repository with a two-rule lifecycle policy; a Fargate-only ECS cluster
+(Container Insights on); a task definition (`awsvpc`, CPU/memory parameterized —
+256/512 proposed, unverified against real ingestion load — `X86_64`, a single essential
+container, `readonlyRootFilesystem` with a `/tmp` tmpfs mount, port 8080); a separate
+execution role (ECR pull + Logs write + scoped secret read) and task role (empty
+permissions — the application calls no AWS API directly); credentials resolved via the
+task definition's `secrets` block from the RDS master secret, explicitly flagged as a
+**temporary placeholder** pending a real minimum-privilege application database user —
+all in `infra/terraform/modules/ecr/` and `infra/terraform/modules/ecs-task/`, consumed
+by `environments/production`. **No ECS Service, no ALB, no image push.** **No AWS
+resource has been created** (no `terraform apply` run); validated via `terraform test`
+against a mocked provider. ECS Service and the internal ALB — the remainder of this
+story's scope — are **not yet implemented**.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 4.
 
@@ -3426,6 +3444,206 @@ each individually justified per the table above — not a blanket suppression).
 connection, or Flyway migration executed against AWS at any point; no AWS resource of any
 kind exists; no AWS credential was added. TECH-132 remains `In progress` (not `Done`) —
 ECS and the internal ALB are still unimplemented.
+
+---
+
+### TECH-140
+
+**Title:** Define production ECR and ECS task foundation
+**Type:** Infrastructure
+**Priority:** High
+**Phase:** —
+**Status:** **Done**
+**Complexity:** M
+**Branch:** `infra/production-ecs-task-foundation`
+
+**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) — the
+ECR/ECS-cluster/task-definition portion of [TECH-132](#tech-132)'s Fase 3. Scoped
+narrowly: no ECS Service, ALB, target group, listener, autoscaling, API Gateway, VPC
+Link, Cognito, Route 53, ACM, WAF, real deploy, real image, or real RDS connection.
+
+**Application configuration inventory** (via
+`grep -RIn -e '\${' -e '@ConfigurationProperties' -e 'SPRING_DATASOURCE' -e 'SERVER_PORT'
+-e 'SPRING_PROFILES_ACTIVE' src/main/resources src/main/java Dockerfile
+docker-compose.yml`):
+
+| Variable | Sensible | Fuente futura | Requerida al arranque | Default |
+|---|---:|---|---:|---|
+| `DB_USERNAME` | Sí | Secrets Manager (RDS-managed secret — temporal, ver abajo) | Sí | ninguno |
+| `DB_PASSWORD` | Sí | Secrets Manager (ídem) | Sí | ninguno |
+| `DB_HOST` | No | `modules/database`'s `db_address` output | Sí (en AWS) | `localhost` (solo dev) |
+| `DB_PORT` | No | `modules/database`'s `db_port` output | No | `5432` |
+| `DB_NAME` | No | `modules/database`'s `db_name` output | No | `sipsa_db` |
+| `SPRING_PROFILES_ACTIVE` | No | Variable Terraform (`ecs_spring_profile`) | Sí (determina el perfil) | `dev` (base app), `docker` fijado explícitamente en la task definition |
+| `PORT` / `server.port` | No | Variable Terraform (`ecs_container_port`) | No | `8080` — confirmado en `application.yaml` y `Dockerfile`, no asumido |
+| `SIPSA_JWT_ISSUER_URI` | No (URL pública) | TECH-130 (Cognito) — aún no existe | Sí fuera de dev/docker (falla rápido) | vacío |
+| `SIPSA_JWT_ALLOWED_CLIENT_IDS` | No | TECH-130 | No | vacío |
+| `SOAP_ENDPOINT` y demás `SOAP_*` (timeouts, reintentos) | No | Ya apuntan al endpoint real de DANE | No | valores ya operativos |
+| `INGESTION_*`, `SIPSA_ASYNC_*`, `SIPSA_HEALTH_*`, `LOG_LEVEL_*` | No | Ajustes operativos, sin fuente AWS nueva | No | ya definidos, sin cambio |
+
+No se inventó ninguna variable que la aplicación no consuma — la tabla refleja
+exactamente lo encontrado por el grep, no una lista especulativa.
+
+**ECR:** `image_tag_mutability = IMMUTABLE`, `scan_on_push = true`, cifrado `AES256` por
+defecto (KMS evaluado, no habilitado sin requisito real — excepción Trivy documentada).
+Lifecycle de dos reglas: imágenes sin tag expiran a los 7 días
+(`expire_untagged_after_days`); imágenes con tag se limitan a las últimas 20
+(`keep_last_tagged_images`) — un límite por cantidad, no por tiempo, para no borrar
+nunca la imagen actualmente desplegada si un release tarda más de lo usual. Sin
+replicación cross-region.
+
+**ECS Cluster:** Fargate únicamente (`capacity_providers = ["FARGATE"]`), sin capacity
+provider EC2, sin `FARGATE_SPOT` (una interrupción a mitad de una ingestión programada es
+un riesgo real, no aceptable para esta única tarea productiva). Container Insights
+habilitado por defecto (`enable_container_insights = true`) — costo real documentado,
+juzgado aceptable dado que son trabajos programados sin supervisión humana en tiempo
+real.
+
+**Task Definition:** `network_mode = "awsvpc"`, `requires_compatibilities = ["FARGATE"]`,
+`cpu = 256` / `memory = 512` (MiB) — **propuestas, no capacidades confirmadas**;
+documentado que deben validarse contra consumo real de heap/memoria nativa, la ingestión
+Parcial de mayor volumen (229k+ registros), comportamiento de GC y riesgo de OOM antes del
+primer despliegue real. `cpu_architecture = "X86_64"` por defecto — CI de este repositorio
+(`ubuntu-latest`) construye x86_64 hoy, sin pipeline multi-arch, sin verificación de
+compatibilidad ARM64 para Java 25 ni auditoría de dependencias nativas; ARM64 queda
+documentado como optimización futura, no adoptado sin esa evidencia.
+
+**Puerto:** 8080, confirmado directamente desde `application.yaml`
+(`server.port: ${PORT:8080}`) y `Dockerfile` (`EXPOSE 8080`) — no asumido. Health check
+futuro documentado (no creado aún): path `/actuator/health`, puerto 8080, estado esperado
+`200`, con gracia de arranque suficiente para la inicialización del contexto Spring.
+
+**Seguridad de contenedor:** `readonlyRootFilesystem = true` — sin evidencia de escritura
+a disco fuera de la JVM (confirmado: sin `java.io.File`/`Files.write`/`createTempFile` en
+`src/main/java`); mount `tmpfs` en `/tmp` (128 MiB) como salvaguarda para necesidades de
+la JVM/librerías (JAXB/CXF) sin arriesgar romper la aplicación por una configuración no
+validada. Usuario no-root ya aplicado a nivel de imagen (`Dockerfile`'s `USER appuser`).
+`privileged` no es siquiera soportado por Fargate. Sin `linuxParameters.capabilities`
+adicionales. Una sola definición de contenedor, `essential = true`.
+
+**Almacenamiento efímero:** sin bloque `ephemeral_storage` — se deja el default de
+Fargate (20 GiB) sin evidencia de necesitar más; uso esperado: temporales JVM, buffering
+de respuestas SOAP, logs no persistentes (van a stdout vía `awslogs`).
+
+**IAM — execution role vs. task role:** el execution role (usado por el agente ECS para
+preparar la tarea) adjunta únicamente la política administrada estándar
+`AmazonECSTaskExecutionRolePolicy` más una política inline escoped a los ARNs exactos de
+secretos/parámetros referenciados — nunca `Resource = "*"`, nunca
+`SecretsManagerReadWrite`, nunca `AdministratorAccess`/`PowerUserAccess`. El task role
+(credenciales disponibles dentro de la aplicación) queda **sin permisos adicionales por
+defecto** — la aplicación no llama ninguna API de AWS directamente hoy (JPA contra RDS vía
+credencial de base de datos, no autenticación IAM).
+
+**Secretos:** la task definition referencia el secreto maestro de RDS
+(`modules/database`'s `master_secret_arn`) para `DB_USERNAME`/`DB_PASSWORD`, resuelto vía
+el bloque `secrets` de la task definition (`valueFrom`), **nunca como variable de entorno
+en texto plano**. Esto es **explícitamente una integración temporal**, no el diseño
+final: esta historia no crea un usuario de aplicación de mínimo privilegio (requeriría un
+bootstrap SQL real, fuera de alcance) — un despliegue real debe reemplazar esta
+credencial antes de ir a producción; usar el secreto maestro permanentemente violaría el
+principio de mínimo privilegio.
+
+**Trivy exceptions** (reevaluadas para estos dos módulos, no copiadas mecánicamente):
+
+| Finding | Resource | Risk | Justification | Exception |
+|---|---|---|---|---|
+| AVD-AWS-0033 (ECR repository not KMS-encrypted) | `aws_ecr_repository.app` | Low — AWS-owned key instead of customer-managed | Evaluated, not enabled without a real compliance driver; same call already made repeatedly in this codebase | `# trivy:ignore:AVD-AWS-0033`, revisit if compliance requires it |
+| AVD-AWS-0017 (Log group not KMS-encrypted) | `aws_cloudwatch_log_group.app` (ecs-task) | Low — AWS-owned key instead of customer-managed | Same rationale as the RDS/network/bootstrap log groups already exempted | `# trivy:ignore:AVD-AWS-0017`, revisit if compliance requires it |
+
+No exception touches encryption presence, public access, or backups — both are about
+*which* encryption key manages already-present encryption.
+
+**Módulos:** `infra/terraform/modules/ecr/` y `infra/terraform/modules/ecs-task/` (cada
+uno con `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`, `README.md`, `tests/`) —
+sin módulos públicos de terceros. `environments/production/main.tf` consume ambos,
+encadenando `module.ecr.repository_url` y `module.database.db_address`/`db_port`/
+`db_name`/`master_secret_arn` hacia `module.ecs_task`.
+
+**Outputs — ECR:** `repository_name`, `repository_arn`, `repository_url`. **Outputs —
+ECS/task:** `ecs_cluster_id`, `ecs_cluster_arn`, `task_definition_arn`,
+`task_definition_family`, `execution_role_arn`, `task_role_arn`,
+`application_log_group_name`, `container_name`, `container_port`. Ningún secreto se
+expone en ningún output.
+
+**Tests:** `infra/terraform/modules/ecr/tests/ecr.tftest.hcl` (9 casos) y
+`infra/terraform/modules/ecs-task/tests/ecs-task.tftest.hcl` (17 casos) — 26 en total,
+todos verdes, `terraform test` con proveedor AWS completamente mockeado
+(`mock_provider "aws" {}`), **cero cuenta AWS real contactada**. Cobertura: tags
+inmutables, scan on push, cifrado por defecto, lifecycle de imágenes tagged/untagged
+parametrizable, tags comunes (ECR); Fargate + `awsvpc`, CPU/memoria parametrizables,
+arquitectura `X86_64` por defecto, log group de 30 días, `awslogs` configurado
+correctamente, execution role y task role como roles IAM distintos, cero permisos
+administrativos, sin contenedor `privileged` ni capabilities adicionales, una sola
+definición de contenedor esencial, rechazo explícito del tag `latest`, puerto 8080
+confirmado, credenciales nunca en texto plano, y confirmación estructural de que solo
+existen el cluster y la task definition (ningún `aws_ecs_service`/`aws_lb` declarado en
+el módulo) (ECS/task).
+
+**Acceptance Criteria:**
+- [x] Repositorio ECR con tags inmutables, scan on push, cifrado y lifecycle policy
+      parametrizable creado en código Terraform.
+- [x] Cluster ECS Fargate (sin EC2, sin `FARGATE_SPOT`) con Container Insights
+      configurable.
+- [x] Task definition Fargate (`awsvpc`, CPU/memoria parametrizables, arquitectura
+      `X86_64` por defecto) con una sola definición de contenedor esencial.
+- [x] Puerto del contenedor confirmado como 8080 desde el código real de la aplicación.
+- [x] Execution role y task role son roles IAM separados; el execution role no excede el
+      alcance necesario (política administrada estándar + secretos escogidos); el task
+      role no tiene permisos por defecto.
+- [x] Credenciales de base de datos resueltas vía Secrets Manager (`secrets` block),
+      nunca como variable de entorno en texto plano; wiring del secreto maestro
+      documentado explícitamente como temporal.
+- [x] Sin `0.0.0.0/0`, sin contenedor `privileged`, sin capabilities adicionales.
+- [x] Log group de aplicación con retención explícita de 30 días.
+- [x] `terraform test` pasa (26/26) contra un proveedor mockeado — cero cuenta AWS real
+      contactada.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (los cinco Terraform
+      roots), TFLint, y `trivy config` están todos limpios (2 excepciones nuevas,
+      individualmente justificadas).
+- [x] `./mvnw -q -DskipTests compile` pasa; cero cambio en `src`/`pom.xml`.
+- [x] Sin `terraform apply`, `terraform import`, AWS CLI, `docker push`, login ECR, ni
+      despliegue ECS.
+- [x] Ningún ECS Service ni ALB existe en este módulo — confirmado tanto por inspección
+      del código como por un test dedicado.
+- [x] TECH-132 actualizado a `In progress — VPC, RDS and ECS task foundations complete`
+      (no `Done`).
+
+**Completed:** `infra/terraform/modules/ecr/` y `infra/terraform/modules/ecs-task/`
+creados (6 archivos cada uno incl. tests) y conectados a `environments/production` junto
+a los módulos existentes de red y base de datos; `modules/database` recibió un output
+adicional pequeño (`db_address`, hostname sin puerto) para permitir este wiring. Verificado
+localmente vía las imágenes Docker oficiales `hashicorp/terraform:1.15.7`,
+`terraform-linters/tflint`, y `aquasec/trivy` (ninguna instalada en esta máquina):
+`fmt -check -recursive` limpio; `terraform init -backend=false && terraform validate`
+limpio para los cinco Terraform roots (`bootstrap/`, `environments/production`,
+`modules/network/`, `modules/database/`, `modules/ecr/`, `modules/ecs-task/`);
+`terraform test` 26/26 pasando para los dos módulos nuevos (16/16 y 20/20 de
+network/database re-confirmados sin afectar); TFLint 0 issues; `trivy config` 0
+hallazgos sin resolver en todo el árbol (2 excepciones nuevas, cada una justificada
+individualmente). `.github/workflows/infra-plan.yml` ganó pasos `terraform test —
+modules/ecr` y `terraform test — modules/ecs-task` (proveedor mockeado, sin
+credenciales). `./mvnw -q -DskipTests compile` pasó; cero cambio en `src`/`pom.xml`.
+Ningún `terraform apply`, `terraform import`, comando AWS CLI, `docker push`, login ECR,
+ni despliegue ECS ejecutado en ningún momento; ningún recurso AWS de ningún tipo existe;
+ninguna credencial AWS fue agregada. TECH-132 actualizado a `In progress — VPC, RDS and
+ECS task foundations complete`.
+
+**Gaps documentados, previos a cualquier despliegue real** (ninguno resuelto por esta
+historia, todos explícitamente pendientes):
+- Validar PostgreSQL 18 como `engine_version` real de RDS en `us-east-1`
+  (`aws rds describe-db-engine-versions`).
+- Validar disponibilidad real de `db.t3.micro` para esa combinación de motor/región.
+- Crear el backend remoto real (bucket S3 del bootstrap) — el bootstrap sigue sin
+  aplicarse.
+- Crear los roles OIDC (`terraform-plan`, `terraform-apply`, `application-deploy`) —
+  ninguno existe aún.
+- Medir CPU/memoria reales de la task definition contra la ingestión Parcial de mayor
+  volumen antes de fijar `cpu`/`memory` como valores confirmados.
+- Crear un usuario de base de datos de mínimo privilegio específico de la aplicación —
+  la task definition usa el secreto maestro de RDS solo como wiring temporal.
+- Crear el ECS Service y el ALB interno — resto del alcance de TECH-132.
+- Configurar Cognito (TECH-130).
+- Configurar API Gateway (TECH-131).
 
 ---
 
