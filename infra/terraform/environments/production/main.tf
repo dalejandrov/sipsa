@@ -84,3 +84,56 @@ module "database" {
   enabled_cloudwatch_logs_exports = var.db_enabled_cloudwatch_logs_exports
   log_retention_days              = var.db_log_retention_days
 }
+
+# TECH-140 (ADR-010, partial TECH-132): ECR repository for the application
+# image. No image is pushed by this story.
+module "ecr" {
+  source = "../../modules/ecr"
+
+  project_name = var.project_name
+  environment  = var.environment
+  common_tags  = local.common_tags
+
+  encryption_type            = var.ecr_encryption_type
+  kms_key_id                 = var.ecr_kms_key_id
+  keep_last_tagged_images    = var.ecr_keep_last_tagged_images
+  expire_untagged_after_days = var.ecr_expire_untagged_after_days
+}
+
+# TECH-140 (ADR-010, partial TECH-132): ECS cluster and Fargate task
+# definition. No ECS Service, no ALB exists yet — this defines what a
+# future task would run, not a running task.
+#
+# db_credentials_secret_arn is wired to the RDS master secret as an
+# explicitly TEMPORARY placeholder (see modules/ecs-task/README.md) — not
+# the final design. A real deployment must replace this with a dedicated,
+# minimum-privilege application database credential first.
+module "ecs_task" {
+  source = "../../modules/ecs-task"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  common_tags  = local.common_tags
+
+  enable_container_insights = var.ecs_enable_container_insights
+
+  ecr_repository_url = module.ecr.repository_url
+  image_tag          = var.ecs_image_tag
+
+  container_name = var.ecs_container_name
+  container_port = var.ecs_container_port
+
+  cpu              = var.ecs_task_cpu
+  memory           = var.ecs_task_memory
+  cpu_architecture = var.ecs_cpu_architecture
+
+  spring_profile = var.ecs_spring_profile
+  db_host        = module.database.db_address
+  db_port        = module.database.db_port
+  db_name        = module.database.db_name
+
+  db_credentials_secret_arn = module.database.master_secret_arn
+
+  log_retention_days = var.ecs_log_retention_days
+}

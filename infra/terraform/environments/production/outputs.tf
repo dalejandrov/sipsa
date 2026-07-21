@@ -111,3 +111,67 @@ output "master_secret_arn" {
   description = "ARN of the Secrets Manager secret RDS manages for the master password — never the secret's value (see modules/database/README.md)."
   value       = module.database.master_secret_arn
 }
+
+# --- Container registry (TECH-140) ------------------------------------------
+
+output "ecr_repository_name" {
+  description = "ECR repository name."
+  value       = module.ecr.repository_name
+}
+
+output "ecr_repository_arn" {
+  description = "ARN of the ECR repository."
+  value       = module.ecr.repository_arn
+}
+
+output "ecr_repository_url" {
+  description = "ECR repository URL — combine with an immutable image tag for the task definition's image reference."
+  value       = module.ecr.repository_url
+}
+
+# --- ECS cluster and task definition (TECH-140) -----------------------------
+
+output "ecs_cluster_id" {
+  description = "ECS cluster ID."
+  value       = module.ecs_task.ecs_cluster_id
+}
+
+output "ecs_cluster_arn" {
+  description = "ECS cluster ARN."
+  value       = module.ecs_task.ecs_cluster_arn
+}
+
+output "task_definition_arn" {
+  description = "ARN of the latest task definition revision."
+  value       = module.ecs_task.task_definition_arn
+}
+
+output "task_definition_family" {
+  description = "Task definition family name."
+  value       = module.ecs_task.task_definition_family
+}
+
+output "execution_role_arn" {
+  description = "ARN of the ECS execution role."
+  value       = module.ecs_task.execution_role_arn
+}
+
+output "task_role_arn" {
+  description = "ARN of the ECS task role."
+  value       = module.ecs_task.task_role_arn
+}
+
+output "application_log_group_name" {
+  description = "CloudWatch Logs group name for the application container."
+  value       = module.ecs_task.application_log_group_name
+}
+
+output "container_name" {
+  description = "Container name within the task definition."
+  value       = module.ecs_task.container_name
+}
+
+output "container_port" {
+  description = "Port the container listens on."
+  value       = module.ecs_task.container_port
+}
