@@ -47,7 +47,7 @@ When a story is implemented:
 | TECH-081 | Write ADR-001 (deduplication) | Low | 6 | **Done** (2026-07-16 — ADR-001 Accepted with empirical evidence) |
 | TECH-090 | Move internal ingestion commands to `application/command` | Low | — | **Done** |
 | TECH-091 | Move `TimezoneFilter` out of `infrastructure/config` into `api` | Low | — | **Done** |
-| TECH-092 | Separate generated SOAP sources from manual code | Low | — | Ready — unblocked by TECH-094 (Recommended: proceed, with 1 scope correction, see [SPIKE report](../architecture/spikes/TECH-094-generated-soap-relocation.md)) |
+| TECH-092 | Separate generated SOAP sources from manual code | Low | — | **Done** (2026-07-20, `refactor/relocate-generated-soap-classes`) |
 | TECH-093 | Add ArchUnit package-boundary rules (Historia B) | Low | — | Done |
 | TECH-094 | SPIKE: Evaluate relocating CXF-generated SOAP sources | Low | — | Done |
 | TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A) | Low | — | **Done** |
@@ -1792,10 +1792,10 @@ filter ordering — no change.
 **Type:** Refactor
 **Priority:** Low
 **Phase:** —
-**Status:** Ready — unblocked by TECH-094 (2026-07-20, **Recommended: proceed**, with the
-scope correction below). Not started; not implemented as part of TECH-094.
+**Status:** Done
 **Complexity:** S
-**Branch:** `refactor/soap-generated-package` (not created yet)
+**Branch:** `refactor/relocate-generated-soap-classes` (the originally-listed
+`refactor/soap-generated-package` name was not reused)
 
 **Scope correction from TECH-094's SPIKE (mandatory, verified by running the actual
 change — see [the SPIKE report](../architecture/spikes/TECH-094-generated-soap-relocation.md)
@@ -1842,12 +1842,49 @@ SOAP marshalling included) once the scope correction above was applied.
 bindings — no change.
 
 **Acceptance Criteria:**
-- [ ] Generated classes are emitted under `infrastructure/soap/generated`.
-- [ ] `SoapGatewayImpl` and `SipsaSoapClientConfig` compile against the new package.
-- [ ] `./mvnw clean verify` passes.
-- [ ] Diff of generated output (excluding the package declaration) is empty.
+- [x] Generated classes are emitted under `infrastructure/soap/generated`.
+- [x] `SoapGatewayImpl` and `SipsaSoapClientConfig` compile against the new package.
+- [x] `./mvnw clean verify` passes (430 tests, up from 415 — 15 net new).
+- [x] Diff of generated output (excluding the package declaration) is empty — re-verified
+      on this branch, not just carried over from TECH-094's SPIKE.
 
-**Completed:** —
+**Completed:** `pom.xml`'s `wsdl2java` `-p` argument changed to
+`com.dalejandrov.sipsa.infrastructure.soap.generated` — the single source of truth for
+the generated package; no generated file's package declaration was hand-edited.
+`SoapGatewayImpl.java`: the single wildcard import replaced with 6 explicit imports for
+the generated request types it actually constructs (`PromedioAbasSipsaMesMadr`,
+`PromediosSipsaCiudad`, `PromediosSipsaMesMadr`, `PromediosSipsaParcial`,
+`PromediosSipsaSemanaMadr`, `ConsultarInsumosSipsaMesMadr`) plus one explicit import for
+`SoapStreamingClient` from the unmoved manual package — the scope correction TECH-094's
+SPIKE found. `SipsaSoapClientConfig.java`: its 2 explicit imports
+(`SrvSipsaUpraBeanService`, `SrvSipsaUpraService`) retargeted the same way. Re-verified
+independently of TECH-094 (not merely inherited): `grep`-confirmed only these 2 manual
+files import generated classes; `SoapStreamingClient`, `IngestionMetrics`,
+`SoapProperties` Javadoc `@see` references to `SoapStreamingClient` needed no change
+since that class did not move. `PackageBoundaryArchitectureTest`'s (TECH-093) own
+descriptive Javadoc comment (which named the old package) was updated for accuracy; the
+3 ArchUnit rules themselves needed zero changes and no new exclusion — confirmed by
+re-running the suite, all green. New `SoapGeneratedPackageRelocationTest` (15 cases,
+3 nested groups): **package-membership/drift detector** (7 cases) — all 22 generated
+classes reflectively loadable from the new package, a parameterized check that 7
+representative generated class names are no longer loadable from the old package,
+`SoapStreamingClient` confirmed still in the manual package; **JAXB round-trip** (2
+cases) — marshalling a generated response preserves the DANE target namespace and
+produces well-formed XML, an unmarshal round-trip preserves both the exact generated
+type and its field values; **request construction** (3 cases) — `SoapGatewayImpl`
+against a mocked `SoapStreamingClient` builds well-formed SOAP payloads carrying the
+correct namespace and root element for two different operations, and confirms the
+response `InputStream` is returned unchanged (no re-wrapping). Reproducibility
+re-verified on this branch: `git status --short` before and after a clean
+`generate-sources` run shows zero change to tracked files (target/ is gitignored,
+confirmed unaffected either way); the only cosmetic drift already documented by TECH-094
+(a generation-timestamp Javadoc line in 2 of 22 files) persists unchanged in the new
+package — not a new problem introduced by the move. Verified in Docker: clean startup,
+`SipsaSoapClientConfig` logs "SOAP client successfully configured" with no
+`ClassNotFoundException` or JAXB context error anywhere in the startup log,
+`/actuator/health` reports `UP`. No SOAP timeout/retry/metrics behavior, ingestion logic,
+scheduler, security, database, or AWS infrastructure change. No Flyway migration; V1–V4
+unchanged.
 
 ---
 

@@ -1,8 +1,8 @@
 package com.dalejandrov.sipsa.infrastructure.soap.config;
 
 import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
-import com.dalejandrov.sipsa.infrastructure.soap.client.SrvSipsaUpraBeanService;
-import com.dalejandrov.sipsa.infrastructure.soap.client.SrvSipsaUpraService;
+import com.dalejandrov.sipsa.infrastructure.soap.generated.SrvSipsaUpraBeanService;
+import com.dalejandrov.sipsa.infrastructure.soap.generated.SrvSipsaUpraService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.cxf.Bus;

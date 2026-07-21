@@ -23,12 +23,13 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  * <p>
  * Scans only {@code com.dalejandrov.sipsa} (production sources — {@link ImportOption
  * .DoNotIncludeTests} excludes {@code target/test-classes}, including this class and every
- * other test). Generated SOAP code (CXF, under {@code infrastructure.soap.client}, see
- * ADR-007 §F3/TECH-094) needed no exclusion for any of the 3 rules below: none of them
- * restrict {@code infrastructure} internally, and {@code domain} has zero dependency on
+ * other test). Generated SOAP code (CXF, under {@code infrastructure.soap.generated} as of
+ * TECH-092 — previously {@code infrastructure.soap.client}, see ADR-007 §F3/TECH-094)
+ * needed no exclusion for any of the 3 rules below: none of them restrict
+ * {@code infrastructure} internally, and {@code domain} has zero dependency on
  * {@code infrastructure} of any kind (verified separately, not just assumed) — so nothing
- * about the generated package interacts with these rules. TECH-094 (still pending) may
- * relocate that package later; these rules do not depend on or block that outcome.
+ * about the generated package interacts with these rules, regardless of which
+ * {@code infrastructure} sub-package it lives in.
  * <p>
  * Full findings and rationale: {@code docs/adr/ADR-007-package-boundaries-and-internal-models.md}.
  */
