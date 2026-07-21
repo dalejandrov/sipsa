@@ -28,7 +28,7 @@ locals {
 # (a single owner, per ADR-010) ever touches. Documented as a future
 # hardening step if that ownership model changes, not implemented
 # preemptively.
-# tfsec:ignore:aws-s3-enable-bucket-logging
+# trivy:ignore:AVD-AWS-0089
 resource "aws_s3_bucket" "terraform_state" {
   bucket = var.state_bucket_name
 
@@ -50,7 +50,7 @@ resource "aws_s3_bucket_versioning" "terraform_state" {
 # ever holds Terraform state, touched solely by the manual bootstrap process
 # (see README.md) — a dedicated KMS key/policy for it is complexity this
 # stage doesn't need. Revisit if that changes.
-# tfsec:ignore:aws-s3-encryption-customer-key
+# trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 
