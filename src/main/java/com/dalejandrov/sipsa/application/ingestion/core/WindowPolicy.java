@@ -174,6 +174,27 @@ public class WindowPolicy {
     }
 
     /**
+     * Reports whether a method is classified as monthly by this policy's rule table —
+     * the same classification {@link #validateAndGetKey} uses internally, exposed as a
+     * standalone query for other collaborators that need only the classification, not a
+     * window check (TECH-056: {@link com.dalejandrov.sipsa.infrastructure.observability
+     * .SipsaHealthIndicator} uses this instead of maintaining its own independent
+     * daily/monthly method list — the drift risk identified by TECH-055's SPIKE).
+     * <p>
+     * A method not recognized by any rule (including a genuinely unknown method name)
+     * returns {@code false} — the same "not monthly" outcome {@link #validateAndGetKey}
+     * already gives such a method today (it falls through to {@link #validateDaily}).
+     * This method never throws for an unrecognized name.
+     *
+     * @param methodName the ingestion method name
+     * @return {@code true} if the method has a monthly rule, {@code false} otherwise
+     *         (including for a method name this policy does not recognize at all)
+     */
+    public boolean isMonthlyMethod(String methodName) {
+        return resolveMonthlyRule(methodName).isPresent();
+    }
+
+    /**
      * Validates the current time against the method's window and generates a window key.
      * <p>
      * This is the main entry point for window validation. It:

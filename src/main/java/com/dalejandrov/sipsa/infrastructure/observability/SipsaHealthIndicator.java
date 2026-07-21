@@ -1,5 +1,6 @@
 package com.dalejandrov.sipsa.infrastructure.observability;
 
+import com.dalejandrov.sipsa.application.ingestion.core.WindowPolicy;
 import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
 import com.dalejandrov.sipsa.infrastructure.config.SipsaHealthProperties;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.IngestionRunRepository;
@@ -14,7 +15,6 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Spring Boot Actuator health indicator for SIPSA ingestion monitoring.
@@ -34,12 +34,19 @@ import java.util.Set;
  * Thresholds are externalized and validated in {@link SipsaHealthProperties} (TECH-031) —
  * the defaults above preserve the indicator's original hardcoded behavior exactly.
  * <p>
- * <b>Daily Methods Monitored:</b>
- * <ul>
- *   <li>promediosSipsaCiudad (City pricing)</li>
- *   <li>promediosSipsaParcial (Municipal partial data)</li>
- *   <li>promediosSipsaSemanaMadr (Weekly wholesale)</li>
- * </ul>
+ * <b>Daily vs. monthly classification (TECH-056):</b> sourced exclusively from
+ * {@link WindowPolicy#isMonthlyMethod(String)} — the same rule table
+ * {@code WindowPolicy} itself uses for window validation. This class no longer
+ * maintains its own independent method list; today that means
+ * {@code promediosSipsaCiudad}, {@code promediosSipsaParcial}, and
+ * {@code promediosSipsaSemanaMadr} get the daily threshold, and
+ * {@code promediosSipsaMesMadr}/{@code promedioAbasSipsaMesMadr} get the monthly one —
+ * but this class no longer needs to know that list itself; a method's classification
+ * changes automatically if {@code WindowPolicy}'s rule table ever changes. A method name
+ * {@code WindowPolicy} does not recognize at all gets the <b>daily</b> (stricter)
+ * threshold — {@code WindowPolicy.isMonthlyMethod} returns {@code false} for an unknown
+ * method, the same "not monthly" outcome its own window validation already gives such a
+ * method today.
  * <p>
  * <b>Access Health Endpoint:</b>
  * <pre>
@@ -66,15 +73,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class SipsaHealthIndicator implements HealthIndicator {
 
-    /** Daily methods that should run every day */
-    private static final Set<String> DAILY_METHODS = Set.of(
-            "promediosSipsaCiudad",
-            "promediosSipsaParcial",
-            "promediosSipsaSemanaMadr"
-    );
-
     private final IngestionRunRepository runRepository;
     private final SipsaHealthProperties healthProperties;
+    private final WindowPolicy windowPolicy;
 
     /**
      * Clock used to determine "now" when computing data age.
@@ -127,7 +128,7 @@ public class SipsaHealthIndicator implements HealthIndicator {
             long ageHours = Duration.between(lastSuccess, now).toHours();
             details.put(method, "Age: " + ageHours + "h");
 
-            long thresholdHours = DAILY_METHODS.contains(method) ? dailyThresholdHours : monthlyThresholdHours;
+            long thresholdHours = windowPolicy.isMonthlyMethod(method) ? monthlyThresholdHours : dailyThresholdHours;
             if (ageHours > thresholdHours) {
                 isUp = false;
                 details.put(method + "_status", "STALE");

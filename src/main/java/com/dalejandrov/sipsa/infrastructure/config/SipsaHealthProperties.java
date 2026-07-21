@@ -29,8 +29,9 @@ import java.time.Duration;
  * <p>
  * <b>Canonical defaults</b> preserve the indicator's previous hardcoded behavior exactly:
  * <ul>
- *   <li>{@code 36h} for methods in {@code SipsaHealthIndicator.DAILY_METHODS} — the daily
- *       ingestion window's own contractual 24h cadence plus a 12h buffer;</li>
+ *   <li>{@code 36h} for methods {@code WindowPolicy.isMonthlyMethod(String)} classifies
+ *       as not monthly (TECH-056) — the daily ingestion window's own contractual 24h
+ *       cadence plus a 12h buffer;</li>
  *   <li>{@code 840h} (= 35 × 24h) for every other monitored method (the monthly ones) —
  *       expressed in hours, not days, because that is the exact unit the indicator
  *       compares against ({@code Duration.between(lastSuccess, now).toHours()}); {@code
@@ -55,8 +56,9 @@ public class SipsaHealthProperties {
     public static final Duration DEFAULT_MONTHLY_STALENESS_THRESHOLD = Duration.ofHours(35 * 24);
 
     /**
-     * Maximum age of the last successful run for a "daily" monitored method
-     * (see {@code SipsaHealthIndicator.DAILY_METHODS}) before it is considered stale.
+     * Maximum age of the last successful run for a "daily" monitored method (any method
+     * {@code WindowPolicy.isMonthlyMethod(String)} classifies as not monthly, TECH-056)
+     * before it is considered stale.
      */
     @NotNull(message = "sipsa.health.daily-staleness-threshold must not be null")
     private Duration dailyStalenessThreshold = DEFAULT_DAILY_STALENESS_THRESHOLD;

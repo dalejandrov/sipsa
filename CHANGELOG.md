@@ -10,6 +10,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Consolidated the daily/monthly ingestion-method classification into a single source
+  of truth** (TECH-056, closing the drift risk TECH-055's SPIKE found: ADR-006 now
+  `Accepted`, Option D). `WindowPolicy` gains a public `isMonthlyMethod(String
+  methodName)`, delegating to the same rule table `validateAndGetKey` already used
+  internally — no behavior change to window validation. `SipsaHealthIndicator` no longer
+  maintains its own independent `DAILY_METHODS` `Set` (a second, undocumented
+  classification site with zero shared source of truth with `WindowPolicy`); it now
+  injects `WindowPolicy` and calls `isMonthlyMethod` instead. **One deliberate, narrow,
+  explicitly-documented behavior note:** an ingestion method name that `WindowPolicy`
+  does not recognize at all now gets the *daily* (36h, stricter) staleness threshold
+  instead of the previous, untested `SipsaHealthIndicator`-only fallback of the
+  *monthly* (840h) threshold — matching `WindowPolicy`'s own "unrecognized method is not
+  monthly" convention exactly, per the explicit instruction to align with `WindowPolicy`'s
+  current contract. This affects only a method name that has never appeared in this
+  system (all 5 real, registered methods classify identically before and after); no
+  existing test locked in the old fallback as intentional, and a new test now pins down
+  the new one explicitly. All 5 real handlers (`promediosSipsaCiudad`,
+  `promediosSipsaParcial`, `promediosSipsaSemanaMadr` → daily;
+  `promediosSipsaMesMadr`, `promedioAbasSipsaMesMadr` → monthly) keep their exact prior
+  thresholds — verified both by unit tests and a real Docker smoke test aging seeded
+  rows to 40h (daily method correctly flagged `STALE` at the 36h threshold; monthly
+  method correctly stayed fresh under the 840h threshold). New tests:
+  `WindowPolicyTest.IsMonthlyMethodClassification` (7 cases — all 5 real methods, an
+  unrecognized name, and cross-consistency with `validateAndGetKey`'s own
+  classification) and 4 new cases in `SipsaHealthIndicatorTest` (a genuine
+  runtime-dependency proof — the same method/age flips DOWN↔UP purely from
+  `WindowPolicy`'s mocked answer, not from comparing two lists; the unrecognized-method
+  case; a structural regression test asserting no `Collection`-typed field exists on
+  `SipsaHealthIndicator` anymore; a constructor-dependency check). `IngestionHandler`'s
+  interface and all 5 implementations are completely untouched — this is a
+  source-of-truth consolidation, not a business-rule or contract change. No scheduler,
+  window-validation, cron, metrics, audit, endpoint, HTTP contract, SOAP, security, or
+  persistence change. No Flyway migration; V1–V4 unchanged.
+
 - **CXF-generated SOAP classes relocated to a distinguishable package** ([ADR-007](docs/adr/ADR-007-package-boundaries-and-internal-models.md)
   §F3, TECH-092, unblocked by TECH-094's SPIKE). All 22 `cxf-codegen-plugin`-generated
   JAXB classes moved from `infrastructure.soap.client` (shared with the hand-written

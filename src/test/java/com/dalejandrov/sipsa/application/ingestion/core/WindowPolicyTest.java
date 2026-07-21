@@ -13,6 +13,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -537,6 +538,73 @@ class WindowPolicyTest {
 
             assertThat(policy.validateAndGetKey("promediosSipsaMesMadr", false))
                     .isEqualTo("2026-06-M8");
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // isMonthlyMethod(String) — TECH-056: the public classification query other
+    // collaborators (SipsaHealthIndicator) consult instead of maintaining their own
+    // independent daily/monthly method list. Delegates to the same rule table
+    // validateAndGetKey uses internally, so these cases exercise the real production
+    // classification for all 5 registered handlers plus an unrecognized name.
+    // ---------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("isMonthlyMethod(String) — TECH-056 classification query")
+    class IsMonthlyMethodClassification {
+
+        private final WindowPolicy policy = productionPolicy();
+
+        @Test
+        @DisplayName("promediosSipsaCiudad is not monthly")
+        void ciudad_notMonthly() {
+            assertThat(policy.isMonthlyMethod("promediosSipsaCiudad")).isFalse();
+        }
+
+        @Test
+        @DisplayName("promediosSipsaParcial is not monthly")
+        void parcial_notMonthly() {
+            assertThat(policy.isMonthlyMethod("promediosSipsaParcial")).isFalse();
+        }
+
+        @Test
+        @DisplayName("promediosSipsaSemanaMadr is not monthly (weekly data, but daily-window scheduling cadence)")
+        void semanaMadr_notMonthly() {
+            assertThat(policy.isMonthlyMethod("promediosSipsaSemanaMadr")).isFalse();
+        }
+
+        @Test
+        @DisplayName("promediosSipsaMesMadr is monthly")
+        void mesMadr_isMonthly() {
+            assertThat(policy.isMonthlyMethod("promediosSipsaMesMadr")).isTrue();
+        }
+
+        @Test
+        @DisplayName("promedioAbasSipsaMesMadr is monthly")
+        void abasMesMadr_isMonthly() {
+            assertThat(policy.isMonthlyMethod("promedioAbasSipsaMesMadr")).isTrue();
+        }
+
+        @Test
+        @DisplayName("an unrecognized method name is not monthly - never throws, never silently becomes monthly")
+        void unrecognizedMethod_notMonthly_noException() {
+            assertThat(policy.isMonthlyMethod("totallyUnknownMethod")).isFalse();
+        }
+
+        @Test
+        @DisplayName("isMonthlyMethod agrees with validateAndGetKey's own classification for every real handler")
+        void agreesWithValidateAndGetKey_forAllFiveRealMethods() {
+            policy.setClock(fixedBogota("2026-06-08T19:00:00Z")); // MesMadr's own principal day
+            assertThat(policy.isMonthlyMethod("promediosSipsaMesMadr")).isTrue();
+            assertThatCode(() -> policy.validateAndGetKey("promediosSipsaMesMadr", false))
+                    .as("classified monthly and accepted on its own principal day - consistent")
+                    .doesNotThrowAnyException();
+
+            policy.setClock(fixedBogota("2026-06-15T20:00:00Z")); // 15:00 America/Bogota - inside the daily window
+            assertThat(policy.isMonthlyMethod("promediosSipsaCiudad")).isFalse();
+            assertThatCode(() -> policy.validateAndGetKey("promediosSipsaCiudad", false))
+                    .as("classified not-monthly and accepted inside the daily window - consistent")
+                    .doesNotThrowAnyException();
         }
     }
 
