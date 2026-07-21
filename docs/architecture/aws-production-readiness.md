@@ -1,6 +1,8 @@
 # AWS Production Readiness — TECH-130 / TECH-131 / TECH-132
 
-**Version:** 1.0
+**Version:** 1.1 (2026-07-21 — §10 Q3, the IaC tool choice, is now formally addressed by
+[ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md); every other blocking question
+below remains open exactly as originally audited)
 **Date:** 2026-07-20
 **Author:** Repository audit (branch `docs/production-aws-readiness-plan`), read-only —
 no AWS resource was created, no AWS CLI command was run against a real account, no
@@ -481,7 +483,12 @@ determined above — but TECH-130/131/132 cannot be implemented, and should not 
    provisions.)
 3. **¿Se usará Terraform, CDK, CloudFormation, o infraestructura administrada por otro
    equipo/repositorio?** No IaC tool exists in this repository today — this blocks
-   producing any actual infrastructure artifact for all three stories.
+   producing any actual infrastructure artifact for all three stories. **Addressed in
+   [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Proposed, 2026-07-21):
+   Terraform recommended, conditional on confirming this team — not a platform team —
+   owns AWS provisioning.** Status stays `Proposed` until that ownership question and the
+   account/region/environment questions (also listed there) are answered by someone with
+   the authority to answer them.
 4. **¿Quién administra Cognito y el dominio hosted UI (si aplica) — este equipo o un
    equipo de plataforma/identidad centralizado?**
 5. **¿Existe ya una VPC objetivo (compartida con otros servicios) o se provisiona una
