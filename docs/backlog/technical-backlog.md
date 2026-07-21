@@ -58,7 +58,7 @@ When a story is implemented:
 | TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending — decisions approved 2026-07-21 ([ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) Accepted), blocked on TECH-137 |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-130 + TECH-132 |
 | TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | Pending — decisions approved 2026-07-21 (ADR-010 Accepted), blocked on TECH-137 |
-| TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | In progress — branch `infra/terraform-bootstrap`, [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) Accepted |
+| TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — scaffolding + CI only, no AWS resource created) |
 | TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
@@ -3009,7 +3009,7 @@ Pending**, blocked on [TECH-137](#tech-137) (Terraform bootstrap) landing first.
 **Type:** Infrastructure
 **Priority:** High
 **Phase:** —
-**Status:** In progress
+**Status:** **Done**
 **Complexity:** S
 **Branch:** `infra/terraform-bootstrap`
 **Note on numbering:** `TECH-133` was already assigned (Centralize and validate monthly
@@ -3051,17 +3051,45 @@ requiring a real `apply` is created.
   story.
 
 **Acceptance Criteria:**
-- [ ] `terraform fmt -check -recursive infra/terraform` passes.
-- [ ] `terraform init -backend=false` + `terraform validate` pass for both the bootstrap
+- [x] `terraform fmt -check -recursive infra/terraform` passes.
+- [x] `terraform init -backend=false` + `terraform validate` pass for both the bootstrap
       and `environments/production` configurations.
-- [ ] No AWS resource is created (`terraform apply` is never run against a real account).
-- [ ] `infra-plan.yml` runs `fmt`/`validate` without requiring AWS credentials.
-- [ ] Every future resource's tagging convention is defined and documented, even though
+- [x] No AWS resource is created (`terraform apply` is never run against a real account).
+- [x] `infra-plan.yml` runs `fmt`/`validate` without requiring AWS credentials.
+- [x] Every future resource's tagging convention is defined and documented, even though
       no resource exists yet to apply it to.
-- [ ] TECH-130/131/132 remain `Pending` — this story is a prerequisite, not part of their
+- [x] TECH-130/131/132 remain `Pending` — this story is a prerequisite, not part of their
       own acceptance criteria.
 
-**Completed:** (filled in once the implementation below is verified)
+**Completed:** Directory structure created (`infra/terraform/bootstrap/`,
+`infra/terraform/environments/production/`), each with pinned `required_version` (`~>
+1.9`) and `required_providers` (`hashicorp/aws ~> 5.60`) — no floating versions. Common
+variables (`project_name`, `environment`, `aws_region`, `owner`, `cost_center`,
+`repository`, `managed_by`) and a `local.common_tags` block
+(`Project`/`Environment`/`Owner`/`ManagedBy`/`Repository`/`CostCenter`) applied via each
+provider's `default_tags`. Remote-state chicken-and-egg resolved via a separate,
+manually-applied, local-state `bootstrap/` stack (creates an S3 bucket — versioned,
+AES256-encrypted, public access fully blocked — and a DynamoDB lock table with
+server-side encryption and point-in-time recovery enabled); `environments/production`
+carries a partial S3 backend block, real values supplied via `backend.hcl` (gitignored,
+`.example` committed). `.gitignore` updated for `*.tfstate*`, `*.tfplan`, `.terraform/`,
+`backend.hcl`, `terraform.tfvars`, and related patterns; `.terraform.lock.hcl` committed
+for both stacks (provider checksums, not secrets). `.github/workflows/infra-plan.yml`
+added: `terraform fmt -check`, `terraform validate` (both stacks), TFLint (`aws`
+ruleset + naming-convention rule), and a `tfsec` scan run on every PR touching
+`infra/terraform/`, none requiring AWS credentials; a separate `plan` job is wired for
+GitHub Actions OIDC (`aws-actions/configure-aws-credentials`) but stays inert
+(`if: vars.AWS_TERRAFORM_PLAN_ROLE_ARN != ''`) until that IAM role is created as a
+follow-up prerequisite for TECH-130/TECH-132 — not invented here. Verified locally via
+the official `hashicorp/terraform:1.9`, `terraform-linters/tflint`, and `aquasec/tfsec`
+Docker images (Terraform not installed on this machine): `fmt -check -recursive` clean;
+`terraform init -backend=false && terraform validate` succeeded for both `bootstrap/` and
+`environments/production`; TFLint 0 issues; tfsec 0 unresolved findings (3 documented
+`tfsec:ignore` exceptions — AWS-owned-key encryption and no dedicated access-logging
+bucket for a single-owner, manually-run bootstrap stack, each with an inline rationale,
+not blanket-suppressed). No `terraform apply` was run against AWS at any point; no
+Cognito, ECS, ALB, RDS, API Gateway, VPC, or NAT Gateway resource exists. TECH-130/131/132
+remain `Pending`.
 
 ---
 

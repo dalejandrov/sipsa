@@ -88,10 +88,10 @@ Also outside the phase sequence (see the backlog for full stories):
 | Story | Title | Status |
 |---|---|---|
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | **Done** (2026-07-14, merged via PR #16; first run green — `FlywayMigrationsTest` executed with `tests=4`, `skipped=0`) |
-| TECH-137 | Terraform bootstrap and GitHub OIDC validation | In progress — branch `infra/terraform-bootstrap`, [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted, 2026-07-21) |
-| TECH-130 | Cognito resource server, scopes and app clients | Pending — audited 2026-07-20, decisions approved 2026-07-21 (ADR-010 Accepted), blocked on TECH-137 (bootstrap) |
+| TECH-137 | Terraform bootstrap and GitHub OIDC validation | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — Terraform scaffolding + CI validation only, no AWS resource created) |
+| TECH-130 | Cognito resource server, scopes and app clients | Pending — decisions approved 2026-07-21 (ADR-010 Accepted), TECH-137 prerequisite now done — not started |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | Pending — blocked on TECH-130 + TECH-132 |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB | Pending — blocked on TECH-137 (bootstrap) |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB | Pending — decisions approved 2026-07-21 (ADR-010 Accepted), TECH-137 prerequisite now done — not started |
 
 ---
 
