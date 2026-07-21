@@ -2908,29 +2908,32 @@ means `POST /api/internal/ingestion/run` returns `202` in milliseconds, so API G
 ~29s REST integration timeout is not at risk (**E**, resolved). No incompatibility found
 between the Cognito authorizer, API keys, private integration, and Spring Security's own
 re-validation — four independent responsibilities, not overlapping ones (§3 of the
-readiness doc). Open blockers: depends on TECH-130 existing (**C**); REST vs HTTP API,
-whether an IAM/SigV4 authorizer path is needed, real usage-plan tiers (the backlog's
-`basic`/`partner` figures below are illustrative examples, not a decision), and CORS
-(**D**, all four — CORS in particular has zero prior mention anywhere in this repo).
-**Cannot be marked Done** until those are resolved.
+readiness doc). Open blockers: depends on TECH-130 existing (**C**); whether an IAM/SigV4
+authorizer path is needed, and CORS (**D**, both — CORS in particular has zero prior
+mention anywhere in this repo). REST-vs-HTTP-API and usage-plan tiers are **resolved**,
+no longer blockers (see below). **Cannot be marked Done** until the remaining **D**/**C**
+items are resolved.
 
 **Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
-(**Accepted**, 2026-07-21) — Fase 4 covers this story's gateway provisioning. Approved
-throttling values: general 10 req/s / burst 20 / 100,000 req per month per consumer;
-ingestion-trigger routes 1 req/s / burst 2 (replacing the illustrative `basic`/`partner`
-figures below). No custom domain/ACM for the first version — API Gateway's managed
-`execute-api` endpoint is used. REST-vs-HTTP-API and IAM/SigV4 necessity remain open,
-deferred to this story's own implementation by design (see readiness audit §10 Q8/Q9);
-CORS also remains open. **Still Pending**, blocked on TECH-130 and TECH-132.
+(**Accepted**, revised 2026-07-21) — Fase 4 covers this story's gateway provisioning.
+**REST API** (not HTTP API) — required for full API key/usage-plan/quota/throttling
+support. Approved throttling values: general 10 req/s / burst 20 / 100,000 req per month
+per consumer; ingestion-trigger routes 1 req/s / burst 2 (replacing the previously
+illustrative `basic`/`partner` figures below — these are best-effort operational
+protection, not an absolute defense against cost or abuse). No custom domain/ACM for the
+first version — API Gateway's managed `execute-api` endpoint is used. IAM/SigV4
+necessity and CORS remain open, deferred to this story's own implementation. **Still
+Pending**, blocked on TECH-130 and TECH-132.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 1.
 
 **Scope:**
-- API Gateway as the single public entry point for `/api/sipsa/**` (per-consumer API
-  keys, usage plans — e.g. `basic` 10 rps / 100k req/month, `partner` 50 rps / 1M — 429 on
-  quota, revocation, per-key consumption metrics) and for `/api/internal/**` (JWT
-  authorizer against the TECH-130 pool, or IAM/SigV4 routes for AWS-native automation; no
-  API key requirement on admin routes).
+- API Gateway **REST API** as the single public entry point for `/api/sipsa/**`
+  (per-consumer API keys, usage plans — general 10 req/s / burst 20 / 100k req/month,
+  ingestion-trigger routes 1 req/s / burst 2 — 429 on quota, revocation, per-key
+  consumption metrics; API keys identify a consumer for throttling/quota only, never
+  authentication) and for `/api/internal/**` (JWT authorizer against the TECH-130 pool, or
+  IAM/SigV4 routes for AWS-native automation; no API key requirement on admin routes).
 - Access logs with `apiKeyId`/`clientId` per request.
 - **Actuator is not routed** through the gateway (ADR-002 §5).
 - API keys are identification and metering only — never authentication (ADR-002).

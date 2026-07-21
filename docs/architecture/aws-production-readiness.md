@@ -1,13 +1,14 @@
 # AWS Production Readiness — TECH-130 / TECH-131 / TECH-132
 
-**Version:** 1.2 (2026-07-21 — [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
+**Version:** 1.3 (2026-07-21 — [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
 now **Accepted**: the repository owner resolved IaC tool, ownership, account, region,
 environments, VPC, ECS launch type, database, Cognito ownership, domain, NAT Gateway,
-logging retention, and secrets management. §10 below is annotated per-item with each
-resolution; §9 Risks updated accordingly. Still open: exact M2M integration count/scopes
-(Q2), API Gateway REST-vs-HTTP-API (Q8, deferred to TECH-131 implementation by design),
-IAM/SigV4 path necessity (Q9), and CORS/end-to-end-VPC-TLS — see the annotations below,
-not assumed resolved just because most of §10 now is)
+logging retention, secrets management, and (in a same-day revision) API Gateway
+REST-vs-HTTP-API (Q8 — **REST API**, required for API key/usage-plan/quota/throttling
+support). §10 below is annotated per-item with each resolution; §9 Risks updated
+accordingly. Still open: exact M2M integration count/scopes (Q2), IAM/SigV4 path
+necessity (Q9), and CORS/end-to-end-VPC-TLS — see the annotations below, not assumed
+resolved just because most of §10 now is)
 **Date:** 2026-07-20
 **Author:** Repository audit (branch `docs/production-aws-readiness-plan`), read-only —
 no AWS resource was created, no AWS CLI command was run against a real account, no
@@ -206,14 +207,17 @@ decision, secret storage strategy) beyond needing raw AWS access.
 | REST API vs HTTP API | D | **Undecided** — HTTP API is cheaper/simpler with native JWT authorizers; REST API has more mature native API-key/usage-plan support. Needs an explicit choice, not an assumption (AWS's HTTP API feature set for usage plans has evolved — verify current support before deciding, don't assume either way) |
 | JWT authorizer wired to the TECH-130 pool | C | Depends on TECH-130 existing first |
 | IAM/SigV4 authorizer for admin routes | D | Backlog phrases this as "or" — **whether this path is needed at all, alongside Cognito, is undecided** |
-| API keys + usage plans (tiers, rps, quotas) | D + C | Backlog's `basic`/`partner` figures are **illustrative examples, not a decision** — real tiers need a real decision |
+| API keys + usage plans (tiers, rps, quotas) | Resolved + C | ADR-010: general 10 req/s / burst 20 / 100k monthly per consumer; ingestion-trigger routes 1 req/s / burst 2 — replaces the previously-illustrative `basic`/`partner` figures; implementing requires AWS |
 | Access logs (`apiKeyId`/`clientId`) | C | Format can be decided now (B), implementing requires AWS |
 | CORS | D | **Completely undecided — no browser-client requirement has been established anywhere in the repo** |
 | Max payload size / integration timeout | E (verified safe for the async trigger) / D (for any future large-payload endpoint) | See §1.8 |
 | Cognito authorizer vs API keys vs private integration vs Spring Security — compatibility | E (no incompatibility found) | See §6 below — these are four independent, non-overlapping responsibilities already documented in ADR-002, not four mechanisms competing for the same route |
 
-**TECH-131 cannot be marked Done**: depends on TECH-130 (C), and REST-vs-HTTP API, IAM
-authorizer necessity, real usage-plan tiers, and CORS are all open **D** decisions.
+**TECH-131 cannot be marked Done**: depends on TECH-130 (C). REST API is now decided
+(ADR-010) — the remaining open **D** decisions are IAM authorizer necessity and CORS; real
+usage-plan tiers are also decided (ADR-010: general 10 req/s / burst 20 / 100k monthly,
+ingestion-trigger 1 req/s / burst 2), replacing the previously-illustrative
+`basic`/`partner` figures.
 
 ### TECH-132 — Private networking
 
@@ -470,7 +474,7 @@ security posture.
 | `SPRING_PROFILES_ACTIVE` left unset/wrong in the ECS task definition | Medium | Base `application.yaml` already fails fast on missing secrets regardless of profile — the failure mode is safe, but should be verified explicitly in the first real deploy, not assumed |
 | NAT Gateway omitted, ingestion silently fails | High | §7 makes this explicit and evidence-based, not a footnote |
 | API keys mistaken for authentication by a future contributor | Medium | Already documented repeatedly (ADR-002, `SecurityConfig` Javadoc) — carry the same language into any IaC/runbook documentation |
-| REST vs HTTP API chosen without checking current AWS feature parity for usage plans | Medium | Verify AWS's current documentation at decision time — this audit deliberately does not assume either way, since the feature landscape changes over time |
+| REST vs HTTP API | Resolved | ADR-010 (revision, 2026-07-21): REST API, required for full API key/usage-plan/quota/throttling support |
 | CORS decided implicitly by whichever engineer implements TECH-131 first | Low–Medium | Flagged explicitly in §10 as a blocking question, not left to be improvised |
 | Secrets management tool decided ad hoc per story (130 vs 132) | Medium | Same decision affects both stories — resolve once (Q6, §10), not twice |
 
@@ -510,10 +514,13 @@ determined above — but TECH-130/131/132 cannot be implemented, and should not 
 7. **¿La base de datos PostgreSQL correrá en RDS, o es autoadministrada (EC2/otro)?** —
    **Resuelto: Amazon RDS for PostgreSQL, Single-AZ inicialmente** (Multi-AZ documentado
    como mejora futura, no implementada ahora) (ADR-010).
-8. **¿API Gateway será REST API o HTTP API?** — **Deliberadamente diferido a la
-   implementación de TECH-131**, no resuelto aquí ni en ADR-010: verificar la paridad de
-   características actual de AWS para usage plans/API keys en el momento de implementar,
-   ya que el panorama de features cambia con el tiempo.
+8. **¿API Gateway será REST API o HTTP API?** — **Resuelto: REST API** (ADR-010,
+   revisión 2026-07-21). Motivo: se requieren API keys, usage plans, cuotas por
+   consumidor y throttling asociado a la API key — REST API tiene soporte completo y
+   maduro para las cuatro; el soporte de HTTP API para esta combinación ha sido
+   históricamente parcial. Las API keys **no son autenticación** — identifican al
+   consumidor para throttling/cuota; Cognito sigue siendo la única autoridad de identidad
+   y autorización.
 9. **¿Se requiere el path IAM/SigV4 para automatización AWS-nativa, o Cognito
    `client_credentials` cubre todos los consumidores conocidos hoy?** — **Aún abierto.**
    No mencionado en las decisiones aprobadas; se resuelve al implementar TECH-131 si surge

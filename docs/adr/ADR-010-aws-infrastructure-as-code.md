@@ -6,7 +6,11 @@ ready for phased implementation. No AWS resource exists yet; this ADR records th
 decisions, not the resources themselves — those are created story by story, starting
 with [TECH-137](../backlog/technical-backlog.md#tech-137) (bootstrap).
 **Date:** 2026-07-21 (Proposed) · 2026-07-21 (Accepted, same day — decisions confirmed by
-the repository owner)
+the repository owner) · 2026-07-21 (revised — toolchain corrections applied before the
+first `apply`: S3-native state locking replaces the originally-provisioned DynamoDB lock
+table, Terraform pinned to 1.15.7 / AWS provider to 6.55.0, Trivy replaces tfsec, OIDC
+trust-policy contract and role separation documented, API Gateway REST API decided
+outright rather than deferred — see Terraform Toolchain and API Gateway sections below)
 **Backlog:** [TECH-130](../backlog/technical-backlog.md#tech-130),
 [TECH-131](../backlog/technical-backlog.md#tech-131),
 [TECH-132](../backlog/technical-backlog.md#tech-132),
@@ -183,9 +187,39 @@ underlying REST/HTTP API or VPC Link).
 
 ### API Gateway and protection
 
+**Decision: API Gateway REST API, not HTTP API.** REST API is required because this
+story's protection model depends on **API keys, usage plans, per-consumer quotas, and
+usage-plan-associated throttling** — REST API has full, mature support for all four; HTTP
+API's support for this combination has historically been partial and should not be
+assumed equivalent without re-verifying AWS's current feature matrix at implementation
+time, which is exactly the risk choosing REST API now avoids. This is a resolved
+decision, not deferred — see Approved Decision 11 below (the `Proposed` version of this
+ADR had left it open).
+
 **Purpose: protect against overload and abuse — not restrict legitimate consumers.**
 
-Initial values:
+**Responsibility split, restated precisely (do not blur this):**
+
+```
+Cognito:              identity and authorization (who is calling, what they're allowed to do)
+API key + usage plan: operational identification of the consumer, throttling, and quota
+                       (NOT identity, NOT authorization)
+```
+
+An API key identifies a *consumer* for metering purposes; it proves nothing about *who*
+is using it — anyone holding the key can present it. Cognito remains the sole authority
+answering "is this caller allowed to do this." Never describe an API key as
+authentication in code, IaC, or runbook documentation.
+
+**Usage-plan throttling is best-effort, not an absolute defense.** Rate/burst/quota
+limits reduce the chance of runaway cost or accidental overload from a misbehaving
+consumer; they are not a guarantee against cost spikes (a consumer can still be replaced
+by many consumers each under-quota, or a determined attacker can still generate billable
+requests up to the configured ceiling) and not a substitute for the account-level
+throttling safety net or for WAF if that becomes necessary later. Treat these limits as
+one layer, not the whole defense.
+
+Initial values (unchanged from the `Proposed` version):
 
 | Scope | Rate limit | Burst | Monthly quota |
 |---|---|---|---|
@@ -271,22 +305,109 @@ internal ALB, RDS instance, ECS Fargate baseline) for human review. **No specifi
 figures are invented in this ADR** — none exist without real Infracost output or current
 AWS pricing data for `us-east-1`.
 
+### Terraform Toolchain
+
+**Terraform:** `required_version = ">= 1.14.0, < 2.0.0"` in every stack; **1.15.7** pinned
+concretely in CI and in the Docker commands this repository's docs use for local
+validation. The floor of `1.14.0` is not arbitrary — it is the version line where
+S3-native state locking (below) becomes available; there is **no deliberate support for
+older Terraform clients**.
+
+**AWS provider:** `required_version = ">= 6.0.0, < 7.0.0"`; the committed
+`.terraform.lock.hcl` files currently pin **`hashicorp/aws` 6.55.0**. Adopted at TECH-137
+time deliberately, since no AWS state or `apply` existed yet — the correct moment to move
+onto the v6 major series rather than starting on v5 and migrating state later. The
+official v6 upgrade guide documents no breaking change affecting the S3 bucket resource
+family this repository currently uses, beyond a deprecated
+`s3_us_east_1_regional_endpoint = "legacy"` provider setting this repository never sets.
+`terraform validate` was re-confirmed clean against 6.55.0 for both existing stacks;
+any future module (starting with TECH-132's network module) must use v6-compatible
+argument names from the outset, not v5 patterns carried forward by habit.
+
+**State locking: S3-native, not DynamoDB.** No DynamoDB table exists anywhere in this
+repository's Terraform code. Current Terraform documentation marks the DynamoDB-lock
+pattern as legacy in favor of the S3-native lockfile (`use_lockfile = true`, declared in
+`environments/production/versions.tf`'s partial backend block). Provisioning a DynamoDB
+table for a backend that didn't exist yet, on the strength of a mechanism already
+superseded in current guidance, would have added infrastructure this repository would
+need to un-provision shortly after — so TECH-137's original DynamoDB table was removed
+before any stack ever depended on it, not migrated away from later.
+
+**IaC scanning: Trivy, not tfsec.** `trivy config infra/terraform` is the sole
+misconfiguration scanner. tfsec's checks have been folded into Trivy upstream; running
+both would be redundant tooling for the same class of finding. Documented exceptions use
+`# trivy:ignore:<AVD-ID>` comments directly above the resource block, each with an inline
+rationale — never a blanket suppression file.
+
+| Finding | Resource | Risk | Justification | Exception |
+|---|---|---|---|---|
+| AVD-AWS-0089 (Bucket has logging disabled) | `aws_s3_bucket.terraform_state` | Low — no access-logging trail for the state bucket | A dedicated logging bucket + lifecycle policy for a bucket only the manual, single-owner bootstrap process ever touches is complexity disproportionate to the risk at this stage | `# trivy:ignore:AVD-AWS-0089`, revisit if ownership model changes |
+| AVD-AWS-0132 (Bucket does not encrypt with a customer-managed key) | `aws_s3_bucket_server_side_encryption_configuration.terraform_state` | Low — AWS-owned key instead of a customer-managed KMS key | A dedicated KMS key/policy for a bucket that only holds Terraform state, applied manually and rarely, is complexity this stage doesn't need; AES256 (AWS-owned key) still encrypts at rest | `# trivy:ignore:AVD-AWS-0132`, revisit if compliance requirements change |
+
+Both exceptions were reassessed for this revision (not carried forward mechanically from
+the removed tfsec annotations) — DynamoDB's own two prior exceptions (customer-managed
+key, encryption-not-enabled) no longer apply at all, since the DynamoDB table itself no
+longer exists.
+
 ### CI/CD
 
 **GitHub Actions**, authenticating to AWS via **GitHub Actions OIDC** — no long-lived
-AWS access keys stored as GitHub Secrets.
+AWS access keys stored as GitHub Secrets. Third-party actions in every workflow are
+pinned by **immutable commit SHA** (never a tag, never `@main`/`@master`), each with a
+comment stating the human-readable version it corresponds to — this applies regardless of
+any specific incident, as a standing supply-chain practice for this repository's CI.
 
 Four separate pipelines (not one monolithic workflow):
 
 | Pipeline | Responsibility |
 |---|---|
-| `infra-plan.yml` | `terraform fmt -check`, `terraform validate`, lint, security scan, `terraform plan` — runs on PRs touching `infra/terraform/`, no apply |
+| `infra-plan.yml` | `terraform fmt -check`, `terraform validate`, TFLint, Trivy config scan, `terraform plan` — runs on PRs touching `infra/terraform/`, no apply |
 | `infra-apply.yml` | Manual or approval-gated; uses a GitHub Environment named `production` requiring the owner's approval; applies only a previously-reviewed plan where feasible |
 | `application-ci.yml` | The existing build/test pipeline (TECH-120) — unchanged by this ADR |
 | `application-deploy.yml` | Builds the image, pushes to ECR, updates the ECS service, waits for stability, runs a health smoke test, fails/rolls back if the service doesn't stabilize |
 
 **No automatic production deploy on every push to `main` without approval** — both
 `infra-apply.yml` and `application-deploy.yml` are gated, not fire-and-forget.
+
+**OIDC trust-policy contract.** `infra-plan.yml` declares `permissions: { contents: read,
+id-token: write }` — never `write-all`. `id-token: write` alone authenticates nothing
+without a matching IAM role trust policy on the AWS side, which does not exist yet (see
+Consequences) but must, when created, require:
+
+- `token.actions.githubusercontent.com` as the OIDC provider, with audience
+  `sts.amazonaws.com` (`aud` claim).
+- The `sub` claim restricted to **this exact repository**, never a wildcard such as
+  `repo:dalejandrov/*:*`.
+
+GitHub Actions' OIDC token `sub` claim has historically used the format
+`repo:OWNER/REPO:ref:refs/heads/BRANCH` (for a branch-triggered run) or
+`repo:OWNER/REPO:environment:NAME` (for a run gated by a GitHub Environment). For the
+`production` Environment this ADR requires on `infra-apply.yml`, the expected subject is
+conceptually:
+
+```
+repo:dalejandrov/sipsa:environment:production
+```
+
+GitHub has also introduced immutable repository/owner-ID-based claims as an alternative
+to the name-based subject above (names can be renamed; IDs cannot). **Before creating any
+real IAM role**, decode an actual OIDC token from a run in this repository (or consult
+GitHub's current OIDC documentation at that time) to confirm which claim shape this
+repository's tokens actually carry, and write the trust policy's `sub` condition against
+that confirmed shape — not against whichever format seems more modern. Do not configure
+both formats speculatively; configure the one the real token uses.
+
+**Role separation — three distinct roles, never one administrator role:**
+
+| Role (name only — no ARN exists yet) | Purpose | Access shape |
+|---|---|---|
+| `terraform-plan` | `infra-plan.yml`'s `plan` job | Primarily read-only: read access to the resources being planned, plus read/write to the Terraform state backend (`plan` needs to read current state; S3-native locking needs write access to acquire/release the lockfile) |
+| `terraform-apply` | `infra-apply.yml` | Read/write on the resource types this repository's modules actually manage (S3, VPC/networking, ECS, RDS, Cognito, API Gateway, IAM for resources it creates) — scoped to those services, not `AdministratorAccess` |
+| `application-deploy` | `application-deploy.yml` | ECR push, ECS service update, nothing else — no Terraform state access at all |
+
+No ARN for any of these three roles is invented in this document — creating them is a
+prerequisite for whichever of TECH-130/TECH-132 first needs a real `plan`/`apply`, and
+each must be created with the trust-policy contract above, scoped to its own purpose.
 
 ### Alerts
 
@@ -344,7 +465,7 @@ See `aws-production-readiness.md` §5 for the full ASCII diagram this summarizes
 | 8 | Cognito ownership | Repository owner, initially | Repository owner | TECH-130 |
 | 9 | Domain + ACM | None yet; API Gateway managed endpoint | Repository owner | TECH-131 (deferred, not blocking) |
 | 10 | NAT Gateway | One initially (accepted risk); NAT per AZ deferred | Repository owner | TECH-132 (resolved, not blocking) |
-| 11 | API Gateway REST vs. HTTP API | Deferred to TECH-131 implementation — verify current usage-plan/API-key feature parity at that time, not assumed here | Repository owner | TECH-131 |
+| 11 | API Gateway REST vs. HTTP API | **REST API** — required for full API key/usage-plan/quota/throttling support | Repository owner | TECH-131 (resolved, not blocking) |
 | 12 | Logging retention | 30 days (app/API GW/infra), 90 days (audit-adjacent) | Repository owner | TECH-131, TECH-132 |
 | 13 | Secrets management | AWS Secrets Manager (sensitive) + SSM Parameter Store (non-sensitive) | Repository owner | TECH-130, TECH-132 |
 | 14 | Operational ownership | Repository owner, first-line | Repository owner | Go-live readiness |
@@ -357,11 +478,13 @@ Unchanged in sequence from the `Proposed` version, refined with the approved spe
 above. **Each phase is implemented as small, independently reviewable branches — no
 attempt to land TECH-130/131/132 whole in a single branch.**
 
-**Fase 0 — Bootstrap y estado Terraform.** Terraform project structure, S3 backend +
-locking, provider/version constraints, common variables/tags, GitHub Actions `fmt`/
-`validate`/plan-only CI, OIDC contract preparation. **This is TECH-137**, the subject of
-the first implementation branch (`infra/terraform-bootstrap`). No Cognito, ECS, ALB, RDS,
-API Gateway, or NAT Gateway is created in this phase.
+**Fase 0 — Bootstrap y estado Terraform.** Terraform project structure, S3 backend with
+S3-native locking (no DynamoDB), provider/version constraints (Terraform `~> 1.15`, AWS
+provider `~> 6.x`), common variables/tags, GitHub Actions `fmt`/`validate`/Trivy/plan-only
+CI, OIDC contract preparation (trust-policy shape documented, no real role created).
+**This is TECH-137**, the subject of the first implementation branch
+(`infra/terraform-bootstrap`). No Cognito, ECS, ALB, RDS, API Gateway, or NAT Gateway is
+created in this phase.
 
 **Fase 1 — TECH-132 (parcial): base de red y cómputo mínimo.** VPC, 2 AZ, public/private
 subnets, route tables, single NAT Gateway, baseline security groups, ECR repository,
@@ -377,10 +500,10 @@ Link), RDS PostgreSQL (Single-AZ, encrypted, 7-day backups, `publicly_accessible
 deletion protection), CloudWatch log groups per the retention table above, secrets wired
 via Secrets Manager/SSM.
 
-**Fase 4 — TECH-131: API Gateway y VPC Link.** API Gateway (REST or HTTP, decided at this
-point per Approved Decision 11), Cognito JWT authorizer wired to the Fase 2 pool, API
-keys + usage plans (general and ingestion-trigger tiers from the table above), access
-logging, VPC Link to the Fase 3 ALB.
+**Fase 4 — TECH-131: API Gateway y VPC Link.** API Gateway **REST API** (Approved
+Decision 11), Cognito JWT authorizer wired to the Fase 2 pool, API keys + usage plans
+(general and ingestion-trigger tiers from the table above), access logging, VPC Link to
+the Fase 3 ALB.
 
 **Fase 5 — CI/CD, observabilidad y E2E.** `infra-apply.yml` and `application-deploy.yml`
 pipelines completed and gated; SNS email alerting wired for the minimum alert set above;
