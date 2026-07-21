@@ -57,9 +57,10 @@ When a story is implemented:
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
 | TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending — decisions approved 2026-07-21 ([ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) Accepted), blocked on TECH-137 |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-130 + TECH-132 |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC foundation complete (TECH-138, 2026-07-21); ECS/ALB/RDS not yet implemented |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC and RDS foundations complete (TECH-138, TECH-139, 2026-07-21); ECS/ALB not yet implemented |
 | TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — corrected same day: S3-native locking, Terraform 1.15.7/AWS provider 6.55.0, Trivy scanning, OIDC contract, REST API decision) |
 | TECH-138 | Provision production VPC foundation | High | — | **Done** (2026-07-21, branch `infra/production-vpc-foundation` — `modules/network`, 16/16 `terraform test` green, no AWS resource created) |
+| TECH-139 | Define production RDS PostgreSQL foundation | High | — | **Done** (2026-07-21, branch `infra/production-rds-foundation` — `modules/database`, 20/20 `terraform test` green, no AWS resource created) |
 | TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
@@ -2957,11 +2958,12 @@ Pending**, blocked on TECH-130 and TECH-132.
 **Type:** Infrastructure / Security
 **Priority:** High
 **Phase:** —
-**Status:** **In progress** — VPC foundation complete (TECH-138); ECS/ALB/RDS not yet
-implemented
+**Status:** **In progress** — VPC and RDS foundations complete (TECH-138, TECH-139);
+ECS/ALB not yet implemented
 **Complexity:** M
 **Branch:** — (infrastructure work; VPC foundation landed via
-`infra/production-vpc-foundation`, TECH-138)
+`infra/production-vpc-foundation` (TECH-138), RDS foundation via
+`infra/production-rds-foundation` (TECH-139))
 
 **Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
 code changed):** full classification, gateway-bypass-prevention design, and evidence in
@@ -2972,11 +2974,13 @@ internet** DANE endpoint, so a **NAT Gateway (or equivalent) is required, not op
 default assumption). App-side readiness confirmed **E**: `/actuator/health` is
 unauthenticated with Spring Boot's liveness/readiness probe groups already enabled, the
 app is fully environment-driven for `DB_HOST`/`DB_PORT`, and it logs to stdout
-(CloudWatch-Logs-ready) — no code change needed for any of this. Open blockers (**D**):
-ECS Fargate vs EC2, RDS vs self-managed PostgreSQL, VPC-internal TLS policy, and whether
-Cloud Map service discovery is needed (likely not, for a single API-Gateway-fronted
-service — not yet confirmed). Every provisioning step itself is **C** (real AWS access).
-**Cannot be marked Done** until the D items are resolved.
+(CloudWatch-Logs-ready) — no code change needed for any of this. **Resolved (ADR-010,
+implemented via TECH-138/TECH-139):** ECS Fargate (over EC2); RDS for PostgreSQL (over
+self-managed), Single-AZ, PostgreSQL 18. Still open (**D**): VPC-internal TLS policy, and
+whether Cloud Map service discovery is needed (likely not, for a single
+API-Gateway-fronted service — not yet confirmed). Every real provisioning step itself is
+**C** (real AWS access) — **Cannot be marked Done** until ECS/ALB are implemented and the
+remaining D items are resolved.
 
 **Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
 (**Accepted**, 2026-07-21) — Fase 1 (network) and Fase 3 (compute/data) cover this story.
@@ -2994,7 +2998,18 @@ subnets, route tables, a single NAT Gateway (accepted risk, documented), an S3 G
 VPC Endpoint, and configurable VPC Flow Logs — all in
 `infra/terraform/modules/network/`, consumed by `environments/production`. **No AWS
 resource has been created** (no `terraform apply` run); this is Terraform code only,
-validated via `terraform test` against a mocked provider. ECS, the internal ALB, and RDS
+validated via `terraform test` against a mocked provider.
+
+**Progress (2026-07-21, [TECH-139](#tech-139), branch `infra/production-rds-foundation`):**
+the RDS PostgreSQL foundation this story depends on is now implemented — DB subnet group
+(the two private database subnets from TECH-138), a security group with no ingress rule
+yet (the future ECS security group, once it exists, is added via
+`allowed_security_group_ids`), a parameter group, and the RDS instance itself
+(PostgreSQL 18, Single-AZ, `db.t3.micro` proposed, gp3/20 GiB, encrypted,
+`publicly_accessible=false`, 7-day backups, deletion protection, RDS-managed master
+password via Secrets Manager) — all in `infra/terraform/modules/database/`, consumed by
+`environments/production`. **No AWS resource has been created** (no `terraform apply`
+run); validated via `terraform test` against a mocked provider. ECS and the internal ALB
 — the remainder of this story's scope — are **not yet implemented**.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 4.
@@ -3237,6 +3252,180 @@ each justified inline). `.github/workflows/infra-plan.yml` gained a `terraform t
 modules/network` step (mocked provider, no credentials). `./mvnw -q -DskipTests compile`
 passed; zero `src`/`pom.xml` change. No `terraform apply` executed against AWS at any
 point; no AWS resource of any kind exists. TECH-132 updated to `In progress`.
+
+---
+
+### TECH-139
+
+**Title:** Define production RDS PostgreSQL foundation
+**Type:** Infrastructure
+**Priority:** High
+**Phase:** —
+**Status:** **Done**
+**Complexity:** M
+**Branch:** `infra/production-rds-foundation`
+
+**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) — the RDS
+portion of [TECH-132](#tech-132)'s Fase 3. Scoped narrowly to the database only: DB subnet
+group, security group (no ingress rule yet), parameter group, and the RDS instance
+itself. **Does not** implement ECS, ALB, ECR, Cognito, API Gateway, VPC Link, Route 53,
+ACM, WAF, Cognito secrets, application deployment, a real database connection, or a
+Flyway migration against AWS.
+
+**PostgreSQL version:** `postgres_engine_version` defaults to `"18"` (major version
+only), chosen by inspecting the repository, not assumed — `docker-compose.yml` and all 11
+Testcontainers-based integration tests use `postgres:18.0-alpine3.22`; Flyway
+(`flyway-database-postgresql`, Spring Boot 4.1.0-managed) supports it; the only extension
+in use (`citext`, `V1__initial_schema.sql`) is a standard RDS-available contrib
+extension. **Not verified against a live AWS account** (no AWS API call made) — confirm
+`aws rds describe-db-engine-versions --engine postgres` before the first real apply.
+`auto_minor_version_upgrade = true` (minor releases are backward-compatible patches; no
+evidence to pin one).
+
+**Instance class and storage — proposals, not confirmed availability:**
+`instance_class` defaults to `"db.t3.micro"` (burstable, **non-Graviton** — Graviton
+availability/compatibility for this engine version is unconfirmed). `storage_type = gp3`
+(no Provisioned IOPS), `allocated_storage = 20` GiB (the gp3 minimum),
+`max_allocated_storage = 100` GiB (autoscaling ceiling, bounds worst-case cost). Both
+`instance_class` and `postgres_engine_version` are explicitly flagged as **requiring
+AWS-side availability validation before the first real apply** — the same honesty
+standard TECH-138 already applied to ECS Fargate task sizing.
+
+**Single-AZ:** `multi_az = false` by default (ADR-010) — a cost decision, not an
+oversight. Accepted risk: no automatic failover; an AZ outage or maintenance event causes
+a full outage until AWS completes recovery. Future path: `multi_az = true` is a one-line
+variable change. **Must be revisited before real user traffic depends on this database.**
+
+**Network:** the DB subnet group uses exclusively the two private database subnets from
+TECH-138's network module — never public or private-application subnets.
+`publicly_accessible = false` is hardcoded, not a variable. The RDS security group is
+created with **no ingress rule** — no ECS security group exists yet; a future story
+(TECH-132's compute phase) passes it via `allowed_security_group_ids`, which creates
+exactly one `aws_security_group_rule` per ID, scoped to `source_security_group_id`, never
+a CIDR block or `0.0.0.0/0`.
+
+**Backups and maintenance — explicit UTC conversion:** the application's daily ingestion
+window is `14:20`-`23:59` America/Bogota (UTC-5) = `19:20` UTC to `04:59` UTC the next
+day; monthly jobs (days 8, 10) fire at `14:30` Bogota = `19:30` UTC, inside that same
+window. `backup_window` defaults to `"06:00-06:30"` UTC (`01:00`-`01:30` AM Bogota) and
+`maintenance_window` to `"sun:07:00-sun:08:00"` UTC (Sunday `02:00`-`03:00` AM Bogota) —
+both fall inside the remaining `05:00`-`19:19` UTC safe window on every day of the month,
+and don't overlap each other. `backup_retention_period = 7` (ADR-010), `deletion_protection
+= true`, `skip_final_snapshot = false` with a `random_id`-suffixed final-snapshot
+identifier (reproducible per instance, always unique across recreations — a static name
+would collide on a second destroy).
+
+**Credentials — RDS-managed, never a Terraform variable:**
+`manage_master_user_password = true` — RDS creates and owns the master password directly
+in Secrets Manager; Terraform never sees, stores, or versions the password value, only
+`master_user_secret[0].secret_arn` (a reference). No `password` variable exists anywhere
+in the module. Custom secret rotation is explicitly not implemented.
+
+**Parameter group:** created only because there are real parameters to manage —
+`log_connections = 1`, `log_disconnections = 1` (low-volume, useful). `rds.force_ssl` is
+**deliberately not set**: the application's JDBC URL specifies no `sslmode` today, and
+forcing SSL at the database before confirming the client negotiates it correctly would
+risk breaking the future production connection — documented gap, not silently resolved.
+PostgreSQL `timezone` left at RDS's own default (UTC) — this repository's timezone
+handling already happens entirely at the application layer.
+
+**Monitoring:** Performance Insights and Enhanced Monitoring both disabled by default
+(`performance_insights_enabled = false`, `monitoring_interval = 0`) — added cost with no
+established need yet; standard CloudWatch metrics remain available regardless. CloudWatch
+Logs exports: `postgresql` and `upgrade` only (low-volume); log groups created ahead of
+the RDS instance with explicit 30-day retention (never infinite) — RDS's own
+auto-created log groups default to never expire otherwise.
+
+**Trivy exceptions** (each reassessed for this module, not copied from another module):
+
+| Finding | Resource | Risk | Justification | Exception |
+|---|---|---|---|---|
+| AVD-AWS-0017 (Log group not KMS-encrypted) | `aws_cloudwatch_log_group.postgresql` | Low — AWS-owned key instead of customer-managed | Server log (connections/disconnections), not query content or application data; same call already made for the Terraform state bucket and the network module's Flow Logs group | `# trivy:ignore:AVD-AWS-0017`, revisit if compliance requires it |
+| AVD-AWS-0017 (Log group not KMS-encrypted) | `aws_cloudwatch_log_group.upgrade` | Low — same as above | Engine upgrade history only, lower sensitivity still | `# trivy:ignore:AVD-AWS-0017`, revisit if compliance requires it |
+| AVD-AWS-0133 (Performance Insights not enabled) | `aws_db_instance.main` | Low — reduced query-level visibility | Deliberate ADR-010/TECH-139 decision (see Monitoring above), not an oversight | `# trivy:ignore:AVD-AWS-0133`, revisit once real traffic justifies the cost |
+| AVD-AWS-0176 (IAM DB Authentication not enabled) | `aws_db_instance.main` | Medium — password-based auth only, no IAM token option | Requires application-side changes (IAM auth tokens) out of TECH-139's scope; no ECS task or real connection exists yet; current design (RDS-managed Secrets Manager password, no plaintext credential) is already a strong baseline | `# trivy:ignore:AVD-AWS-0176`, evaluate once TECH-132's ECS task exists — follow-up story, not yet created |
+
+**Module:** `infra/terraform/modules/database/` (`main.tf`, `variables.tf`,
+`outputs.tf`, `versions.tf`, `README.md`, `tests/`) — no third-party/public module used.
+`environments/production/main.tf` consumes it, passing `vpc_id` and
+`private_database_subnet_ids` from the network module's own outputs;
+`environments/production`'s `variables.tf`/`outputs.tf` gained pass-through variables
+(prefixed `db_*`, defaults matching ADR-010/TECH-139) and re-exposed outputs.
+
+**Outputs:** `db_instance_id`, `db_instance_arn`, `db_endpoint` (`sensitive = true`,
+defensive posture — not a credential, but identifies where the database is reachable),
+`db_port`, `db_name`, `db_security_group_id`, `db_subnet_group_name`,
+`master_secret_arn` (ARN only, not marked sensitive — reading the actual secret requires
+a separate IAM permission this ARN does not grant). No master password, secret value, or
+connection string with embedded credentials is ever exposed.
+
+**Tests:** `infra/terraform/modules/database/tests/database.tftest.hcl` — native
+`terraform test`, AWS provider fully mocked (`mock_provider "aws" {}`), the `random`
+provider real but network-free (pure local computation). **No real AWS account
+contacted.** 20 cases, all passing: DB subnet group uses exactly the two given database
+subnets; `publicly_accessible = false`; `multi_az = false` by default;
+`storage_encrypted = true`; `backup_retention_period = 7` by default;
+`deletion_protection = true` by default; a final snapshot is required by default with an
+identifier incorporating the random unique suffix; RDS manages the master password
+(`manage_master_user_password = true`, secret ARN resolvable); no ingress rule exists
+with the default empty `allowed_security_group_ids`, and exactly one
+security-group-scoped (never CIDR) rule is created per configured ID; default port 5432;
+common tags applied; `instance_class` and storage settings are overridable via variable;
+Performance Insights and Enhanced Monitoring disabled by default; both CloudWatch log
+groups exist with 30-day retention; three negative tests confirm malformed input (fewer
+than two DB subnets, storage below the gp3 minimum, a Provisioned-IOPS storage type) is
+rejected by variable validation. Two criteria from the acceptance checklist below are
+verified by reading the module's own source, not a runtime assertion — see the test
+file's leading comment: no `password`/`master_password` variable exists anywhere in
+`variables.tf`, and `db_endpoint` is declared `sensitive = true` in `outputs.tf`.
+
+**Acceptance Criteria:**
+- [x] DB subnet group, RDS security group (no ingress), parameter group, and the RDS
+      PostgreSQL instance all exist in Terraform code, consuming TECH-138's network
+      module outputs exclusively for networking.
+- [x] `publicly_accessible = false`, `multi_az = false`, `storage_encrypted = true` —
+      confirmed both by direct code inspection and by `terraform test`.
+- [x] `backup_retention_period = 7`, `deletion_protection = true`,
+      `skip_final_snapshot = false` with a reproducible-but-unique final snapshot
+      identifier.
+- [x] `manage_master_user_password = true`; no `password` variable exists anywhere in the
+      module.
+- [x] Security group has zero ingress rules by default; a future consumer's security
+      group ID (never a CIDR block) is the only way to add one.
+- [x] Port 5432, validated 1-65535.
+- [x] `instance_class`, `allocated_storage`, `max_allocated_storage`, and `storage_type`
+      are all Terraform variables, not hardcoded — `storage_type` rejects Provisioned
+      IOPS types.
+- [x] Performance Insights and Enhanced Monitoring both disabled by default.
+- [x] CloudWatch log group exports (`postgresql`, `upgrade`) have explicit, non-infinite
+      retention.
+- [x] `terraform test` passes (20/20) against a mocked provider — no AWS account
+      contacted.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (all four Terraform roots),
+      TFLint, and `trivy config` are all clean (4 documented, individually-justified
+      exceptions — none about encryption presence, public access, or backups).
+- [x] `./mvnw -q -DskipTests compile` passes; zero `src`/`pom.xml` change.
+- [x] No `terraform apply`, `terraform import`, AWS CLI call, real RDS connection, or
+      Flyway migration against AWS.
+- [x] TECH-132 updated to `In progress` (unchanged from TECH-138 — still not `Done`);
+      ECS/ALB remain unimplemented.
+
+**Completed:** `infra/terraform/modules/database/` created (7 files including tests) and
+wired into `environments/production` alongside the existing network module. Verified
+locally via the official `hashicorp/terraform:1.15.7`, `terraform-linters/tflint`, and
+`aquasec/trivy` Docker images (none installed on this machine): `fmt -check -recursive`
+clean; `terraform init -backend=false && terraform validate` clean for all four Terraform
+roots (`bootstrap/`, `environments/production`, `modules/network/`,
+`modules/database/`); `terraform test` 20/20 passing for the database module (16/16
+still passing for the network module, re-confirmed unaffected); TFLint 0 issues; `trivy
+config` 0 unresolved findings across the whole tree (4 new module-specific exceptions,
+each individually justified per the table above — not a blanket suppression).
+`.github/workflows/infra-plan.yml` gained a `terraform test — modules/database` step
+(mocked provider, no credentials). `./mvnw -q -DskipTests compile` passed; zero
+`src`/`pom.xml` change. No `terraform apply`, `terraform import`, AWS CLI call, real RDS
+connection, or Flyway migration executed against AWS at any point; no AWS resource of any
+kind exists; no AWS credential was added. TECH-132 remains `In progress` (not `Done`) —
+ECS and the internal ALB are still unimplemented.
 
 ---
 

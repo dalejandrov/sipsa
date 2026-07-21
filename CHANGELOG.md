@@ -24,6 +24,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   account.** TECH-132 (private networking) moves to `In progress`: its network substrate
   is done, ECS/ALB/RDS are not.
 
+- **Production RDS PostgreSQL foundation defined as Terraform code** (TECH-139, ADR-010,
+  the RDS portion of TECH-132's Fase 3 — `infra/terraform/modules/database/`). DB subnet
+  group using TECH-138's two private database subnets exclusively; a security group with
+  **no ingress rule yet** (a future ECS security group is added via
+  `allowed_security_group_ids` once TECH-132's compute phase creates one — never a CIDR
+  rule); a parameter group (`log_connections`/`log_disconnections` only —
+  `rds.force_ssl` deliberately not set, since the application's JDBC URL specifies no
+  `sslmode` today and forcing it blind risks breaking the future connection outright);
+  RDS PostgreSQL, engine version `"18"` (matching this repository's own
+  `postgres:18.0-alpine3.22` Testcontainers/docker-compose usage — not yet verified
+  against a live AWS account), Single-AZ (a documented cost trade-off, one-line path to
+  Multi-AZ later), `gp3`/20 GiB storage (both `instance_class` and
+  `postgres_engine_version` are explicitly flagged as proposals needing AWS-side
+  availability validation before the first real apply), encrypted, `publicly_accessible
+  = false`, 7-day backups, deletion protection, a reproducible-but-always-unique final
+  snapshot identifier. Master password is **RDS-managed via Secrets Manager**
+  (`manage_master_user_password = true`) — Terraform never sees, stores, or versions it;
+  no `password` variable exists anywhere in the module. Backup/maintenance windows
+  (`06:00-06:30`/`sun:07:00-sun:08:00` UTC) are explicitly converted from the
+  application's `America/Bogota` ingestion schedule to fall outside it. Performance
+  Insights and Enhanced Monitoring both disabled by default (cost, no established need
+  yet). Verified with 20 `terraform test` cases against a fully mocked AWS provider —
+  **no real AWS account is contacted, and no `terraform apply` has been run.** TECH-132
+  remains `In progress`: its network and database substrate are both done now, ECS/ALB
+  are not.
+
 ### Changed
 
 - **TECH-137 (Terraform bootstrap) corrected against current official documentation
