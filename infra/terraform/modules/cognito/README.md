@@ -89,11 +89,18 @@ by this module.
 
 `human_callback_urls`/`human_logout_urls` are **required variables with no default**. No
 frontend exists yet, so no real URL exists either — a real `terraform plan`/`apply` must
-not proceed with invented values. Both variables reject any URL containing `localhost` or
-`example.com` via validation, specifically so those can never be mistaken for approved
-production values; they remain usable only inside this module's own offline tests, which
-use a `*.invalid` hostname (RFC 2606-reserved, guaranteed never to resolve) to make the
-placeholder nature unambiguous even there.
+not proceed with invented values. **The human app client is not usable until real,
+approved URLs are supplied here** — and, if the Hosted UI is needed, until
+`create_hosted_ui_domain`/`cognito_domain_prefix` are also set (see "Hosted UI domain"
+above). Both variables enforce two `validation` blocks: reject any URL containing
+`localhost` or `example.com` (so those can never be mistaken for approved production
+values), and require every URL to use `https://` — plain HTTP is never accepted, **not
+even as a test-only exception**. This module's own offline tests use a real `https://`
+URL on a `*.invalid` hostname (RFC 2606-reserved, guaranteed never to resolve) to stay
+both HTTPS-compliant and unambiguously non-production. Neither variable having a default
+does not block `terraform validate` (which does not require concrete variable values);
+supplying real values is only required for a genuine `plan`/`apply`, which this module
+never runs.
 
 ## Token validity
 
@@ -141,30 +148,58 @@ That wiring (adding an SSM-sourced `SIPSA_JWT_ALLOWED_CLIENT_IDS` environment en
 `SIPSA_JWT_ISSUER_URI` alongside it) is a documented follow-up for whichever story next
 touches the ECS task definition's environment configuration.
 
-## M2M client secret — Secrets Manager, and why
+## M2M client secret — what Terraform actually does with it, and why
 
-The M2M client's secret is written directly into a dedicated Secrets Manager secret
-(`aws_secretsmanager_secret_version`, sourced from
-`aws_cognito_user_pool_client.m2m.client_secret`) and **never exposed as a Terraform
-output** — only the secret's ARN is (`m2m_client_secret_arn`), the same pattern already
-established for the RDS master secret (`modules/database`).
+**Cognito generates the client secret.** When `aws_cognito_user_pool_client.m2m` is
+created, the provider reads that secret back from Cognito's API as a computed attribute
+(`client_secret`) so it can pass it into the next resource in this module
+(`aws_secretsmanager_secret_version`). **Terraform therefore receives the raw secret
+value during creation and retains it in the Terraform state file** — both in this
+module's own state and in the root `environments/production` state that consumes it.
+This is not a claim that can be engineered away by writing the value into Secrets
+Manager afterward: state always stores full resource attribute values, regardless of
+whether the provider schema marks an attribute `sensitive` (that flag only suppresses
+the value from **CLI output** — `plan`/`apply` logs print `(sensitive value)` for it,
+confirmed against this module's own provider schema — and from `terraform output`
+without `-json`; it has no effect on what state itself contains). **Do not describe this
+module, in any future documentation, as "Terraform never knows the client secret" or as
+"storing it in Secrets Manager removes it from state" — both are false for this resource.**
 
-**Provider behavior verified, not assumed:** unlike some AWS secret-generation patterns
-(e.g. an IAM access key, which truly cannot be retrieved again after creation), Cognito's
-app client secret is **not** a show-once value — it remains retrievable at any time after
-creation via the Cognito API (`DescribeUserPoolClient`), and Terraform's own resource
-re-reads it as a computed attribute on every refresh. This means the actual risk this
-design guards against is **casual exposure via `terraform output` or a state-viewing tool
-with insufficient access control** — not "losing an unrecoverable secret." Writing it into
-Secrets Manager, gated by IAM (`secretsmanager:GetSecretValue` on this specific ARN,
-granted explicitly to whichever principal needs it — e.g. a partner team's own role, or a
-future ECS task role once the application-side wiring above is done), is the actual
-control; the ARN alone grants nothing.
+**What Secrets Manager actually buys, then:** not the elimination of the value from
+Terraform state, but a **separate, narrowly-IAM-gated distribution path** for whoever
+needs to consume the credential operationally (a future ECS task role, or a partner
+team), so that day-to-day consumption never requires reading Terraform state directly.
+Access to the secret is granted via `secretsmanager:GetSecretValue` scoped to this
+specific ARN (`m2m_client_secret_arn` — the only thing this module outputs; the value and
+`client_secret` itself are never outputs). Also relevant, verified against this module's
+own provider schema (not assumed): unlike an IAM access key, which is a genuine
+show-once value, a Cognito app client secret is **not** show-once — it remains
+retrievable at any time after creation via the Cognito API
+(`DescribeUserPoolClient`), and Terraform's own resource re-reads it as a computed
+attribute on every refresh regardless of what this module does with Secrets Manager.
+
+**The real control boundary is the Terraform state backend, not this module.** The
+production state backend (`infra/terraform/bootstrap/main.tf`) enforces: S3 server-side
+encryption (`aws_s3_bucket_server_side_encryption_configuration`, `AES256`); a full
+public-access block (`aws_s3_bucket_public_access_block`, all four flags `true`);
+versioning; S3-native state locking (`use_lockfile = true` in
+`environments/production/versions.tf`, `encrypt = true` in the backend config). IAM role
+separation ([ADR-010](../../../../docs/adr/ADR-010-aws-infrastructure-as-code.md)):
+`terraform-plan`, `terraform-apply`, and `application-deploy` are three distinct
+least-privilege roles, never one administrator role, and `application-deploy` has no
+Terraform state access at all. No CI workflow in this repository runs `terraform output`
+against this stack; `terraform plan`'s CLI output — which already redacts this attribute
+as `(sensitive value)` per the provider schema — is never uploaded as a public artifact,
+only printed to a private Actions log. **The Terraform state for this stack must be
+treated as sensitive material: encrypted at rest (already enforced), never made public,
+and readable only by the infrastructure roles above** — this module's own design (writing
+to Secrets Manager, output-scoping to the ARN) reduces *day-to-day operational* exposure
+of the value; it does not, and cannot, remove the value from state.
 
 **Distribution to the consumer:** not automated by this story. Whoever owns the M2M
 integration (this repository's own future ECS task role, or a partner team) is granted
-read access to this specific secret ARN explicitly, when that consumer is real — never
-distributed by copying the value out of Terraform state or console output.
+read access to this specific secret ARN explicitly, when that consumer is real — via
+Secrets Manager IAM, never by copying the value out of Terraform state or console output.
 
 **No automatic rotation is implemented** — evaluate this once a real distribution
 mechanism for a rotated secret exists; rotating without one would silently break every

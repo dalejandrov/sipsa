@@ -178,13 +178,20 @@ resource "aws_cognito_user_pool_client" "human" {
 }
 
 # ---------------------------------------------------------------------------
-# M2M client secret — written directly into Secrets Manager, never exposed
-# as a Terraform output. See README.md: Cognito's client secret is NOT a
-# show-once value (unlike some AWS secret-generation patterns) — it remains
-# retrievable via the Cognito API after creation. This design's actual
-# purpose is guarding against casual exposure via `terraform output` or a
-# state-viewing tool with insufficient access control, not against losing
-# an unrecoverable value.
+# M2M client secret — copied into Secrets Manager for controlled operational
+# distribution, never exposed as a Terraform output. This does NOT remove
+# the value from Terraform state: Cognito generates the secret, the AWS
+# provider reads it back as a computed attribute during creation
+# (`aws_cognito_user_pool_client.m2m.client_secret`, schema-marked
+# `sensitive = true`, confirmed via `terraform providers schema`), and both
+# this module's state and the root state that consumes it retain the raw
+# value — `sensitive` only redacts CLI/log output, not what state stores.
+# See README.md's "M2M client secret" section for the full state-exposure
+# analysis and the backend controls (encryption, public-access block,
+# locking, IAM role separation) that actually protect it. Also unlike some
+# AWS secret-generation patterns (e.g. an IAM access key), Cognito's client
+# secret is NOT a show-once value — it remains retrievable via the Cognito
+# API after creation regardless of what this module does with it.
 # AWS-owned key is acceptable at this stage: single-owner secret, no
 # cross-account access, no compliance requirement yet mandating a CMK.
 # Revisit with a customer-managed KMS key if a real access-control boundary

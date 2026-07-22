@@ -127,12 +127,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   default and reject any `localhost`/`example.com` value, since no real frontend or
   approved callback URL exists yet. A Cognito-managed Hosted UI domain is supported but
   disabled by default (`create_hosted_ui_domain=false`) — enabling it later is a
-  one-variable change, not a restructuring. The M2M client's secret is written into a
-  dedicated Secrets Manager secret and never exposed as a Terraform output (only its ARN
-  is); the module's README documents that, unlike an IAM access key, a Cognito app client
-  secret *is* retrievable again after creation via the Cognito API — verified against the
-  real provider behavior, not assumed — so this design guards against casual
-  `terraform output`/state exposure, not an unrecoverable-secret problem. Both app client
+  one-variable change, not a restructuring. Cognito generates the M2M client's secret;
+  Terraform reads it back as a computed, schema-sensitive attribute during creation and
+  copies it into a dedicated Secrets Manager secret, never exposed as a Terraform output
+  (only its ARN is) — but Terraform state itself, for both this module and the root stack,
+  retains the raw value regardless (documentation corrected 2026-07-22: earlier wording
+  incorrectly implied Secrets Manager removes the value from state; it does not — state
+  always stores the full attribute, `sensitive` only redacts CLI/log output). The module's
+  README documents the real control boundary instead: the state backend's own encryption,
+  public-access block, and locking (`infra/terraform/bootstrap/main.tf`), plus IAM role
+  separation across `terraform-plan`/`terraform-apply`/`application-deploy` (ADR-010). Also
+  documented, verified against the real provider behavior, not assumed: unlike an IAM
+  access key, a Cognito app client secret *is* retrievable again after creation via the
+  Cognito API, independent of anything this module does. Both app client
   IDs (identifiers, not secrets) are optionally published to an SSM Parameter Store
   `String` parameter for a future `SIPSA_JWT_ALLOWED_CLIENT_IDS` wiring into
   `modules/ecs-task` — publishing only, not connected to that module by this story.

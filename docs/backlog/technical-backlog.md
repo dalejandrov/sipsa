@@ -2950,21 +2950,39 @@ de `modules/ecs-task` — hacerlo modificaría un módulo ya fusionado, fuera de
 esta historia; queda como seguimiento documentado para quien conecte
 `SIPSA_JWT_ALLOWED_CLIENT_IDS`/`SIPSA_JWT_ISSUER_URI` en el entorno de ECS.
 
-**Secreto del cliente M2M — Secrets Manager, comportamiento real verificado, no
-asumido:** a diferencia de algunos patrones de generación de secretos de AWS (p. ej. una
-IAM access key, verdaderamente irrecuperable tras su creación), el secreto de un app
-client de Cognito **no** es un valor de "mostrar una sola vez" — permanece recuperable en
-cualquier momento vía la API de Cognito (`DescribeUserPoolClient`), y el propio recurso de
-Terraform lo relee como atributo computado en cada refresh. El riesgo real que este diseño
-mitiga es la **exposición casual vía `terraform output` o una herramienta de
-visualización de state con control de acceso insuficiente** — no "perder un secreto
-irrecuperable". El secreto se escribe directamente en un `aws_secretsmanager_secret`
-dedicado (nunca expuesto como output — solo su ARN, `m2m_client_secret_arn`, mismo patrón
-que el secreto maestro de RDS en `modules/database`). Distribución al consumidor: no
-automatizada por esta historia — quien posea la integración M2M real recibe acceso de
-lectura a ese ARN específico, explícitamente, cuando ese consumidor exista. Sin rotación
-automática implementada — evaluar cuando exista un mecanismo real de distribución de un
-secreto rotado.
+**Secreto del cliente M2M — semántica corregida (2026-07-22):** Cognito genera el
+secreto; el provider de Terraform lo lee como atributo computado
+(`aws_cognito_user_pool_client.m2m.client_secret`, `sensitive = true` en el schema del
+provider, confirmado vía `terraform providers schema`) durante la creación, para poder
+copiarlo al siguiente recurso. **Terraform por lo tanto recibe el valor sensible y lo
+conserva en el state remoto** — tanto en el state de este módulo como en el de
+`environments/production` que lo consume. Esto no se elimina por escribir el valor en
+Secrets Manager después: el state siempre almacena el valor completo del atributo,
+independientemente de la marca `sensitive` del provider (esa marca solo suprime el valor
+en la salida de CLI/logs de `plan`/`apply` y en `terraform output` sin `-json` — no afecta
+lo que el state contiene). **No se debe afirmar que "Terraform nunca conoce el client
+secret" ni que guardarlo en Secrets Manager lo elimina del state — ambas son falsas para
+este recurso** (a diferencia del secreto maestro de RDS en `modules/database`, donde
+`manage_master_user_password = true` hace que RDS gestione el secreto internamente sin
+que Terraform lo lea nunca como atributo). Lo que Secrets Manager sí aporta es una vía de
+distribución operativa separada, acotada por IAM (`secretsmanager:GetSecretValue` sobre
+el ARN exacto), para que el consumo diario del secreto no requiera leer el state
+directamente — nunca expuesto como output (solo su ARN, `m2m_client_secret_arn`). También
+verificado contra el provider, no asumido: a diferencia de una IAM access key
+(verdaderamente irrecuperable), el secreto de un app client de Cognito permanece
+recuperable en cualquier momento vía `DescribeUserPoolClient`, independientemente de este
+diseño. **El control real es el backend de state**: el bucket S3 de
+`infra/terraform/bootstrap/main.tf` tiene cifrado (`AES256`), bloqueo público completo
+(`aws_s3_bucket_public_access_block`, las cuatro banderas en `true`), versionado, y
+locking nativo S3 (`use_lockfile = true`); los roles `terraform-plan`/`terraform-apply`/
+`application-deploy` están separados por mínimo privilegio (ADR-010), y ningún workflow de
+este repositorio ejecuta `terraform output` contra este stack. El state de este stack debe
+tratarse como material sensible, cifrado y accesible únicamente por roles de
+infraestructura de mínimo privilegio — esa es la protección real, no la ausencia del valor
+en el state. Distribución al consumidor: no automatizada por esta historia — quien posea
+la integración M2M real recibe acceso de lectura a ese ARN específico, explícitamente,
+cuando ese consumidor exista. Sin rotación automática implementada — evaluar cuando exista
+un mecanismo real de distribución de un secreto rotado.
 
 **Trivy exceptions:**
 
