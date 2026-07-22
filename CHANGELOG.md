@@ -155,6 +155,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   no AWS resources have been applied yet; TECH-132 remains `In progress`, unaffected by
   this story (Cognito is not VPC-scoped).
 
+- **Cognito configuration wired into the ECS task definition** (TECH-142, closing
+  TECH-130's own documented follow-up). `SIPSA_JWT_ISSUER_URI` (plain env var) and
+  `SIPSA_JWT_ALLOWED_CLIENT_IDS` (an SSM-sourced `secrets` entry, never plaintext) now flow
+  from `module.cognito`'s `issuer_url`/`allowed_client_ids_parameter_arn` outputs into
+  `module.ecs_task`, via two new generic `modules/ecs-task` variables
+  (`environment_variables`/`secret_parameters`) — the module still has no direct dependency
+  on `modules/cognito`, keeping it reusable; only `environments/production/main.tf` connects
+  the two. The execution role's IAM grant uses `modules/ecs-task`'s existing
+  `execution_ssm_parameter_arns` extension point (added in TECH-140, which explicitly
+  anticipated "a future Cognito client secret once TECH-130 exists") — scoped to exactly
+  the one SSM parameter ARN, never a wildcard, no KMS permission added (the parameter is
+  `String`, not `SecureString`), task role untouched. The `docker` Spring profile the ECS
+  task already used (TECH-140's default) was audited directly against
+  `application-docker.yaml`/`application-dev.yaml`/`application.yaml` and confirmed already
+  safe for AWS (no mock OIDC, no relaxed logging/actuator exposure — those live exclusively
+  in the `dev` profile) — no new profile was created. Both Cognito app clients remain in
+  the allowlist: neither the application's per-operation scope authorization nor TECH-130's
+  own scope table distinguishes M2M from human callers. Adds
+  `CognitoJwtDecoderContractTest` — 6 new Java tests exercising
+  `SecurityConfig.jwtDecoder()` end to end against locally-signed, Cognito-shaped JWTs
+  (issuer discovery, JWKS signature verification, `token_use`, and the `client_id`
+  allowlist together, via a loopback JDK `HttpServer`, no new test dependency) — closing a
+  real coverage gap neither the existing hand-built-`Jwt` unit tests nor the
+  mocked-`JwtDecoder` MockMvc tests exercised. No incompatibility found; no change to
+  `SecurityConfig`/`TokenUseValidator`/`AllowedClientIdsValidator`/`SipsaJwtProperties`.
+  Adds this repository's first root-level `terraform test` suite
+  (`environments/production/tests/production.tftest.hcl`), stubbing every module except
+  `ecs_task` via `override_module` to isolate the wiring itself from each module's
+  already-tested internals. 108 `terraform test` cases across the tree (was 102), 338 Java
+  tests total (was 332), all green — **no real AWS account is contacted anywhere, and no
+  `terraform apply` has been run.** TECH-130's status line now reads "Terraform foundation
+  and ECS configuration wiring complete." TECH-132 remains `In progress`; TECH-131 remains
+  `Pending`.
+
 ### Changed
 
 - **TECH-137 (Terraform bootstrap) corrected against current official documentation

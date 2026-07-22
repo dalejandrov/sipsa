@@ -185,23 +185,30 @@ resource "aws_ecs_task_definition" "app" {
         }
       ]
 
-      environment = [
+      # environment_variables/secret_parameters (both maps, TECH-142) let the
+      # caller append entries without this module knowing which other module
+      # produced the value — see their variable descriptions. `for k, v in`
+      # over a map iterates in a stable, sorted-by-key order, so this list's
+      # shape is deterministic across plans/tests.
+      environment = concat([
         { name = "SPRING_PROFILES_ACTIVE", value = var.spring_profile },
         { name = "PORT", value = tostring(var.container_port) },
         { name = "DB_HOST", value = var.db_host },
         { name = "DB_PORT", value = tostring(var.db_port) },
         { name = "DB_NAME", value = var.db_name },
-      ]
+        ], [for k, v in var.environment_variables : { name = k, value = v }]
+      )
 
       # DB_USERNAME/DB_PASSWORD resolved from Secrets Manager at task
       # startup — never a plaintext environment value. See
       # db_credentials_secret_arn's variable description for why this is a
       # temporary wiring (the RDS master secret) pending a real,
       # minimum-privilege application credential.
-      secrets = [
+      secrets = concat([
         { name = "DB_USERNAME", valueFrom = "${var.db_credentials_secret_arn}:username::" },
         { name = "DB_PASSWORD", valueFrom = "${var.db_credentials_secret_arn}:password::" },
-      ]
+        ], [for k, v in var.secret_parameters : { name = k, valueFrom = v }]
+      )
 
       logConfiguration = {
         logDriver = "awslogs"

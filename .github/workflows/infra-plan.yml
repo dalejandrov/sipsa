@@ -7,8 +7,9 @@
 # module's own `terraform test` suite (TECH-138: modules/network/tests/;
 # TECH-139: modules/database/tests/; TECH-140: modules/ecr/tests/,
 # modules/ecs-task/tests/; TECH-141: modules/ecs-service/tests/; TECH-130:
-# modules/cognito/tests/) uses a
-# mocked AWS provider, never a real account. The plan step
+# modules/cognito/tests/; TECH-142: environments/production/tests/, root
+# module-wiring only, non-ecs_task modules stubbed via override_module) uses
+# a mocked AWS provider, never a real account. The plan step
 # is conditioned on the `AWS_TERRAFORM_PLAN_ROLE_ARN` repository variable
 # being set — that role does not exist yet (see infra/terraform/README.md and
 # ADR-010's OIDC trust-policy contract); creating it is a prerequisite for
@@ -78,6 +79,10 @@ jobs:
       # modules gain their own tests/*.tftest.hcl (TECH-130/TECH-132's later
       # phases), rather than a single find-and-loop that hides which module
       # failed.
+      - name: terraform test — environments/production (root wiring only, TECH-142)
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform test
+
       - name: terraform test — modules/network
         working-directory: infra/terraform/modules/network
         run: |

@@ -137,16 +137,21 @@ made by this story**:
 
 No defect was found, so no fixture/test/commit addressing an incompatibility was needed.
 
-## Client-ID allowlist — design only, not wired into ECS
+## Client-ID allowlist — published here, wired into ECS by TECH-142
 
 `publish_client_ids_to_ssm` (default `true`) publishes both app clients' IDs as a CSV in
 an SSM Parameter Store **String** parameter (`/  <project>-<environment>/sipsa/jwt-allowed-client-ids`)
 — client IDs are identifiers, not secrets, per `AllowedClientIdsValidator`'s own Javadoc.
-**This module does not wire that parameter into `modules/ecs-task`'s task definition** —
-doing so would modify an already-merged, unrelated module outside this story's scope.
-That wiring (adding an SSM-sourced `SIPSA_JWT_ALLOWED_CLIENT_IDS` environment entry, and
-`SIPSA_JWT_ISSUER_URI` alongside it) is a documented follow-up for whichever story next
-touches the ECS task definition's environment configuration.
+This module exposes both `allowed_client_ids_parameter_name` and
+`allowed_client_ids_parameter_arn` (the latter needed for an IAM read grant and for an ECS
+`secrets` entry — a name alone isn't enough for either). **TECH-142 wires this parameter's
+ARN, plus `issuer_url`, into `modules/ecs-task`'s generic `environment_variables`/
+`secret_parameters` variables at the `environments/production` root** — `modules/ecs-task`
+itself still has no direct dependency on this module; it only accepts typed maps the root
+populates, keeping it reusable. Both clients' IDs are included in the allowlist because
+neither the application's authorization policy nor TECH-130's own scope table
+distinguishes M2M from human callers — both are legitimate consumers of every scope this
+resource server declares.
 
 ## M2M client secret — what Terraform actually does with it, and why
 
