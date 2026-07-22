@@ -104,6 +104,20 @@ it exists. This story does not grant that permission to anything, since nothing 
 yet to grant it to. **Custom secret rotation is explicitly not implemented in this
 story** — RDS-managed master-password rotation is a separate, later decision.
 
+**The master secret is a temporary wiring, not the final design** — `modules/ecs-task`'s
+task definition currently resolves `DB_USERNAME`/`DB_PASSWORD` from this same master
+secret, explicitly flagged there as temporary. TECH-144 designed (but did not create,
+since it requires a live connection to a real RDS instance that does not exist yet) the
+replacement: two application-level PostgreSQL roles, `sipsa_migration` (schema
+ownership/DDL, used only by a one-off Flyway migration task at deploy time) and
+`sipsa_runtime` (DML only, used by the running ECS service) — see
+`scripts/create-application-users.sql` for the exact `GRANT` statements (neither role
+gets `SUPERUSER`/`CREATEROLE`/`CREATEDB`; the script documents why it is deliberately
+not idempotent on `CREATE ROLE`), and
+`docs/operations/aws-production-preflight.md` for the full strategy, secret placement,
+and rotation approach. Creating these roles for real is a prerequisite step in the
+documented first-deployment order, not part of this module.
+
 ## Backup and maintenance windows — explicit UTC conversion
 
 The application's ingestion scheduler (`application.yaml`) runs on `America/Bogota`
