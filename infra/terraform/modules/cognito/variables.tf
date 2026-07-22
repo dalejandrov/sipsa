@@ -146,10 +146,15 @@ variable "human_callback_urls" {
     OAuth2 callback (redirect) URLs for the human app client. Required, no
     default — no frontend exists yet, so no real callback URL exists
     either. A real terraform plan/apply must not proceed with invented
-    values; supply the actual, approved URL(s) when a client exists.
+    values; supply the actual, approved URL(s) when a client exists. This
+    client is not usable until real URLs are supplied — and, if Hosted UI
+    is needed, until create_hosted_ui_domain/cognito_domain_prefix are also
+    set (see README.md).
     Rejected outright: any URL containing "localhost" or "example.com" —
-    those are not valid production values, only ever appropriate in this
-    module's own offline tests.
+    those are not valid production values. Required: every URL must use
+    "https://" — plain HTTP redirect URLs are never accepted, including in
+    this module's own offline tests (which use a real https:// URL on the
+    RFC 2606-reserved *.invalid TLD, never an http:// exception).
   EOT
   type        = list(string)
 
@@ -157,15 +162,25 @@ variable "human_callback_urls" {
     condition     = alltrue([for u in var.human_callback_urls : !strcontains(lower(u), "localhost") && !strcontains(lower(u), "example.com")])
     error_message = "human_callback_urls must not contain localhost or example.com — those are not valid production values."
   }
+
+  validation {
+    condition     = alltrue([for u in var.human_callback_urls : startswith(lower(u), "https://")])
+    error_message = "human_callback_urls must use https:// — plain HTTP redirect URLs are never accepted, not even in tests."
+  }
 }
 
 variable "human_logout_urls" {
-  description = "OAuth2 logout redirect URLs for the human app client. Required, no default — same reasoning as human_callback_urls."
+  description = "OAuth2 logout redirect URLs for the human app client. Required, no default — same reasoning as human_callback_urls (localhost/example.com rejected, https:// required, no test exception)."
   type        = list(string)
 
   validation {
     condition     = alltrue([for u in var.human_logout_urls : !strcontains(lower(u), "localhost") && !strcontains(lower(u), "example.com")])
     error_message = "human_logout_urls must not contain localhost or example.com — those are not valid production values."
+  }
+
+  validation {
+    condition     = alltrue([for u in var.human_logout_urls : startswith(lower(u), "https://")])
+    error_message = "human_logout_urls must use https:// — plain HTTP redirect URLs are never accepted, not even in tests."
   }
 }
 

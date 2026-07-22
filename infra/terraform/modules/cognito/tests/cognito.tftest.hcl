@@ -200,6 +200,32 @@ run "rejects_example_com_logout_url" {
   ]
 }
 
+# Invalid input is rejected: plain HTTP is never accepted, not even a
+# non-localhost/non-example.com URL — https:// is required unconditionally.
+run "rejects_plain_http_callback_url" {
+  command = plan
+
+  variables {
+    human_callback_urls = ["http://app.sipsa.internal.invalid/callback"]
+  }
+
+  expect_failures = [
+    var.human_callback_urls,
+  ]
+}
+
+run "rejects_plain_http_logout_url" {
+  command = plan
+
+  variables {
+    human_logout_urls = ["http://app.sipsa.internal.invalid/logout"]
+  }
+
+  expect_failures = [
+    var.human_logout_urls,
+  ]
+}
+
 # 15: Token validity matches the configured defaults.
 run "token_validity_matches_defaults" {
   command = apply
