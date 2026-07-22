@@ -57,13 +57,15 @@ When a story is implemented:
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
 | TECH-130 | Cognito resource server, scopes and app clients | High | — | **Done** (2026-07-21, branch `infra/cognito-authentication-foundation` — `modules/cognito`, 23/23 `terraform test` green, no AWS resource created; ECS config wiring completed 2026-07-22 by [TECH-142](#tech-142)) |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | **Done** (2026-07-22, branch `infra/api-gateway-private-integration` — `modules/api-gateway`, 21/21 `terraform test` green, 129/129 tree-wide, no AWS resource created) |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC, RDS, ECS task, internal service, and API Gateway/VPC Link foundations complete (TECH-138, TECH-139, TECH-140, TECH-141, TECH-131, 2026-07-22); real AWS provisioning still pending |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — declarative infrastructure complete (TECH-138, TECH-139, TECH-140, TECH-141, TECH-131); local deployment hardening done (TECH-144, 2026-07-22); real AWS validation blocked (TECH-143, unmerged) pending SIPSA-specific credentials |
 | TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — corrected same day: S3-native locking, Terraform 1.15.7/AWS provider 6.55.0, Trivy scanning, OIDC contract, REST API decision) |
 | TECH-138 | Provision production VPC foundation | High | — | **Done** (2026-07-21, branch `infra/production-vpc-foundation` — `modules/network`, 16/16 `terraform test` green, no AWS resource created) |
 | TECH-139 | Define production RDS PostgreSQL foundation | High | — | **Done** (2026-07-21, branch `infra/production-rds-foundation` — `modules/database`, 20/20 `terraform test` green, no AWS resource created) |
 | TECH-140 | Define production ECR and ECS task foundation | High | — | **Done** (2026-07-21, branch `infra/production-ecs-task-foundation` — `modules/ecr` + `modules/ecs-task`, 26/26 `terraform test` green, no AWS resource created, no image published) |
 | TECH-141 | Define internal ALB and ECS service foundation | High | — | **Done** (2026-07-21, branch `infra/internal-alb-ecs-service` — `modules/ecs-service`, 17/17 `terraform test` green, no AWS resource created) |
 | TECH-142 | Wire Cognito configuration into the ECS task | High | — | **Done** (2026-07-22, branch `infra/wire-cognito-ecs-configuration` — issuer/allowlist wired root-only, 108/108 `terraform test` green tree-wide, 338 Java tests green, no AWS resource created) |
+| TECH-143 | Validate production deployment prerequisites and Terraform plan | High | — | **Blocked / In progress** (branch `infra/production-deployment-preflight`, NOT merged — kept as evidence) — no SIPSA AWS credentials available; RDS/backend/OIDC/real-plan/cost checks blocked; local work extracted to TECH-144 |
+| TECH-144 | Harden deployment configuration from local preflight evidence | High | — | **Done** (2026-07-22, branch `infra/preflight-local-hardening` — 131/131 `terraform test` tree-wide, 338 Java tests green, no AWS resource created) — Cognito human-client gate, ECS memory re-verified at 1024 MiB, grace period 480s from 6 real samples, DB credential design, no AWS access used |
 | TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
@@ -3308,16 +3310,24 @@ key en ningún momento; ningún recurso AWS de ningún tipo existe.
 **Type:** Infrastructure / Security
 **Priority:** High
 **Phase:** —
-**Status:** **In progress** — VPC, RDS, ECS task, internal service, and API
-Gateway/VPC Link foundations complete (TECH-138, TECH-139, TECH-140, TECH-141,
-TECH-131); real AWS provisioning still pending
+**Status:** **In progress** — declarative infrastructure complete across VPC/RDS/ECS/
+ALB/Cognito/API Gateway (TECH-138, TECH-139, TECH-140, TECH-141, TECH-130, TECH-131);
+local deployment hardening done (TECH-144, 2026-07-22 — Cognito human-client gate, ECS
+memory/grace-period backed by real local measurements, DB credential strategy
+designed); real AWS validation (RDS engine availability, backend bootstrap, OIDC trust
+policy, a real plan, cost estimate) remains blocked (TECH-143, kept on its own
+unmerged branch as evidence) pending SIPSA-specific AWS credentials, not available in
+this environment — see
+[docs/operations/aws-production-preflight.md](../operations/aws-production-preflight.md)
 **Complexity:** M
 **Branch:** — (infrastructure work; VPC foundation landed via
 `infra/production-vpc-foundation` (TECH-138), RDS foundation via
 `infra/production-rds-foundation` (TECH-139), ECR/ECS task foundation via
 `infra/production-ecs-task-foundation` (TECH-140), internal ALB/ECS Service via
 `infra/internal-alb-ecs-service` (TECH-141), API Gateway/VPC Link via
-`infra/api-gateway-private-integration` (TECH-131))
+`infra/api-gateway-private-integration` (TECH-131), local deployment hardening via
+`infra/preflight-local-hardening` (TECH-144); blocked AWS preflight kept, unmerged, on
+`infra/production-deployment-preflight` (TECH-143))
 
 **Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
 code changed):** full classification, gateway-bypass-prevention design, and evidence in
@@ -3418,6 +3428,24 @@ deliberately has no security group of its own — all in
 AWS resource has been created** (no `terraform apply` run); validated via `terraform
 test` against a mocked provider, plus a stub of `module.api_gateway` in
 `environments/production/tests/production.tftest.hcl`.
+
+**Progress (2026-07-22, [TECH-144](#tech-144), branch
+`infra/preflight-local-hardening`):** a deployment preflight was attempted
+([TECH-143](#tech-143)) but found no SIPSA-specific AWS credentials in the environment —
+every AWS-touching check (RDS engine availability, backend bootstrap, OIDC, a real
+plan, cost estimate) remains blocked, kept on TECH-143's own unmerged branch as
+evidence. What was verifiable locally, without AWS, was extracted into this story and
+merged: the Cognito human app client is now gated behind `enable_human_client` (default
+`false`); ECS task memory moved from an unmeasured 512 MiB to 1024 MiB, backed by real
+local measurements at *both* values (89.73% memory utilization at 512 MiB; 44.89%–
+55.25% at 1024 MiB across three fresh re-verification runs, no OOM); the health-check
+grace period moved from an unmeasured 120s to 480s, based on six real local startup
+samples (187s–385s, the 385s sample kept and explained, not discarded); an application
+database credential strategy (`sipsa_migration`/`sipsa_runtime`, least-privilege,
+exact `GRANT`s, never executed) and a Flyway rolling-deployment decision (a one-off
+migration task before service rollout, not yet built) were both designed. **No AWS
+resource has been created; no AWS credential was used.** Full detail:
+[docs/operations/aws-production-preflight.md](../operations/aws-production-preflight.md).
 
 **Origin:** ADR-002 (Accepted, Option E), layer 4.
 
@@ -4634,6 +4662,168 @@ historia):
 - Dominio Hosted UI de Cognito no creado (gap de TECH-130, sin cambios).
 - Sin rotación automática del secreto M2M (gap de TECH-130, sin cambios).
 - Ningún `terraform apply` ejecutado en ningún momento de esta secuencia de historias.
+
+---
+
+### TECH-143
+
+**Title:** Validate production deployment prerequisites and Terraform plan
+**Type:** Infrastructure / Operations
+**Priority:** High
+**Phase:** —
+**Status:** **Blocked / In progress** — no se fusiona a `main`. Mantenida intacta en su
+propia rama como evidencia, separada explícitamente del trabajo local verificable, que
+se extrajo a [TECH-144](#tech-144).
+**Complexity:** M
+**Branch:** `infra/production-deployment-preflight` (NO fusionada — conservada como
+evidencia del preflight bloqueado)
+
+**Origin:** cierre de los bloqueos reales que impiden el primer `terraform apply` de
+TECH-132.
+
+**Motivo de bloqueo, sin cambios:** no existe ninguna credencial AWS específica de
+SIPSA en este entorno. Se encontraron dos perfiles no relacionados (`incampo`,
+`trustid`), ambos con access keys permanentes, ninguno usado — ningún comando AWS se
+ejecutó con ninguno de los dos, en ningún momento, en ninguna de las dos historias.
+
+**Permanece bloqueado, sin resolver:**
+- Disponibilidad de PostgreSQL 18 / `db.t3.micro` en RDS `us-east-1`.
+- Plan real del bootstrap del backend S3.
+- Inspección del subject real emitido por GitHub OIDC.
+- `terraform plan` real contra la cuenta de producción.
+- Estimación de costos con cifras reales.
+
+**Decisión del propietario del repositorio (2026-07-22):** el manejo original de
+TECH-143 fue confirmado como correcto (ninguna credencial ajena usada, la historia no se
+marcó Done indebidamente), pero la rama mezclaba trabajo local terminado con resultados
+de AWS bloqueados. Se separaron ambos alcances: **TECH-143 permanece bloqueada, en su
+propia rama, sin fusionar**; el trabajo verificable localmente (gate del cliente humano
+de Cognito, estrategia de credenciales de BD, decisión de Flyway, evidencia de
+capacidad/grace period de ECS — esta última re-verificada con una medición adicional a
+1024 MiB) se extrajo a **[TECH-144](#tech-144)**, que sí se fusiona.
+
+**No se marca Done.** Retomar esta historia (o una nueva) una vez existan credenciales
+AWS reales y correctamente acotadas para la cuenta de SIPSA. Ver
+`docs/operations/aws-production-preflight.md` (presente en ambas ramas, con las
+secciones bloqueadas — §1-4, §8 de la versión de esa rama — sin cambios) para el detalle
+completo.
+
+---
+
+### TECH-144
+
+**Title:** Harden deployment configuration from local preflight evidence
+**Type:** Infrastructure / Operations
+**Priority:** High
+**Phase:** —
+**Status:** **Done** — únicamente refuerzo local, verificable, sin AWS. No constituye un
+preflight de despliegue AWS ni un plan de Terraform real (eso permanece en
+[TECH-143](#tech-143), bloqueado).
+**Complexity:** S
+**Branch:** `infra/preflight-local-hardening`
+
+**Origin:** extracción del trabajo local terminado y verificable de TECH-143, separado
+explícitamente de los resultados bloqueados de AWS, por decisión del propietario del
+repositorio.
+
+**Gate del cliente humano de Cognito:** `enable_human_client` (nueva variable,
+`modules/cognito`, default `false`) — el cliente humano
+(`aws_cognito_user_pool_client.human`, ahora con `count`) no se crea sin URLs de
+callback/logout reales. El cliente M2M, el resource server, los scopes, y el user pool
+permanecen completamente intactos e incondicionales. Una validación rechaza habilitar el
+cliente humano con URLs vacías. 25/25 tests en el módulo (antes 23).
+
+**Memoria de ECS — resultado exacto a 512 MiB y re-verificado a 1024 MiB:**
+
+| Config | Resultado |
+|---|---|
+| 512 MiB, 0.25 vCPU (3 muestras) | 459.4 MiB usados de 512 MiB — **89.73% de utilización de memoria, 10.27% libre**, en idle post-arranque, antes de cualquier carga de ingestión real. Sin OOM. |
+| 1024 MiB, 0.25 vCPU (3 muestras nuevas, re-verificación exigida antes de fusionar) | Pico de memoria observado: 560.4 MiB (54.72%), 483.5 MiB (47.22%), 549.0 MiB (53.61%) — utilización máxima 44.89%-55.25% en las lecturas finales. `ExitCode=0` en las tres, `OOMKilled=false` en las tres. |
+
+Memoria de tarea ECS: **512 → 1024 MiB** — combinación válida de Fargate para 256 CPU
+(sin cambio de CPU), respaldada por evidencia real en ambos valores, no solo por la
+presión observada a 512 MiB.
+
+**Tiempos de arranque — mínimo/mediana/máximo (6 muestras reales, no 3):**
+
+| # | Config | Segundos hasta `/actuator/health` 200 |
+|---:|---|---:|
+| 1 | 512 MiB | 207 |
+| 2 | 512 MiB | 214 |
+| 3 | 512 MiB | 221 |
+| 4 | 1024 MiB | 188 |
+| 5 | 1024 MiB | 187 |
+| 6 | 1024 MiB | **385** |
+
+**Mínimo: 187s. Mediana: ~210.5s. Máximo: 385s.**
+
+**Justificación del grace period:** la muestra 6 (385s) se conserva, no se descarta como
+outlier conveniente — el propio log de Spring Boot de esa corrida reportó ~192s hasta
+"Started SipsaApplication", consistente con las otras cinco muestras, por lo que la
+brecha adicional de ~193s antes de que el *health probe* externo (`curl` desde el host)
+recibiera `200` es más plausiblemente contención de red/host de Docker Desktop local por
+el uso intensivo y concurrente de Docker durante esta sesión de medición — no
+confirmado, tampoco descartado sin más. `health_check_grace_period_seconds`: 120
+(original, sin medir) → 300 (borrador de TECH-143, solo 3 muestras a 512 MiB) → **480**
+(TECH-144, final) — con ~95s de margen sobre el peor de las **seis** muestras reales, no
+solo un subconjunto favorable. Sigue siendo medición local; requiere confirmación contra
+Fargate real antes del primer despliegue real.
+
+**Script de medición endurecido:** `scripts/measure-container-startup.sh` — sin
+credenciales, sin dependencia de cuentas AWS, `set -euo pipefail`, limpia contenedores y
+el stack de compose al salir (incluso en error), CPU/memoria configurables, timeout por
+muestra, **falla con código de salida distinto de cero si algún health check nunca llega
+a 200** (antes solo lo registraba), nunca usa un `sleep` fijo como criterio de éxito,
+documenta sus prerrequisitos en su propio encabezado.
+
+**Estrategia de BD:** diseño de dos roles PostgreSQL (`sipsa_migration`/`sipsa_runtime`)
+con grants exactos en `infra/terraform/modules/database/scripts/create-application-users.sql`
+— confirmado: sin `SUPERUSER`/`CREATEROLE`/`CREATEDB`; separa migraciones de runtime;
+grants mínimos; documenta explícitamente por qué no es idempotente en `CREATE ROLE`
+(y qué partes del script sí son seguras de re-ejecutar); no conecta a AWS; no ejecuta
+Flyway. **Nunca ejecutado.**
+
+**Decisión de Flyway:** tarea de migración ECS única antes del rollout del servicio,
+registrada con follow-up explícito (definición de la tarea, paso del pipeline, manejo de
+fallos, orden del rollout, comportamiento de rollback — este último documentando una
+asimetría real y no resuelta: una migración de Flyway ya aplicada no revierte
+automáticamente si el despliegue de la aplicación falla después). **No implementada.**
+
+**Scheduler:** `desired_count=1` se mantiene; 4 opciones de seguimiento documentadas,
+ninguna decidida — bloqueo de HA, no del despliegue inicial de una sola tarea.
+
+**No incluido en TECH-144** (permanece exclusivamente en TECH-143, bloqueada):
+disponibilidad RDS, clase RDS, backend remoto, OIDC real, cuenta AWS, plan real, costos,
+callback URLs reales, endpoint Cognito real. Ningún archivo de esta historia afirma
+haber validado ninguno de esos puntos.
+
+**Trivy/TFLint:** re-ejecutados, limpios, sin hallazgos nuevos.
+
+**Acceptance Criteria:**
+- [x] Gate de cliente humano de Cognito implementado, con tests (25/25).
+- [x] Memoria de ECS respaldada por medición real en ambos valores (512 y 1024 MiB),
+      no solo por el fallo a 512 MiB.
+- [x] Grace period basado en las 6 muestras reales (mínimo/mediana/máximo reportados),
+      con margen razonable sobre el máximo.
+- [x] Script de medición endurecido según los 9 criterios pedidos.
+- [x] Estrategia de BD diseñada, script SQL verificado seguro, nunca ejecutado.
+- [x] Decisión de Flyway registrada con follow-up explícito de 4 puntos.
+- [x] Scheduler documentado, sin decisión arquitectónica tomada.
+- [x] 131/131 `terraform test` en el árbol; TFLint 0; Trivy 0 sin resolver.
+- [x] `./mvnw clean verify` — 338 tests, 0 fallos, `BUILD SUCCESS`.
+- [x] Ningún `terraform apply`, comando AWS CLI, ni credencial usada en ningún momento.
+- [x] Ninguna afirmación de validación AWS incluida.
+- [x] TECH-143 permanece `Blocked / In progress`, sin fusionar. TECH-132 permanece
+      `In progress`.
+
+**Completed:** `infra/terraform/modules/cognito/{main,variables,outputs,README}.tf`
+(gate de cliente humano), `modules/ecs-task/variables.tf` + tests (memoria),
+`modules/ecs-service/variables.tf` + tests (grace period),
+`environments/production/{main,variables}.tf` (wiring), `modules/database/README.md`
+(referencia a la estrategia), `modules/database/scripts/create-application-users.sql`
+(nuevo), `scripts/measure-container-startup.sh` (nuevo, endurecido),
+`docs/operations/aws-production-preflight.md` (actualizado con la evidencia corregida y
+la separación explícita de alcance TECH-143/TECH-144).
 
 ---
 

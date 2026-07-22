@@ -1,6 +1,25 @@
 # AWS Production Readiness — TECH-130 / TECH-131 / TECH-132
 
-**Version:** 1.9 (2026-07-22 — [TECH-131](../backlog/technical-backlog.md#tech-131)
+**Version:** 2.0 (2026-07-22 — [TECH-144](../backlog/technical-backlog.md#tech-144)
+(`infra/preflight-local-hardening`, merged) extracted and hardened the locally
+verifiable portion of a deployment preflight attempt
+([TECH-143](../backlog/technical-backlog.md#tech-143), `infra/production-deployment-preflight`,
+**kept unmerged** — no SIPSA-specific AWS credentials exist in this environment; every
+AWS-touching check remains blocked, not resolved, not guessed against the wrong
+account). What TECH-144 delivered, all without AWS access: the Cognito human app client
+is now gated behind `enable_human_client` (default `false` — `modules/cognito`, 25/25
+`terraform test`); ECS task memory moved from an unmeasured 512 MiB to 1024 MiB, backed
+by real local measurements at *both* values (512 MiB: 89.73% memory utilization,
+10.27% free, before any real ingestion load; 1024 MiB, re-verified with three fresh
+runs specifically before merging: 44.89%–55.25% utilization, no OOM in any sample); the
+health-check grace period moved from an unmeasured 120s to 480s, based on six real
+local startup samples (187s–385s — the 385s sample kept and explained via Spring's own
+consistent internal timing, not discarded as a convenient outlier); and an application
+database credential strategy (`sipsa_migration`/`sipsa_runtime`, least-privilege, exact
+`GRANT`s, never executed) plus a Flyway rolling-deployment decision were both designed.
+131/131 `terraform test` tree-wide. Full detail:
+[docs/operations/aws-production-preflight.md](../operations/aws-production-preflight.md).
+Earlier same-day context, 2026-07-22: [TECH-131](../backlog/technical-backlog.md#tech-131)
 (API Gateway REST API, VPC Link, Cognito authorizer, API keys, usage plans, throttling,
 access logs) is now **Done as Terraform foundation** (`modules/api-gateway`, 21/21
 `terraform test` green, 129/129 tree-wide) — no AWS resource created, no `terraform
@@ -240,7 +259,7 @@ architecture/security decision, **E** = already resolved.
 | Real Cognito user pool (dev + prod) | Resolved (TECH-130) + C (apply) | `modules/cognito`'s `aws_cognito_user_pool.main`, implemented as Terraform code; not yet applied to a real account |
 | `sipsa` resource server + 4 custom scopes | Resolved (TECH-130) + C (apply) | `aws_cognito_resource_server.sipsa`, scopes confirmed by grep against `SecurityConfig`, not invented |
 | `client_credentials` app client(s) | Resolved (TECH-130) + C (apply) | One parameterizable M2M client (`aws_cognito_user_pool_client.m2m`) — ADR-010's two-contract model; module supports instantiating more without restructuring when a second real integration exists |
-| Authorization-code app client + hosted UI | Resolved (TECH-130) + C (apply) | Human client (`aws_cognito_user_pool_client.human`, Authorization Code + PKCE, no secret) always created; Hosted UI domain itself stays disabled by default (`create_hosted_ui_domain = false`) — no real callback URL exists yet, see §10 |
+| Authorization-code app client + hosted UI | Resolved (TECH-130 + TECH-144) + C (apply) | Human client (`aws_cognito_user_pool_client.human`, Authorization Code + PKCE, no secret) fully configured but gated behind `enable_human_client` (default `false`, TECH-144) — not created until real, approved callback/logout URLs exist; Hosted UI domain itself stays disabled by default (`create_hosted_ui_domain = false`) too, see §10 |
 | Document issuer URI per environment | Resolved (TECH-130 + TECH-142) | `issuer_url` module output, wired into `SIPSA_JWT_ISSUER_URI` at the ECS task definition by TECH-142 — still needs the real pool to exist (C, apply) for the value to be non-empty |
 | Client secret storage strategy | Resolved (TECH-130) | Dedicated `aws_secretsmanager_secret`/`_version`, ARN-only module output (`m2m_client_secret_arn`) — never the secret value; same pattern as RDS's master secret. Provider behavior verified, not assumed: Cognito's client secret is retrievable after creation (unlike an IAM access key), so this guards against casual `terraform output`/state exposure, not an unrecoverable-value risk — see `modules/cognito/README.md` |
 | Test against a real Cognito token | C | Needs a real, applied pool; the mock-OIDC e2e already proves the app-side logic, and `terraform test`'s 21/21 mocked-provider suite proves the Terraform contract |
@@ -290,14 +309,19 @@ Gateway, an S3 Gateway VPC Endpoint, configurable VPC Flow Logs),
 `infra/terraform/modules/database/` (RDS PostgreSQL 18, Single-AZ, DB subnet group,
 security group with no ingress rule of its own, encrypted, RDS-managed master password),
 `infra/terraform/modules/ecr/` + `infra/terraform/modules/ecs-task/` (ECR repository,
-Fargate ECS cluster, task definition with CPU/memory proposed at 256/512 — unverified
-against real load — X86_64, separate execution/task IAM roles), and
+Fargate ECS cluster, task definition with CPU/memory now 256/1024 — TECH-144 bumped
+memory from an unverified 512 after measuring 89.73% memory utilization at 512 MiB in
+three local Docker runs of the actual image, then re-verified 1024 MiB with three more
+runs, 44.89%-55.25% utilization, no OOM; still not verified against real ingestion
+load — X86_64, separate execution/task IAM roles), and
 `infra/terraform/modules/ecs-service/` (internal ALB — no ingress until TECH-131 — ECS
 Service `desired_count=1`, the ECS→RDS security-group rule, an HTTP-only listener since
-no ACM certificate exists) — all verified via `terraform test` against a mocked
-provider. **No AWS resource has been created, no image published** — no `terraform
-apply` has run for any of the four. This does not change any other classification below;
-the story's status is `In progress` (see the backlog entry).
+no ACM certificate exists, `health_check_grace_period_seconds` now 480 — TECH-144
+measured six real local startup samples, 187s-385s, replacing the unmeasured 120s
+guess) — all verified via `terraform test` against a mocked provider. **No AWS resource
+has been created, no image published** — no `terraform apply` has run for any of the
+four. This does not change any other classification below; the story's status is
+`In progress` (see the backlog entry).
 
 | Criterion | Class | Note |
 |---|---|---|
