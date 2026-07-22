@@ -1,14 +1,35 @@
 # AWS Production Readiness — TECH-130 / TECH-131 / TECH-132
 
-**Version:** 1.7 (2026-07-21 — [TECH-130](../backlog/technical-backlog.md#tech-130)
-(Cognito user pool, resource server, M2M + human app clients) is now **Done as Terraform
-foundation** (`modules/cognito`, 21/21 `terraform test` green) — no AWS resource created,
-no `terraform apply` run, no Hosted UI reached, no Cognito user created. This resolves
+**Version:** 1.8 (2026-07-22 — [TECH-142](../backlog/technical-backlog.md#tech-142) wires
+`module.cognito`'s `issuer_url`/`allowed_client_ids_parameter_arn` outputs into
+`module.ecs_task` (`SIPSA_JWT_ISSUER_URI` plain env var, `SIPSA_JWT_ALLOWED_CLIENT_IDS` via
+an SSM-sourced `secrets` entry), with the execution role's IAM scoped to exactly that one
+parameter ARN. `modules/ecs-task` gained two generic variables
+(`environment_variables`/`secret_parameters`) rather than a direct dependency on
+`modules/cognito` — still fully reusable. This closes TECH-130's own explicitly-documented
+follow-up ("this module does not wire that parameter into modules/ecs-task"); the
+Spring profile the ECS task uses (`docker`) was audited against `application-docker.yaml`/
+`application-dev.yaml`/`application.yaml` and confirmed already safe for AWS — no new
+profile created. TECH-130's own status line now reads "Terraform foundation and ECS
+configuration wiring complete." No AWS resource created, no `terraform apply` run. 108/108
+`terraform test` across the tree (was 100 as of TECH-130 alone — `modules/ecs-task`
+21 (+4), `modules/cognito` unchanged run count with one new assertion, and the first-ever
+`environments/production/tests/` root-wiring suite, 2 new). 338 Java tests, 0 failures —
++6 new (`CognitoJwtDecoderContractTest`, signed-fixture coverage of the full
+`SecurityConfig.jwtDecoder` pipeline, previously untested end-to-end). Earlier same-day
+context, 2026-07-21: [TECH-130](../backlog/technical-backlog.md#tech-130) (Cognito user
+pool, resource server, M2M + human app clients) reached **Done as Terraform foundation**
+(`modules/cognito`, then 21/21 `terraform test` green) — no AWS resource created, no
+`terraform apply` run, no Hosted UI reached, no Cognito user created. This resolved
 TECH-130's app-client-count/scopes and secret-storage-strategy **D** items (one
 parameterizable M2M client + one human client, per ADR-010's two-contract model; secret
-storage via a dedicated Secrets Manager secret, ARN-only output); the Hosted UI domain
-decision itself remains deferred (module supports it, disabled by default, pending a real
-callback URL). TECH-131's dependency on TECH-130 existing is now resolved — see §2 below.
+storage via a dedicated Secrets Manager secret, ARN-only output — see the module's
+README.md for the corrected state-exposure semantics: Terraform reads the secret as a
+computed attribute during creation and retains it in state regardless of the Secrets
+Manager copy; the real control boundary is the encrypted, access-controlled state
+backend, not the absence of the value from state); the Hosted UI domain decision itself
+remains deferred (module supports it, disabled by default, pending a real callback URL).
+TECH-131's dependency on TECH-130 existing is now resolved — see §2 below.
 Earlier same-day revision: [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
 **Accepted**: the repository owner resolved IaC tool, ownership, account, region,
 environments, VPC, ECS launch type, database, Cognito ownership, domain, NAT Gateway,
@@ -203,7 +224,7 @@ architecture/security decision, **E** = already resolved.
 | `sipsa` resource server + 4 custom scopes | Resolved (TECH-130) + C (apply) | `aws_cognito_resource_server.sipsa`, scopes confirmed by grep against `SecurityConfig`, not invented |
 | `client_credentials` app client(s) | Resolved (TECH-130) + C (apply) | One parameterizable M2M client (`aws_cognito_user_pool_client.m2m`) — ADR-010's two-contract model; module supports instantiating more without restructuring when a second real integration exists |
 | Authorization-code app client + hosted UI | Resolved (TECH-130) + C (apply) | Human client (`aws_cognito_user_pool_client.human`, Authorization Code + PKCE, no secret) always created; Hosted UI domain itself stays disabled by default (`create_hosted_ui_domain = false`) — no real callback URL exists yet, see §10 |
-| Document issuer URI per environment | Resolved (TECH-130) + B | `issuer_url` module output; still needs the real value wired into `SIPSA_JWT_ISSUER_URI` at apply time |
+| Document issuer URI per environment | Resolved (TECH-130 + TECH-142) | `issuer_url` module output, wired into `SIPSA_JWT_ISSUER_URI` at the ECS task definition by TECH-142 — still needs the real pool to exist (C, apply) for the value to be non-empty |
 | Client secret storage strategy | Resolved (TECH-130) | Dedicated `aws_secretsmanager_secret`/`_version`, ARN-only module output (`m2m_client_secret_arn`) — never the secret value; same pattern as RDS's master secret. Provider behavior verified, not assumed: Cognito's client secret is retrievable after creation (unlike an IAM access key), so this guards against casual `terraform output`/state exposure, not an unrecoverable-value risk — see `modules/cognito/README.md` |
 | Test against a real Cognito token | C | Needs a real, applied pool; the mock-OIDC e2e already proves the app-side logic, and `terraform test`'s 21/21 mocked-provider suite proves the Terraform contract |
 

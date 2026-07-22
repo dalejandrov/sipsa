@@ -55,7 +55,7 @@ When a story is implemented:
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
-| TECH-130 | Cognito resource server, scopes and app clients | High | — | **Done** (2026-07-21, branch `infra/cognito-authentication-foundation` — `modules/cognito`, 21/21 `terraform test` green, no AWS resource created) |
+| TECH-130 | Cognito resource server, scopes and app clients | High | — | **Done** (2026-07-21, branch `infra/cognito-authentication-foundation` — `modules/cognito`, 23/23 `terraform test` green, no AWS resource created; ECS config wiring completed 2026-07-22 by [TECH-142](#tech-142)) |
 | TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-132 (TECH-130 done 2026-07-21) |
 | TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC, RDS, ECS task and internal service foundations complete (TECH-138, TECH-139, TECH-140, TECH-141, 2026-07-21); API Gateway/VPC Link (TECH-131) not yet implemented |
 | TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — corrected same day: S3-native locking, Terraform 1.15.7/AWS provider 6.55.0, Trivy scanning, OIDC contract, REST API decision) |
@@ -63,6 +63,7 @@ When a story is implemented:
 | TECH-139 | Define production RDS PostgreSQL foundation | High | — | **Done** (2026-07-21, branch `infra/production-rds-foundation` — `modules/database`, 20/20 `terraform test` green, no AWS resource created) |
 | TECH-140 | Define production ECR and ECS task foundation | High | — | **Done** (2026-07-21, branch `infra/production-ecs-task-foundation` — `modules/ecr` + `modules/ecs-task`, 26/26 `terraform test` green, no AWS resource created, no image published) |
 | TECH-141 | Define internal ALB and ECS service foundation | High | — | **Done** (2026-07-21, branch `infra/internal-alb-ecs-service` — `modules/ecs-service`, 17/17 `terraform test` green, no AWS resource created) |
+| TECH-142 | Wire Cognito configuration into the ECS task | High | — | **Done** (2026-07-22, branch `infra/wire-cognito-ecs-configuration` — issuer/allowlist wired root-only, 108/108 `terraform test` green tree-wide, 338 Java tests green, no AWS resource created) |
 | TECH-113 | Fix `artiId`/`muniId` filters of `GET /api/sipsa/parcial` | Medium | — | **Done** (2026-07-16, branch `fix/sipsa-parcial-query-filters`) |
 | TECH-114 | Strict `enmaFecha` parsing with explicit rejection (H-1) | Medium | — | **Done** (2026-07-16 — implemented within TECH-011; H-1 did not occur on real data) |
 | TECH-115 | Backfill/consolidation of a pre-existing external `sipsa_parcial` database | Medium | — | Conditional — only if an external historical database is confirmed to exist |
@@ -2844,8 +2845,8 @@ step confirmed the suite ran).
 **Type:** Infrastructure / Security
 **Priority:** High
 **Phase:** —
-**Status:** **Done** — Terraform foundation complete. No AWS resources have been applied
-yet.
+**Status:** **Done** — Terraform foundation and ECS configuration wiring complete
+(2026-07-22, [TECH-142](#tech-142)). No AWS resources have been applied yet.
 **Complexity:** M
 **Branch:** `infra/cognito-authentication-foundation`
 
@@ -3680,8 +3681,8 @@ docker-compose.yml`):
 | `DB_NAME` | No | `modules/database`'s `db_name` output | No | `sipsa_db` |
 | `SPRING_PROFILES_ACTIVE` | No | Variable Terraform (`ecs_spring_profile`) | Sí (determina el perfil) | `dev` (base app), `docker` fijado explícitamente en la task definition |
 | `PORT` / `server.port` | No | Variable Terraform (`ecs_container_port`) | No | `8080` — confirmado en `application.yaml` y `Dockerfile`, no asumido |
-| `SIPSA_JWT_ISSUER_URI` | No (URL pública) | TECH-130 (Cognito) — aún no existe | Sí fuera de dev/docker (falla rápido) | vacío |
-| `SIPSA_JWT_ALLOWED_CLIENT_IDS` | No | TECH-130 | No | vacío |
+| `SIPSA_JWT_ISSUER_URI` | No (URL pública) | `module.cognito.issuer_url`, conectado a la task definition por [TECH-142](#tech-142) | Sí fuera de dev/docker (falla rápido) | vacío |
+| `SIPSA_JWT_ALLOWED_CLIENT_IDS` | No | `module.cognito.allowed_client_ids_parameter_arn` (SSM), conectado por [TECH-142](#tech-142) | No | vacío |
 | `SOAP_ENDPOINT` y demás `SOAP_*` (timeouts, reintentos) | No | Ya apuntan al endpoint real de DANE | No | valores ya operativos |
 | `INGESTION_*`, `SIPSA_ASYNC_*`, `SIPSA_HEALTH_*`, `LOG_LEVEL_*` | No | Ajustes operativos, sin fuente AWS nueva | No | ya definidos, sin cambio |
 
@@ -4245,6 +4246,210 @@ data property, not monetary formatting.
 boundary matrix (observed min/max, zero, null, `9999999999999.99` = DECIMAL(15,2) edge,
 `99999999999999999.99` = fits only 19,2, rounding pins, JSON exactness), with
 `ddl-auto=validate` booting against the untouched V1→V4 schema.
+
+---
+
+### TECH-142
+
+**Title:** Wire Cognito configuration into the ECS task
+**Type:** Infrastructure
+**Priority:** High
+**Phase:** —
+**Status:** **Done** — Terraform wiring, IAM, Terraform tests, and Java JWT-contract tests
+complete. No AWS resources have been applied yet.
+**Complexity:** S
+**Branch:** `infra/wire-cognito-ecs-configuration`
+
+**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) — conecta los recursos
+declarados por [TECH-130](#tech-130) (Cognito) con la configuración que Spring Security ya
+consume (TECH-001/ADR-002), cerrando el hueco explícito que TECH-130 dejó documentado
+("this module does not wire that parameter into `modules/ecs-task`"). Alcance acotado
+explícitamente: sin API Gateway, sin VPC Link (TECH-131 sigue sin empezar), sin cambio al
+usuario de base de datos de mínimo privilegio (gap de TECH-140/141, no tocado aquí).
+
+**Inventario de configuración Spring** (`grep -RIn --exclude-dir=.git -e 'SIPSA_JWT_' -e
+'issuer-uri' -e 'allowed-client' -e 'allowedClient' -e 'token_use' -e 'client_id' -e
+'@ConfigurationProperties' -e 'oauth2.resourceserver' src/main src/test
+docker-compose.yml docs`, no inventado):
+
+| Propiedad Spring | Variable de entorno | Fuente Terraform | Sensible | Obligatoria |
+|---|---|---|---:|---:|
+| `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `SIPSA_JWT_ISSUER_URI` | `module.cognito.issuer_url` | No (JWKS es público por diseño) | Sí — sin default fuera del perfil `dev` (que apunta al mock OIDC local); el perfil `docker`, el que usa ECS, hereda el `application.yaml` base sin default, por lo que falla rápido si falta |
+| `sipsa.security.jwt.allowed-client-ids` | `SIPSA_JWT_ALLOWED_CLIENT_IDS` | `module.cognito.allowed_client_ids_parameter_arn` (SSM, vía `secrets`) | No (identificadores, no secretos — Javadoc de `AllowedClientIdsValidator`) | No — CSV opcional; vacío significa "acepta cualquier cliente del issuer confiable" |
+
+Ambas propiedades ya existían y ya se consumían exactamente así antes de esta historia
+(`SipsaJwtProperties`, vía `@Value`, no `@ConfigurationProperties` de clase — el único uso
+de esa anotación en el árbol de seguridad es indirecto, vía otras clases de configuración
+no relacionadas con JWT). Ningún nombre nuevo fue inventado; el formato CSV de
+`SIPSA_JWT_ALLOWED_CLIENT_IDS` (confirmado leyendo `SipsaJwtProperties.parseCsv` — separa
+por comas, recorta espacios, rechaza entradas en blanco) coincide exactamente con el join
+`,`-separado que `modules/cognito` ya publicaba en SSM desde TECH-130 — **no fue necesario
+cambiar el formato**.
+
+**Perfil de Spring en ECS — auditado, sin cambio:** `modules/ecs-task`'s `spring_profile`
+ya defaulteaba a `"docker"` desde TECH-140, con una justificación explícita en la propia
+variable. Esta historia audita esa decisión directamente contra el código, no la asume:
+`application-docker.yaml` (perfil `docker`) solo sobreescribe `DB_HOST` (default `db` en
+vez de `localhost`) y hereda `application.yaml` (la base "production-safe") sin ningún
+cambio de seguridad/logging/scheduler. El mock OIDC (`issuer-uri` con default
+`http://localhost:9000/default`), las credenciales de base de datos por defecto, el
+endpoint Actuator `loggers`, `show-details: always`, y el logging verboso viven
+**exclusivamente** en `application-dev.yaml` (perfil `dev`) — nunca en `docker`. Conclusión
+verificada: `docker` ya es un perfil seguro para AWS; no se creó un perfil `production`/
+`aws` nuevo, porque no existe ninguna diferencia real que lo justifique (instrucción
+explícita: "No crees un perfil por estética").
+
+**Diseño — dos variables genéricas en `modules/ecs-task`, sin acoplar el módulo a
+Cognito:** `environment_variables` (`map(string)`, variables de entorno planas
+adicionales) y `secret_parameters` (`map(string)`, entradas `secrets` adicionales
+resueltas por el agente ECS desde Secrets Manager/SSM en el arranque). Ambas se
+concatenan (`concat(...)`) al conjunto fijo ya existente del módulo — `modules/ecs-task`
+sigue sin conocer `modules/cognito` en ningún momento; el root
+(`environments/production/main.tf`) es el único lugar que conecta
+`module.cognito.issuer_url`/`module.cognito.allowed_client_ids_parameter_arn` hacia
+`module.ecs_task`. El wiring del allowlist está protegido con un condicional (`!= null ?
+... : {}` para `secret_parameters`, `compact([...])` para
+`execution_ssm_parameter_arns`), ya que `allowed_client_ids_parameter_arn` es `null`
+cuando `var.cognito_publish_client_ids_to_ssm` es `false` (default `true`).
+
+**IAM — sin ampliar el alcance del execution role más allá de lo ya existente:**
+`modules/ecs-task` ya exponía `execution_extra_secret_arns`/`execution_ssm_parameter_arns`
+desde TECH-140 (con una descripción que literalmente anticipaba "e.g. a future Cognito
+client secret once TECH-130 exists") — **no fue necesario ningún cambio de IAM en el
+módulo**, solo pasar `execution_ssm_parameter_arns = compact([module.cognito.
+allowed_client_ids_parameter_arn])` desde el root. La política resultante
+(`aws_iam_role_policy.execution_secrets`, ya existente) concede `ssm:GetParameters`
+acotado exactamente al ARN del parámetro de Cognito, nunca `Resource = "*"`, nunca
+`ssm:*`. Sin permiso KMS agregado — el parámetro es `type = "String"`, no `SecureString`,
+por lo que no involucra ninguna CMK. El task role permanece vacío (`task_role_policy_arns`
+sin tocar) — la resolución de `secrets` la hace el agente ECS vía el execution role, no la
+aplicación en tiempo de ejecución.
+
+**Issuer derivado, nunca reconstruido:** `environment_variables = { SIPSA_JWT_ISSUER_URI =
+module.cognito.issuer_url }` en el root — ninguna región, user pool ID, ni URL se
+hardcodea ni se reconstruye manualmente en un segundo lugar.
+
+**Allowlist de client IDs — ambos clientes incluidos, semántica verificada, no
+asumida:** el claim que revisa `AllowedClientIdsValidator` es `client_id` — presente en
+los access tokens de **ambos** grants de Cognito (`client_credentials` y
+`authorization_code`), confirmado contra la estructura de token documentada por AWS
+Cognito (no solo contra la documentación del provider de Terraform) y verificado
+empíricamente por `CognitoJwtDecoderContractTest` (abajo) firmando tokens locales con
+`client_id` para ambos tipos de cliente y confirmando que el decoder los acepta cuando
+están en el allowlist. Los ID tokens de Cognito no llevan `client_id` de la misma forma
+relevante — pero esto es irrelevante de todas formas, porque `TokenUseValidator` ya
+rechaza cualquier ID token (`token_use=id`) antes de que el allowlist se evalúe. El
+resource server acepta únicamente access tokens — confirmado, no un cambio de esta
+historia. El cliente humano **sí** se incluyó en el allowlist (ambos IDs, ya publicados
+por TECH-130 desde el inicio) porque ni la política de autorización de la aplicación
+(`SecurityConfig`'s matchers por scope, no por tipo de cliente) ni la tabla de scopes de
+TECH-130 distinguen M2M de humano — ambos son consumidores legítimos de los cuatro scopes.
+
+**Pruebas Java — 6 nuevas, cierran un hueco real de cobertura, no redundantes:**
+`CognitoJwtDecoderContractTest` (nueva clase) ejercita
+`SecurityConfig.jwtDecoder(SipsaJwtProperties)` de punta a punta contra tokens firmados
+localmente con forma realista de Cognito — descubrimiento OIDC, verificación de firma vía
+JWKS, `token_use`, y el allowlist de `client_id`, todo junto — algo que ni
+`SipsaJwtValidatorsTest` (construye objetos `Jwt` a mano, sin firma/issuer real) ni
+`InternalEndpointSecurityTest` (mockea `JwtDecoder` por completo, inyecta autoridades
+directamente) cubren hoy. Un servidor `com.sun.net.httpserver.HttpServer` JDK local
+(loopback, sin dependencia nueva — este repositorio no tiene un extension de servidor
+HTTP de WireMock funcional en el classpath todavía, mismo patrón ya documentado en
+`SoapStreamingClientMetricsTest`) sirve el discovery document OIDC y el JWKS. Los 6
+escenarios pedidos: (1) access token M2M válido, decodifica, scopes se convierten
+correctamente a autoridades `SCOPE_*`; (2) access token humano válido, decodifica cuando
+el cliente humano está en el allowlist; (3) ID token (`token_use=id`) rechazado incluso
+con firma/issuer/`client_id` válidos; (4) `client_id` fuera del allowlist rechazado; (5)
+scope faltante — el decoder no lo rechaza (no es su responsabilidad), pero se confirma que
+se derivan cero autoridades `SCOPE_*`, lo que efectivamente deniega el acceso en
+`SecurityConfig`'s matchers (el camino 403 ya lo cubre `InternalEndpointSecurityTest`); (6)
+issuer incorrecto rechazado incluso con una firma que el JWKS configurado acepta.
+Descubrimiento no asumido, confirmado al correr la prueba: el
+`JwtAuthenticationConverter` por defecto de esta versión de Spring Security también añade
+una autoridad `FACTOR_BEARER` (seguimiento de factor de autenticación) a todo token
+bearer — irrelevante para esta aplicación (ningún matcher de `SecurityConfig` la revisa,
+confirmado por grep), documentado y filtrado explícitamente en el helper de la prueba.
+Ningún cambio a `SecurityConfig`/`TokenUseValidator`/`AllowedClientIdsValidator`/
+`SipsaJwtProperties` fue necesario — no se encontró ningún defecto real de compatibilidad.
+
+**Pruebas Terraform — 8 nuevas (108 en total en el árbol):**
+- `modules/ecs-task` gana 4 (17→21): confirma que `environment_variables`/
+  `secret_parameters` están vacíos por defecto sin romper el conjunto fijo; una variable
+  de entorno provista por el llamador se añade correctamente en texto plano; una entrada
+  `secret_parameters` se añade al bloque `secrets` (nunca a `environment`); y
+  `execution_ssm_parameter_arns` concede lectura exactamente al ARN dado, nunca un
+  wildcard.
+- `modules/cognito` gana 1 assertion nueva dentro de un run existente (sigue en 23 runs):
+  el nuevo output `allowed_client_ids_parameter_arn` expone el ARN real, y es `null`
+  cuando `publish_client_ids_to_ssm` es `false`.
+- `environments/production/tests/production.tftest.hcl` (nuevo, primera suite de tests
+  para el root de este repositorio): 2 tests que prueban específicamente el *wiring* entre
+  módulos (no la corrección interna de cada módulo, ya cubierta por sus propias
+  suites) — `module.network`/`module.database`/`module.ecr`/`module.ecs_service`/
+  `module.cognito` se stubbean con `override_module` (valores fijos y distintivos), dejando
+  solo `module.ecs_task` real; se confirma que `SIPSA_JWT_ISSUER_URI` llega a la
+  definición de tarea con exactamente el valor de `module.cognito.issuer_url`, y que
+  `SIPSA_JWT_ALLOWED_CLIENT_IDS` llega vía el bloque `secrets` con el ARN de
+  `module.cognito.allowed_client_ids_parameter_arn`, nunca como valor de entorno plano.
+  `modules/ecs-task` ganó un output nuevo, `container_definitions` (el JSON ya
+  computado, no sensible — ningún secreto vive ahí en texto plano, solo referencias
+  `valueFrom`), necesario porque un test de nivel raíz no puede direccionar los recursos
+  internos de un módulo hijo, solo sus outputs declarados.
+
+**Acceptance Criteria:**
+- [x] Inventario completo de configuración Spring vía grep, tabla exacta, sin nombres
+      inventados.
+- [x] Perfil de Spring auditado (`docker`) — confirmado ya seguro para AWS, sin crear un
+      perfil nuevo sin evidencia real.
+- [x] `issuer_url` conectado desde `module.cognito` hacia `module.ecs_task`, sin
+      reconstrucción manual, sin región/pool hardcodeados.
+- [x] Allowlist de client IDs conectada vía SSM (`secrets`, nunca texto plano), formato
+      CSV compatible sin cambios, ambos clientes incluidos con justificación explícita.
+- [x] IAM: execution role lee exactamente el parámetro SSM requerido, nunca un wildcard;
+      sin permiso KMS agregado (parámetro `String`, no `SecureString`); task role sin
+      cambios.
+- [x] `modules/ecs-task` permanece reusable — sin dependencia directa a
+      `modules/cognito`.
+- [x] Semántica del allowlist verificada, no asumida: `client_id` presente en ambos tipos
+      de access token; ID tokens ya rechazados por `token_use`; resource server acepta
+      solo access tokens.
+- [x] 6 fixtures JWT firmados localmente cubren los 6 escenarios pedidos; ningún cambio a
+      Spring Security fue necesario.
+- [x] 108 tests Terraform en el árbol, todos verdes (16+20+9+21+17+23+2).
+- [x] 338 tests Java en total, 0 fallos, 0 errores, 0 omitidos, `BUILD SUCCESS`.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (todos los roots), TFLint (0
+      issues), `trivy config` (0 hallazgos sin resolver) limpios.
+- [x] Sin API Gateway, sin VPC Link, en ningún módulo de este stack.
+- [x] Sin `terraform apply`, `terraform import`, AWS CLI, solicitud real de token, ni
+      despliegue ECS en ningún momento.
+- [x] TECH-130 permanece marcado explícitamente: "Terraform foundation and ECS
+      configuration wiring complete." TECH-132 permanece `In progress`; TECH-131
+      permanece `Pending`.
+
+**Completed:** `infra/terraform/modules/ecs-task/{main.tf,variables.tf,outputs.tf}` (dos
+variables genéricas + un output nuevo), `infra/terraform/modules/cognito/outputs.tf` (un
+output ARN nuevo), `infra/terraform/environments/production/main.tf` (wiring),
+`infra/terraform/environments/production/tests/production.tftest.hcl` (nuevo, 2 tests),
+`.github/workflows/infra-plan.yml` (paso `terraform test` nuevo para
+`environments/production`), `src/test/java/.../security/CognitoJwtDecoderContractTest.java`
+(nuevo, 6 tests), documentación de los cuatro módulos actualizada. Verificado localmente
+vía `hashicorp/terraform:1.15.7`, `terraform-linters/tflint:v0.64.0`, `aquasec/trivy`
+(ninguna instalada en esta máquina): `fmt -check -recursive` limpio; `terraform validate`
+limpio en los ocho Terraform roots; 108/108 `terraform test` en el árbol; TFLint 0 issues;
+`trivy config` 0 hallazgos sin resolver; `./mvnw clean verify` — 338 tests, 0 fallos, 0
+errores, 0 omitidos, `BUILD SUCCESS`; `git diff --check` limpio. Ningún `terraform apply`,
+`terraform import`, comando AWS CLI, solicitud real de token, Hosted UI real, ni
+despliegue ECS en ningún momento; ningún recurso AWS de ningún tipo existe.
+
+**Gaps documentados, previos a cualquier despliegue real** (ninguno resuelto por esta
+historia):
+- RDS master secret remains temporary wiring. A least-privilege application database
+  user is required before deployment (gap heredado de TECH-140/141, explícitamente no
+  mezclado con Cognito en esta historia).
+- API Gateway y VPC Link (TECH-131) pendientes — sin empezar.
+- Dominio Hosted UI de Cognito no creado (gap de TECH-130, sin cambios).
+- Sin rotación automática del secreto M2M (gap de TECH-130, sin cambios).
+- Ningún `terraform apply` ejecutado en ningún momento de esta secuencia de historias.
 
 ---
 
