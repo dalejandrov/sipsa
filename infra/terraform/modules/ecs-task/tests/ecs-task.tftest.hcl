@@ -271,3 +271,88 @@ run "container_insights_enabled_by_default" {
     error_message = "Container Insights must default to enabled."
   }
 }
+
+# TECH-142: environment_variables/secret_parameters default to empty and
+# change nothing about the fixed set (regression guard for the concat()
+# refactor in main.tf).
+run "generic_env_and_secret_extension_points_are_empty_by_default" {
+  command = apply
+
+  assert {
+    condition     = strcontains(aws_ecs_task_definition.app.container_definitions, "\"name\":\"SPRING_PROFILES_ACTIVE\"")
+    error_message = "The fixed environment entries must still be present when environment_variables is empty."
+  }
+
+  assert {
+    condition     = strcontains(aws_ecs_task_definition.app.container_definitions, "\"name\":\"DB_USERNAME\"")
+    error_message = "The fixed secrets entries must still be present when secret_parameters is empty."
+  }
+}
+
+# TECH-142: a caller-supplied plain environment variable (e.g.
+# SIPSA_JWT_ISSUER_URI from modules/cognito) is appended, as a plaintext
+# value, alongside the fixed set.
+run "environment_variables_are_appended" {
+  command = apply
+
+  variables {
+    environment_variables = {
+      SIPSA_JWT_ISSUER_URI = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_example"
+    }
+  }
+
+  assert {
+    condition     = strcontains(aws_ecs_task_definition.app.container_definitions, "\"name\":\"SIPSA_JWT_ISSUER_URI\",\"value\":\"https://cognito-idp.us-east-1.amazonaws.com/us-east-1_example\"")
+    error_message = "environment_variables entries must appear as plaintext environment values, appended to the fixed set."
+  }
+
+  assert {
+    condition     = strcontains(aws_ecs_task_definition.app.container_definitions, "\"name\":\"SPRING_PROFILES_ACTIVE\"")
+    error_message = "The fixed environment entries must still be present alongside caller-supplied ones."
+  }
+}
+
+# TECH-142: execution_ssm_parameter_arns grants read access to exactly the
+# given SSM parameter ARN (e.g. modules/cognito's allowed-client-ids
+# parameter) — never a wildcard, never an ARN the caller didn't supply.
+run "execution_role_reads_exactly_the_granted_ssm_parameter" {
+  command = apply
+
+  variables {
+    execution_ssm_parameter_arns = ["arn:aws:ssm:us-east-1:123456789012:parameter/sipsa-production/sipsa/jwt-allowed-client-ids"]
+  }
+
+  assert {
+    condition     = strcontains(aws_iam_role_policy.execution_secrets.policy, "arn:aws:ssm:us-east-1:123456789012:parameter/sipsa-production/sipsa/jwt-allowed-client-ids")
+    error_message = "The execution role's policy must grant read access to the given SSM parameter ARN."
+  }
+
+  assert {
+    condition     = !strcontains(aws_iam_role_policy.execution_secrets.policy, "\"Resource\":\"*\"")
+    error_message = "Granting one SSM parameter ARN must never widen to a wildcard Resource."
+  }
+}
+
+# TECH-142: a caller-supplied secret_parameters entry (e.g.
+# SIPSA_JWT_ALLOWED_CLIENT_IDS from an SSM parameter ARN) is appended to the
+# `secrets` block, never to `environment` — the value itself never appears
+# as a plaintext environment value in the rendered container definition.
+run "secret_parameters_are_appended_to_secrets_never_to_environment" {
+  command = apply
+
+  variables {
+    secret_parameters = {
+      SIPSA_JWT_ALLOWED_CLIENT_IDS = "arn:aws:ssm:us-east-1:123456789012:parameter/sipsa-production/sipsa/jwt-allowed-client-ids"
+    }
+  }
+
+  assert {
+    condition     = strcontains(aws_ecs_task_definition.app.container_definitions, "\"name\":\"SIPSA_JWT_ALLOWED_CLIENT_IDS\",\"valueFrom\":\"arn:aws:ssm:us-east-1:123456789012:parameter/sipsa-production/sipsa/jwt-allowed-client-ids\"")
+    error_message = "secret_parameters entries must appear in the secrets block with the given valueFrom ARN."
+  }
+
+  assert {
+    condition     = !strcontains(aws_ecs_task_definition.app.container_definitions, "\"name\":\"SIPSA_JWT_ALLOWED_CLIENT_IDS\",\"value\":")
+    error_message = "secret_parameters entries must never appear as a plaintext environment value."
+  }
+}

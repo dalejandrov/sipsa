@@ -333,6 +333,11 @@ run "client_id_allowlist_published_by_default" {
     condition     = aws_ssm_parameter.allowed_client_ids[0].type == "String"
     error_message = "The allowlist parameter must be a plain String type, never SecureString (client IDs are not secrets)."
   }
+
+  assert {
+    condition     = output.allowed_client_ids_parameter_arn == aws_ssm_parameter.allowed_client_ids[0].arn
+    error_message = "allowed_client_ids_parameter_arn must expose the real parameter ARN (TECH-142 needs it for ecs-task's IAM grant and secrets entry)."
+  }
 }
 
 run "client_id_allowlist_can_be_disabled" {
@@ -350,5 +355,10 @@ run "client_id_allowlist_can_be_disabled" {
   assert {
     condition     = output.allowed_client_ids_parameter_name == null
     error_message = "allowed_client_ids_parameter_name output must be null when disabled."
+  }
+
+  assert {
+    condition     = output.allowed_client_ids_parameter_arn == null
+    error_message = "allowed_client_ids_parameter_arn output must be null when disabled."
   }
 }
