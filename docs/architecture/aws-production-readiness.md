@@ -1,6 +1,23 @@
 # AWS Production Readiness — TECH-130 / TECH-131 / TECH-132
 
-**Version:** 1.8 (2026-07-22 — [TECH-142](../backlog/technical-backlog.md#tech-142) wires
+**Version:** 1.9 (2026-07-22 — [TECH-131](../backlog/technical-backlog.md#tech-131)
+(API Gateway REST API, VPC Link, Cognito authorizer, API keys, usage plans, throttling,
+access logs) is now **Done as Terraform foundation** (`modules/api-gateway`, 21/21
+`terraform test` green, 129/129 tree-wide) — no AWS resource created, no `terraform
+apply` run, no real token/API key ever requested. This resolves the REST-vs-HTTP-API,
+API-key/usage-plan, access-log-format, and CORS **D** items from §2 below; IAM/SigV4
+authorizer necessity remains the one open **D** item, deferred pending a real consumer
+that needs it. **Architecture correction, not merely an implementation detail**:
+`aws_api_gateway_vpc_link` (classic REST API) accepts only a Network Load Balancer
+target, never an Application Load Balancer directly — confirmed against the provider's
+own resource docs, not assumed. ADR-010's original "VPC Link → ALB" diagram
+oversimplified this; the real, implemented topology chains an NLB to the existing
+internal ALB via AWS's documented `alb`-type NLB target group pattern (see
+`modules/api-gateway/README.md`'s "Architecture correction" section for the full
+constraint list). TECH-132's own status line is updated to reflect this piece landing;
+TECH-132 itself remains `In progress` — real AWS provisioning across the whole stack is
+still pending. Earlier same-day context, 2026-07-22:
+[TECH-142](../backlog/technical-backlog.md#tech-142) wires
 `module.cognito`'s `issuer_url`/`allowed_client_ids_parameter_arn` outputs into
 `module.ecs_task` (`SIPSA_JWT_ISSUER_URI` plain env var, `SIPSA_JWT_ALLOWED_CLIENT_IDS` via
 an SSM-sourced `secrets` entry), with the execution role's IAM scoped to exactly that one
@@ -12,7 +29,7 @@ Spring profile the ECS task uses (`docker`) was audited against `application-doc
 `application-dev.yaml`/`application.yaml` and confirmed already safe for AWS — no new
 profile created. TECH-130's own status line now reads "Terraform foundation and ECS
 configuration wiring complete." No AWS resource created, no `terraform apply` run. 108/108
-`terraform test` across the tree (was 100 as of TECH-130 alone — `modules/ecs-task`
+`terraform test` across the tree (was 102 as of TECH-130 alone — `modules/ecs-task`
 21 (+4), `modules/cognito` unchanged run count with one new assertion, and the first-ever
 `environments/production/tests/` root-wiring suite, 2 new). 338 Java tests, 0 failures —
 +6 new (`CognitoJwtDecoderContractTest`, signed-fixture coverage of the full
@@ -239,23 +256,26 @@ supports enabling it later with a one-variable change.
 
 | Criterion | Class | Note |
 |---|---|---|
-| Actuator never routed through the gateway | E (decided) / C (to implement) | ADR-002 §5 is explicit; enforcing it is an AWS config action |
-| Async trigger avoids the 29s integration timeout | E | Verified via TECH-053, see §1.8 |
-| REST API vs HTTP API | D | **Undecided** — HTTP API is cheaper/simpler with native JWT authorizers; REST API has more mature native API-key/usage-plan support. Needs an explicit choice, not an assumption (AWS's HTTP API feature set for usage plans has evolved — verify current support before deciding, don't assume either way) |
-| JWT authorizer wired to the TECH-130 pool | C | TECH-130 done 2026-07-21 — `issuer_url`/`resource_server_identifier`/both client IDs are available as module outputs; wiring the authorizer itself still needs a real, applied pool |
-| IAM/SigV4 authorizer for admin routes | D | Backlog phrases this as "or" — **whether this path is needed at all, alongside Cognito, is undecided** |
-| API keys + usage plans (tiers, rps, quotas) | Resolved + C | ADR-010: general 10 req/s / burst 20 / 100k monthly per consumer; ingestion-trigger routes 1 req/s / burst 2 — replaces the previously-illustrative `basic`/`partner` figures; implementing requires AWS |
-| Access logs (`apiKeyId`/`clientId`) | C | Format can be decided now (B), implementing requires AWS |
-| CORS | D | **Completely undecided — no browser-client requirement has been established anywhere in the repo** |
+| Actuator never routed through the gateway | Resolved (TECH-131) + C (apply) | No resource in `modules/api-gateway` references `/actuator` at all — confirmed by inspection; enforcing it against a real deployment is an AWS action |
+| Async trigger avoids the 29s integration timeout | E | Verified via TECH-053, see §1.8; re-confirmed by TECH-131 reading `SipsaOpsController` directly — `run`/`cancel` both return fast and synchronously |
+| REST API vs HTTP API | Resolved (ADR-010, TECH-131) | **REST API** — implemented as Terraform code (`modules/api-gateway`), required for full API key/usage-plan/quota/throttling support |
+| JWT authorizer wired to the TECH-130 pool | Resolved (TECH-131) + C (apply) | `aws_api_gateway_authorizer` (COGNITO_USER_POOLS) wired to `module.cognito.user_pool_arn`, with exact per-route `authorization_scopes` — implemented as Terraform code; a real, applied pool is still needed for a live token to actually validate |
+| IAM/SigV4 authorizer for admin routes | D | **Still undecided** — TECH-131 did not implement it; the Cognito authorizer alone satisfies this story's contract. Revisit only if a real AWS-native-automation consumer needs it |
+| API keys + usage plans (tiers, rps, quotas) | Resolved (TECH-131) + C (apply) | ADR-010 values implemented exactly: general 10 req/s / burst 20 / 100k monthly; ingestion-trigger routes 1 req/s / burst 2 |
+| Access logs (`apiKeyId`/`clientId`) | Resolved (TECH-131) + C (apply) | Structured JSON format implemented (`aws_api_gateway_stage.access_log_settings`), including `apiKeyId` and `authorizer.claims.sub` — never the Authorization header, an API key value, or request/response bodies |
+| CORS | Resolved as "still no real requirement" (TECH-131) | `var.cors_allowed_origins` exists, defaults to empty/disabled, validated to reject a wildcard combined with credentials and capped at one origin (API Gateway's native response headers can't dynamically echo Origin across multiple allowed origins without Lambda) — no browser-client requirement has been established anywhere in this repository, still |
 | Max payload size / integration timeout | E (verified safe for the async trigger) / D (for any future large-payload endpoint) | See §1.8 |
 | Cognito authorizer vs API keys vs private integration vs Spring Security — compatibility | E (no incompatibility found) | See §6 below — these are four independent, non-overlapping responsibilities already documented in ADR-002, not four mechanisms competing for the same route |
+| REST API VPC Link → internal ALB | Resolved (TECH-131), architecture corrected | `aws_api_gateway_vpc_link` accepts only an NLB target, never an ALB directly (confirmed against the provider's own docs — ADR-010's original diagram oversimplified this). Implemented as an NLB chained to the existing ALB via AWS's documented `alb`-type target group pattern |
 
-**TECH-131 cannot be marked Done**: REST API is now decided (ADR-010) — the remaining
-open **D** decisions are IAM authorizer necessity and CORS; real usage-plan tiers are also
-decided (ADR-010: general 10 req/s / burst 20 / 100k monthly, ingestion-trigger 1 req/s /
-burst 2), replacing the previously-illustrative `basic`/`partner` figures. TECH-130's
-Cognito pool no longer blocks this story (done 2026-07-21) — implementing the authorizer
-still needs a real, applied pool (**C**) and TECH-132's VPC Link (**C**).
+**TECH-131 is Done as Terraform foundation** (2026-07-22, branch
+`infra/api-gateway-private-integration`) — REST API, VPC Link (via the corrected
+NLB-chain architecture), Cognito authorizer, API keys, usage plans, throttling, access
+logs, error responses, and CORS variable/validation are all implemented as declarative
+Terraform code, 129/129 `terraform test` passing tree-wide. The only remaining **D** item
+is IAM/SigV4 authorizer necessity (deferred, no real consumer needs it yet). Every row's
+remaining gap is **C** (apply to a real account), which this story explicitly does not
+do.
 
 ### TECH-132 — Private networking
 
@@ -288,14 +308,14 @@ the story's status is `In progress` (see the backlog entry).
 | Private subnets, NAT Gateway for DANE SOAP egress | Resolved (TECH-138) | Implemented as Terraform code — see §7. Not yet applied to a real account. |
 | VPC endpoints for AWS-service-only traffic (ECR, CloudWatch Logs, Secrets Manager) | D | Optional cost/security optimization, not required — S3 Gateway Endpoint done (TECH-138); Interface endpoints (ECR/Logs/Secrets Manager) remain deferred pending real NAT traffic volume |
 | Internal ALB + target group | Resolved (TECH-141) | Implemented as Terraform code — HTTP listener only (no ACM cert exists); not yet applied to a real account |
-| Security groups (ALB admits only VPC Link ENIs) | Resolved as a placeholder + D | The ALB SG itself exists with zero ingress by default; the actual VPC Link ENI rule is added by TECH-131 once that component exists |
-| VPC Link | C | Depends on the ALB (done, TECH-141) and API Gateway (TECH-131) existing |
+| Security groups (ALB ingress from the VPC Link path) | Resolved (TECH-131) + C (apply) | Not "VPC Link ENIs" — corrected: a classic REST API VPC Link has no ENIs of its own in the customer's VPC. TECH-131's NLB (fronting the VPC Link) has no security group either (AWS's docs don't confirm source-IP preservation for `alb`-type NLB targets); the ALB's `alb_allowed_ingress_cidr_blocks` is populated with the private-application subnet CIDRs instead — implemented as Terraform code, not yet applied |
+| VPC Link | Resolved (TECH-131) + C (apply) | Implemented as an NLB chained to the ALB via an `alb`-type target group (`aws_api_gateway_vpc_link` itself only ever accepts an NLB ARN — see `modules/api-gateway/README.md`) |
 | PostgreSQL location (RDS vs self-managed) | Resolved (TECH-139) | RDS for PostgreSQL 18, Single-AZ — implemented as Terraform code, not yet applied to a real account |
 | Cognito/JWKS reachability from the VPC | E (app side, standard HTTPS via NAT) | No separate VPC endpoint needed — Cognito's JWKS is public HTTPS, same NAT path as DANE egress |
 | CloudWatch Logs | Resolved (TECH-139 RDS + TECH-140 ECS) | RDS's `postgresql`/`upgrade` exports and the ECS task definition's `awslogs` driver (30-day retention) are both implemented as Terraform code |
 | Secrets in the task definition | Resolved as a temporary wiring (TECH-140) | The task definition resolves `DB_USERNAME`/`DB_PASSWORD` from RDS's master secret via the `secrets` block — explicitly flagged as temporary; a real minimum-privilege application DB user must replace it before any real deployment |
 | Service discovery (Cloud Map) | Resolved — not needed | TECH-141 evaluated this explicitly: a single ALB-fronted service has no inter-service DNS need today |
-| Gateway-bypass prevention | Resolved (TECH-141) + C (apply) | The ECS security group admits ingress only from the ALB SG; the ALB SG itself has no ingress until TECH-131's VPC Link rule — the same scoping principle as §7, implemented, not yet applied |
+| Gateway-bypass prevention | Resolved (TECH-141 + TECH-131) + C (apply) | The ECS security group admits ingress only from the ALB SG; the ALB SG's own ingress is now scoped to the VPC Link's NLB subnet CIDRs (TECH-131) — the same scoping principle as §7, implemented, not yet applied |
 | TLS between API Gateway, VPC Link, ALB, ECS | D | **Undecided** — TLS-terminated-at-gateway-only vs end-to-end TLS inside the VPC is a real security/compliance decision, not resolved by anything in this repo. TECH-141's ALB listener is HTTP internally, consistent with "gateway-only" pending this decision. |
 
 **TECH-132 cannot be marked Done**: API Gateway/VPC Link (TECH-131) are not yet
@@ -323,11 +343,16 @@ needs a real AWS account.
         │  → access logs            │  → access logs                 │
         │  /actuator/** — NEVER routed here (ADR-002 §5)             │
         └───────────────────────────────┬───────────────────────────┘
-                                         │  VPC Link
+                                         │  VPC Link (NLB target only —
+                                         │  classic REST API VPC Links never
+                                         │  accept an ALB directly, TECH-131)
                                          ▼
                          ┌───────────────────────────────┐
+                         │   NLB (no SG of its own) →     │
+                         │   alb-type target group →      │
                          │     Internal ALB (private)     │
-                         │  SG: admits only VPC Link ENIs │
+                         │  SG: ingress from the VPC      │
+                         │  Link's own subnet CIDRs       │
                          └───────────────┬─────────────────┘
                                          │
                                          ▼

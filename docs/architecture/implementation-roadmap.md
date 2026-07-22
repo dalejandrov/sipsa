@@ -95,8 +95,8 @@ Also outside the phase sequence (see the backlog for full stories):
 | TECH-141 | Define internal ALB and ECS service foundation | **Done** (2026-07-21, branch `infra/internal-alb-ecs-service` — `modules/ecs-service`, 17/17 `terraform test` green; no AWS resource created) |
 | TECH-130 | Cognito resource server, scopes and app clients | **Done** (2026-07-21, branch `infra/cognito-authentication-foundation` — `modules/cognito`, 23/23 `terraform test` green; no AWS resource created) — Terraform foundation and ECS configuration wiring complete (TECH-142, 2026-07-22), no AWS resources applied |
 | TECH-142 | Wire Cognito configuration into the ECS task | **Done** (2026-07-22, branch `infra/wire-cognito-ecs-configuration` — issuer/allowlist wired root-only, 108/108 `terraform test` tree-wide, 338 Java tests green; no AWS resource created) |
-| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | Pending — blocked on TECH-132 (TECH-130 done 2026-07-21) |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB | **In progress** — VPC, RDS, ECS task and internal service foundations done (TECH-138, TECH-139, TECH-140, TECH-141); Cognito ECS wiring done (TECH-142); API Gateway/VPC Link (TECH-131) not yet implemented |
+| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | **Done** (2026-07-22, branch `infra/api-gateway-private-integration` — `modules/api-gateway`, 21/21 `terraform test` green, 129/129 tree-wide; no AWS resource created) — Terraform foundation complete, VPC Link architecture corrected to an NLB-chain (REST API VPC Links are NLB-only) |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB | **In progress** — VPC, RDS, ECS task, internal service, and API Gateway/VPC Link foundations done (TECH-138, TECH-139, TECH-140, TECH-141, TECH-131); Cognito ECS wiring done (TECH-142); real AWS provisioning still pending |
 
 ---
 

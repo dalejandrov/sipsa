@@ -189,6 +189,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and ECS configuration wiring complete." TECH-132 remains `In progress`; TECH-131 remains
   `Pending`.
 
+- **API Gateway REST API foundation defined as Terraform code** (TECH-131, ADR-002
+  layer 1 / ADR-010 Fase 4 — `infra/terraform/modules/api-gateway/`). **Architecture
+  correction, not merely an implementation detail**: `aws_api_gateway_vpc_link` (classic
+  REST API) accepts only a Network Load Balancer target, never an Application Load
+  Balancer directly — confirmed against the provider's own resource docs, not assumed;
+  ADR-010's original "VPC Link → ALB" diagram oversimplified this. The real,
+  implemented topology chains a purpose-built NLB (no security group of its own — AWS's
+  docs don't confirm source-IP preservation for `alb`-type NLB targets) to the existing
+  internal ALB (TECH-141) via AWS's documented "Application Load Balancer as a target of
+  a Network Load Balancer" pattern (`aws_lb_target_group` with `target_type = "alb"` +
+  `aws_lb_target_group_attachment`) — the ALB's own ingress now comes from
+  `alb_allowed_ingress_cidr_blocks` (TECH-141's own documented fallback, populated with
+  this stack's private-application subnet CIDRs), never a security-group reference. A
+  Cognito authorizer (`COGNITO_USER_POOLS`) wired to TECH-130's user pool, with an exact,
+  distinct `authorization_scopes` on each of the ten real `/api/internal/**` leaf routes
+  (inventoried by grep against `SecurityConfig`'s own matchers — never a shared, looser
+  set); `GET /api/sipsa/**` collapsed into a single `{proxy+}` resource requiring an API
+  key instead (Spring's own routing already owns that surface). One parameterizable API
+  key (AWS-generated value, schema-marked sensitive by the provider, never read or
+  output — same posture as TECH-130's Cognito client secret) on a usage plan carrying
+  ADR-010's approved general tier (10 req/s / burst 20 / 100k requests per month); the
+  two ingestion-trigger routes (`POST run`, `POST cancel/{runId}`) carry the stricter 1
+  req/s / burst 2 tier via a per-route `aws_api_gateway_method_settings` override.
+  Structured JSON access logs (30-day retention) that never include the Authorization
+  header, an API key value, or request/response bodies (`data_trace_enabled = false`
+  everywhere); an account-level CloudWatch IAM role, a real, well-known operational
+  prerequisite for that logging to deliver anything at all. Four
+  `aws_api_gateway_gateway_response` resources (401/403/429/5xx) with a small, consistent
+  JSON body distinct from the application's own `GlobalExceptionHandler.ErrorResponse`
+  shape — replicating that shape at the gateway would diverge the moment either side
+  changes independently, and the gateway can't populate the application's own
+  `requestId`/`instance` for a request that never reached the backend. A `cors_allowed_origins`
+  variable exists, defaults to empty (disabled — still no browser-client requirement
+  confirmed anywhere in this repository), validated to reject a wildcard combined with
+  credentials and capped at one origin (API Gateway's native, non-Lambda response headers
+  can't dynamically echo the caller's `Origin` across multiple allowed origins). No
+  custom domain, ACM certificate, Route 53 record, or WAF. Verified with 21 `terraform
+  test` cases against a fully mocked AWS provider (129 across the tree, including two new
+  root-wiring assertions in `environments/production/tests/production.tftest.hcl`) —
+  **no real AWS account is contacted, no VPC Link is ever reachable, no token is ever
+  requested, no API key is ever retrieved, and no `terraform apply` has been run.**
+  TECH-131 is Done as Terraform foundation only — no AWS resources have been applied yet;
+  TECH-132's status line now reflects this piece landing, but TECH-132 itself remains
+  `In progress` (real AWS provisioning across the whole stack is still pending).
+
 ### Changed
 
 - **TECH-137 (Terraform bootstrap) corrected against current official documentation

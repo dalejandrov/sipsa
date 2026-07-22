@@ -56,8 +56,8 @@ When a story is implemented:
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
 | TECH-130 | Cognito resource server, scopes and app clients | High | — | **Done** (2026-07-21, branch `infra/cognito-authentication-foundation` — `modules/cognito`, 23/23 `terraform test` green, no AWS resource created; ECS config wiring completed 2026-07-22 by [TECH-142](#tech-142)) |
-| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-132 (TECH-130 done 2026-07-21) |
-| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC, RDS, ECS task and internal service foundations complete (TECH-138, TECH-139, TECH-140, TECH-141, 2026-07-21); API Gateway/VPC Link (TECH-131) not yet implemented |
+| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | **Done** (2026-07-22, branch `infra/api-gateway-private-integration` — `modules/api-gateway`, 21/21 `terraform test` green, 129/129 tree-wide, no AWS resource created) |
+| TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC, RDS, ECS task, internal service, and API Gateway/VPC Link foundations complete (TECH-138, TECH-139, TECH-140, TECH-141, TECH-131, 2026-07-22); real AWS provisioning still pending |
 | TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — corrected same day: S3-native locking, Terraform 1.15.7/AWS provider 6.55.0, Trivy scanning, OIDC contract, REST API decision) |
 | TECH-138 | Provision production VPC foundation | High | — | **Done** (2026-07-21, branch `infra/production-vpc-foundation` — `modules/network`, 16/16 `terraform test` green, no AWS resource created) |
 | TECH-139 | Define production RDS PostgreSQL foundation | High | — | **Done** (2026-07-21, branch `infra/production-rds-foundation` — `modules/database`, 20/20 `terraform test` green, no AWS resource created) |
@@ -3080,59 +3080,225 @@ historia):
 **Type:** Infrastructure / Security
 **Priority:** High
 **Phase:** —
-**Status:** Pending
+**Status:** **Done** — Terraform foundation complete. No AWS resources have been applied.
 **Complexity:** M
-**Branch:** — (infrastructure work)
+**Branch:** `infra/api-gateway-private-integration`
 
-**Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
-code changed):** full classification and evidence in
-[aws-production-readiness.md](../architecture/aws-production-readiness.md) §2. Confirmed
-by reading `IngestionJob`/`ScheduledIngestionDispatcher`: the async trigger (TECH-053)
-means `POST /api/internal/ingestion/run` returns `202` in milliseconds, so API Gateway's
-~29s REST integration timeout is not at risk (**E**, resolved). No incompatibility found
-between the Cognito authorizer, API keys, private integration, and Spring Security's own
-re-validation — four independent responsibilities, not overlapping ones (§3 of the
-readiness doc). Open blockers: whether an IAM/SigV4 authorizer path is needed, and CORS
-(**D**, both — CORS in particular has zero prior mention anywhere in this repo).
-REST-vs-HTTP-API and usage-plan tiers are **resolved**, no longer blockers (see below).
-[TECH-130](#tech-130) (Cognito) landed 2026-07-21 — no longer a blocker; `issuer_url`,
-`resource_server_identifier`, and both app client IDs are available as module outputs for
-this story's authorizer wiring. **Cannot be marked Done** until the remaining **D** items
-and TECH-132 (VPC Link) are resolved.
+**Origin:** ADR-002 (Accepted, Option E), layer 1. [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
+Fase 4.
 
-**Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
-(**Accepted**, revised 2026-07-21) — Fase 4 covers this story's gateway provisioning.
-**REST API** (not HTTP API) — required for full API key/usage-plan/quota/throttling
-support. Approved throttling values: general 10 req/s / burst 20 / 100,000 req per month
-per consumer; ingestion-trigger routes 1 req/s / burst 2 (replacing the previously
-illustrative `basic`/`partner` figures below — these are best-effort operational
-protection, not an absolute defense against cost or abuse). No custom domain/ACM for the
-first version — API Gateway's managed `execute-api` endpoint is used. IAM/SigV4
-necessity and CORS remain open, deferred to this story's own implementation. **Still
-Pending**, blocked on TECH-132 (TECH-130 no longer a blocker, done 2026-07-21).
+**Corrección de arquitectura — REST API VPC Links solo aceptan NLB, no ALB
+directamente:** el diagrama original de ADR-010 ("API Gateway → VPC Link → ALB
+interno") simplificaba de más una restricción real de AWS, confirmada contra la
+documentación del propio recurso del provider, no asumida: `aws_api_gateway_vpc_link`
+(el VPC Link clásico de REST API, distinto de `aws_apigatewayv2_vpc_link` para HTTP API)
+solo acepta un ARN de Network Load Balancer en `target_arns` — nunca un Application
+Load Balancer directamente, y solo un NLB por VPC Link. Esta historia crea un NLB
+pequeño (`aws_lb`, `load_balancer_type = "network"`) exclusivamente para el VPC Link, y
+registra el ALB interno ya existente (TECH-141) como el único target de ese NLB, usando
+el patrón documentado por AWS "Application Load Balancer as a target of a Network Load
+Balancer" (`aws_lb_target_group` con `target_type = "alb"` +
+`aws_lb_target_group_attachment`). Topología real:
 
-**Origin:** ADR-002 (Accepted, Option E), layer 1.
+```
+Cliente → API Gateway REST API → VPC Link → NLB → (target_type=alb) → ALB interno → ECS Service
+```
 
-**Scope:**
-- API Gateway **REST API** as the single public entry point for `/api/sipsa/**`
-  (per-consumer API keys, usage plans — general 10 req/s / burst 20 / 100k req/month,
-  ingestion-trigger routes 1 req/s / burst 2 — 429 on quota, revocation, per-key
-  consumption metrics; API keys identify a consumer for throttling/quota only, never
-  authentication) and for `/api/internal/**` (JWT authorizer against the TECH-130 pool, or
-  IAM/SigV4 routes for AWS-native automation; no API key requirement on admin routes).
-- Access logs with `apiKeyId`/`clientId` per request.
-- **Actuator is not routed** through the gateway (ADR-002 §5).
-- API keys are identification and metering only — never authentication (ADR-002).
+Restricciones respetadas, todas documentadas por AWS: exactamente un ALB por target
+group tipo `alb`; el puerto del target group debe coincidir exactamente con el puerto
+del listener del ALB (ambos `80`); los health checks se reenvían al ALB y luego a su
+propio target group, usando el mismo path `/actuator/health` ya usado en la capa
+ALB→ECS. **Sin security group en el NLB**: la documentación de AWS no confirma si un
+target group de NLB tipo `alb` preserva la IP de origen del llamador real, así que este
+módulo no intenta acotar el ingress a nivel de NLB por IP/SG. El límite de control de
+acceso real sigue siendo el propio security group del ALB (`modules/ecs-service`) — el
+root conecta `alb_allowed_ingress_cidr_blocks` con las CIDR de las subredes
+privadas-app (el fallback documentado que TECH-141 ya construyó para exactamente este
+caso), nunca `alb_allowed_ingress_security_group_ids`, y nunca `0.0.0.0/0` (rechazado
+por la validación de esa variable desde TECH-141).
+
+**Separación de responsabilidades (sin cambios respecto a ADR-002 §3):** Cognito
+(identidad y autorización) — API key (identificación operativa de un consumidor de
+`/api/sipsa/**`, solo para medición) — usage plan (throttling y cuota, nunca
+autenticación) — Spring Security (validación final, defensa en profundidad, del access
+token y sus scopes). El authorizer de Cognito en el gateway **no reemplaza** la
+revalidación de Spring Security — ambas capas corren, independientemente, en cada
+request a `/api/internal/**` (ADR-002: un bypass del gateway sigue llegando a un backend
+que revalida el token).
+
+**Inventario de endpoints** (grep contra `src/main/java`, cruzado con los matchers de
+`SecurityConfig` — ver tabla completa en `modules/api-gateway/README.md`): `GET
+/api/sipsa` y `GET /api/sipsa/{proxy+}` (ciudad, mayoristas/mensual, parcial,
+mayoristas/semanal, abastecimientos/mensual) — públicos, requieren API key, tier
+general. `POST /api/internal/ingestion/run` y `POST
+/api/internal/ingestion/cancel/{runId}` — Cognito, scopes `sipsa/ingestion.execute` y
+`sipsa/ingestion.cancel` respectivamente, tier estricto de ingestión (1/2). Los 8 GET
+restantes de `/api/internal/ingestion/**` y `/api/internal/audit/**` — Cognito, scope
+exacto por ruta (`sipsa/ingestion.read` o `sipsa/audit.read`), tier general.
+`/actuator/health` — **nunca ruteado por el gateway** (ADR-002 §5), confirmado
+estructuralmente (ningún recurso de este módulo referencia `/actuator`).
+`/api/sipsa/**` usa un único recurso `{proxy+}` (Spring ya posee el ruteo real); cada
+ruta de `/api/internal/**` tiene su propio recurso explícito porque cada una necesita un
+`authorization_scopes` exacto y distinto — un catch-all aquí sobre-otorgaría permisos o
+requeriría asumir la semántica AND/OR de scopes múltiples de Cognito, que este módulo no
+asume.
+
+**Throttling y cuota (valores aprobados por ADR-010):** general 10 req/s / burst 20,
+aplicado stage-wide vía `aws_api_gateway_method_settings` (`method_path = "*/*"`);
+ingestión (`run`, `cancel/{runId}` únicamente) 1 req/s / burst 2, vía override por ruta;
+cuota mensual 100,000 requests, solo sobre el usage plan general (`/api/sipsa/**`) —
+`/api/internal/**` no requiere API key (ADR-010), así que su throttling es
+exclusivamente vía `method_settings`, sin concepto de cuota mensual. Best-effort,
+explícitamente no una barrera absoluta de costo. **Gap no verificado empíricamente**
+(ningún `apply` se ejecuta jamás): el formato exacto de `method_path` para el override
+de ingestión (`"{resource_path}/{HTTP_METHOD}"`, sin slash inicial, según la
+documentación de AWS) debe confirmarse contra una API real desplegada antes de tráfico
+real.
+
+**API keys:** un recurso `aws_api_gateway_api_key` parametrizable
+(`var.api_gateway_api_key_name`, default `"sipsa-primary-consumer"`) — mismo precedente
+"un cliente ahora, extensible después" que `modules/cognito` ya estableció para el
+cliente M2M. Sin `value` fijo: AWS lo genera. El atributo `value` generado está marcado
+`sensitive = true` en el schema del provider (confirmado contra el código fuente Go del
+provider, no asumido) — nunca se lee ni se expone como output (`outputs.tf` solo expone
+`api_key_ids`). Recuperación cuando exista un consumidor real: `aws apigateway
+get-api-key --include-value`, acotado por IAM, nunca vía `terraform output` o
+inspección de state.
+
+**Access logs:** JSON estructurado, retención 30 días por defecto. Campos: `requestId`
+propio de API Gateway (**no** el mismo `requestId` de `ErrorResponse` de la aplicación,
+TECH-023 — nunca coinciden, ya que solo los errores originados en la app llegan a su
+propia generación de requestId), `sourceIp`, `httpMethod`, `resourcePath`, `status`,
+`integrationStatus`/`integrationLatency`, `authorizer.claims.sub`, `apiKeyId`. Nunca se
+registra el header `Authorization`, el valor de una API key, ni bodies de
+request/response (`data_trace_enabled = false` en todos los `method_settings`). Se creó
+y configuró el rol IAM de CloudWatch a nivel de cuenta (`aws_api_gateway_account`) — un
+prerrequisito real, bien conocido operacionalmente, para que el logging de API Gateway
+efectivamente entregue algo, aunque no esté declarado como requisito estricto en la
+documentación del propio recurso Terraform. **Este es un singleton a nivel de cuenta
+AWS** (el recurso no tiene `rest_api_id` — configura la cuenta, no esta API
+específicamente): seguro de crear una vez en la cuenta AWS única y dedicada de este
+repositorio (ADR-010), pero necesitaría importarse/compartirse, no redeclararse, si se
+agrega un segundo stack de API Gateway a esta cuenta.
+
+**Respuestas de error — origen en el Gateway vs. en la aplicación:**
+`aws_api_gateway_gateway_response` cubre `UNAUTHORIZED` (401), `ACCESS_DENIED` (403),
+`THROTTLED` (429), y `DEFAULT_5XX`, cada una con un cuerpo JSON pequeño y consistente
+(`status`/`message`/`requestId` — el propio de API Gateway). **Deliberadamente no** el
+mismo shape que `GlobalExceptionHandler.ErrorResponse` de la aplicación — replicarlo
+divergiría en el momento en que cualquiera de los dos lados cambie independientemente, y
+el gateway no puede poblar campos como el `requestId`/`instance` propios de la
+aplicación para un request que nunca llegó al backend. Los errores que la propia
+aplicación produce (400/404/500/502, su propio shape) pasan sin modificar a través de la
+integración `HTTP_PROXY`.
+
+**Timeouts:** confirmado leyendo `SipsaOpsController` — `POST
+/api/internal/ingestion/run` retorna `202` síncronamente y rápido (TECH-053, disparo
+asíncrono); `POST .../cancel/{runId}` es una actualización de estado en BD síncrona y
+rápida. Ningún endpoint espera una operación de larga duración inline — confirmado por
+inspección, no asumido; no fue necesario ningún override ni workaround de timeout.
+
+**CORS — indecidido, acotado nativamente por diseño:** `var.api_gateway_cors_allowed_origins`
+vacío por defecto (deshabilitado) — `aws-production-readiness.md` §1.6 confirma que no
+existe ningún requisito de cliente basado en navegador en este repositorio. Cuando se
+configura exactamente un origen, este módulo agrega un header
+`Access-Control-Allow-Origin` estático (y `Access-Control-Allow-Credentials` si
+`cors_allow_credentials=true`) a los métodos GET públicos de `/api/sipsa` vía
+`aws_api_gateway_method_response`/`integration_response`. **Acotado a un solo origen por
+validación de variable**: los headers de respuesta nativos (sin Lambda) de API Gateway
+solo soportan un valor fijo, no un eco dinámico del header `Origin` del request real
+entre múltiples orígenes permitidos — eso requeriría una integración proxy Lambda, no
+adoptada especulativamente mientras no exista ningún origen real confirmado.
+`cors_allowed_origins` nunca acepta `"*"` combinado con `cors_allow_credentials=true` —
+prohibido por la propia especificación CORS.
+
+**Trivy exceptions:**
+
+| Finding | Resource | Risk | Justification | Exception |
+|---|---|---|---|---|
+| AWS-0003 (LOW — X-Ray no habilitado) | `aws_api_gateway_stage.main` | Bajo — costo real por request sin justificación operacional aún | Misma postura que Container Insights en `modules/ecs-task` (única excepción aceptada, justificada por necesidad operacional real) — X-Ray no tiene un equivalente aquí todavía | `# trivy:ignore:AVD-AWS-0003`, revisitar si el tracing entre las 4 capas se vuelve una necesidad real |
+| AWS-0190 (LOW — cache no habilitado) ×2 | `aws_api_gateway_method_settings.default`/`.ingestion_trigger` | Bajo/Nulo — cachear `GET .../runs`, `/running`, `/runs/{runId}` (estado en vivo) sería activamente engañoso, no solo inútil; las rutas de ingestión son POST (API Gateway no cachea métodos no-GET) | Justificación real de correctitud, no solo de costo | `# trivy:ignore:AVD-AWS-0190`, revisitar cache para `/api/sipsa/**` únicamente si aparece un patrón de tráfico real que lo justifique |
+
+Ninguna excepción toca API pública sin auth, SG abierto, IP pública, logs sin
+retención, ni IAM excesivo.
+
+**Módulo:** `infra/terraform/modules/api-gateway/` (`main.tf`, `variables.tf`,
+`outputs.tf`, `versions.tf`, `README.md`, `tests/`). Sin módulos públicos de terceros.
+`environments/production/main.tf` consume el módulo, conectando
+`module.ecs_service.alb_arn`, `module.network.vpc_id`/`private_app_subnet_ids`, y
+`module.cognito.user_pool_arn`/`resource_server_identifier` — sin dependencia directa a
+los internos de esos módulos, solo a sus outputs declarados.
+
+**Outputs:** `rest_api_id`, `rest_api_arn`, `execution_arn`, `invoke_url`, `stage_name`,
+`vpc_link_id`, `usage_plan_id`, `api_key_ids` (solo IDs), `access_log_group_name`,
+`authorizer_id`. Ningún valor de API key expuesto.
+
+**Tests:** `infra/terraform/modules/api-gateway/tests/api-gateway.tftest.hcl` — 21
+casos, `terraform test` con proveedor mockeado, cero cuenta AWS real. Cobertura: REST
+API creada; VPC Link apunta al NLB (nunca al ALB directamente); el target group del NLB
+es tipo `alb` con el ALB dado como único target, puerto coincidente; authorizer Cognito
+correcto; cada ruta de `/api/internal/**` exige su scope exacto, nunca un conjunto
+compartido; `/api/internal/**` nunca requiere API key y siempre exige Cognito;
+`/api/sipsa/**` siempre requiere API key y nunca exige Cognito; usage plan coincide con
+el tier general de ADR-010 (throttle + cuota); exactamente las dos rutas de ingestión
+llevan el tier estricto; access logs configurados sin el header Authorization ni un
+valor de API key, `data_trace_enabled=false`; las 4 gateway responses existen con los
+códigos correctos; stage `production`; el output de API key expone solo el ID; tags
+comunes; CORS deshabilitado por defecto, refleja correctamente un origen único más el
+flag de credenciales, y rechaza tanto más de un origen como wildcard+credentials. Más 2
+tests nuevos en `environments/production/tests/production.tftest.hcl` (stub de
+`module.api_gateway` vía `override_module`, sin afectar los 2 tests de wiring de
+TECH-142 que ya existían ahí). **129 tests Terraform en total en el árbol**
+(16+20+9+21+17+23+21+2).
+
+**Gaps explícitos, no resueltos por esta historia:**
+- IAM/SigV4 como ruta alternativa de autorización para automatización AWS-nativa: no
+  implementado — el authorizer Cognito por sí solo cubre el contrato de esta historia;
+  queda como decisión **D** abierta si surge un consumidor real que lo necesite.
+- Formato de `method_path` para el override de throttling de ingestión no verificado
+  empíricamente contra una API real desplegada.
+- Comportamiento de preservación de IP de origen para targets NLB tipo `alb` no
+  confirmado por AWS — el diseño de ingress del ALB usa el fallback CIDR
+  conservador, ya documentado.
+- CORS soporta un único origen nativamente; múltiples orígenes dinámicos requerirían una
+  integración Lambda, no construida aquí.
+- Sin dominio custom, ACM, Route 53, ni WAF — explícitamente fuera de alcance.
+- Ningún `terraform apply` ejecutado en ningún momento de esta secuencia de historias.
 
 **Acceptance Criteria:**
-- [ ] `GET /api/sipsa/**` without an API key is rejected at the gateway; with a key it is
-      forwarded and metered against the key's usage plan.
-- [ ] `/api/internal/**` requires a valid Cognito JWT (or IAM signature) at the gateway
-      *and* is re-validated by the backend.
-- [ ] `/actuator/**` is not reachable through the gateway.
-- [ ] Exceeding a usage plan returns `429` from the gateway.
+- [x] API Gateway REST API (nunca HTTP API) con justificación documentada.
+- [x] VPC Link privado hacia el ALB interno (vía NLB, arquitectura corregida y
+      documentada).
+- [x] Cognito authorizer conectado al User Pool de TECH-130, sin crear uno nuevo.
+- [x] Scopes exactos por ruta en `/api/internal/**`, API key requerida en
+      `/api/sipsa/**`, nunca ambos mecanismos combinados como autenticación.
+- [x] Usage plans, throttling general (10/20) y de ingestión (1/2), cuota mensual
+      (100k) — valores exactos de ADR-010.
+- [x] Access logs estructurados, retención 30 días, sin tokens/secretos/bodies.
+- [x] Respuestas 401/403/429/5xx consistentes, distintas del shape de la aplicación,
+      documentado por qué.
+- [x] `/actuator/health` nunca ruteado por el gateway.
+- [x] `terraform test` 129/129 en todo el árbol.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (todos los roots), TFLint
+      (0 issues), `trivy config` (0 hallazgos sin resolver, 3 excepciones LOW
+      justificadas) limpios.
+- [x] `./mvnw -q -DskipTests compile` pasa; cero cambio en `src`/`pom.xml`.
+- [x] Sin dominio custom, ACM, Route 53, WAF, consumidores reales, tokens reales, ni
+      valores de API key reales entregados.
+- [x] Sin `terraform apply`, `terraform import`, AWS CLI, en ningún momento.
+- [x] TECH-132 permanece `In progress` (no marcado Done por esta historia).
 
-**Completed:** —
+**Completed:** `infra/terraform/modules/api-gateway/` creado (6 archivos incl. tests) y
+conectado a `environments/production`. Verificado localmente vía las imágenes Docker
+oficiales `hashicorp/terraform:1.15.7`, `terraform-linters/tflint:v0.64.0`,
+`aquasec/trivy` (ninguna instalada en esta máquina): `fmt -check -recursive` limpio;
+`terraform init -backend=false && terraform validate` limpio para los nueve Terraform
+roots; `terraform test` 129/129 en el árbol; TFLint 0 issues; `trivy config` 0 hallazgos
+sin resolver (3 excepciones LOW nuevas, cada una justificada individualmente).
+`.github/workflows/infra-plan.yml` ganó un paso `terraform test — modules/api-gateway`.
+`./mvnw -q -DskipTests compile` pasó; cero cambio en `src`/`pom.xml`. Ningún `terraform
+apply`, `terraform import`, comando AWS CLI, solicitud real de token, ni retiro de API
+key en ningún momento; ningún recurso AWS de ningún tipo existe.
 
 ---
 
@@ -3142,15 +3308,16 @@ Pending**, blocked on TECH-132 (TECH-130 no longer a blocker, done 2026-07-21).
 **Type:** Infrastructure / Security
 **Priority:** High
 **Phase:** —
-**Status:** **In progress** — VPC, RDS, ECS task and internal service foundations
-complete (TECH-138, TECH-139, TECH-140, TECH-141); API Gateway/VPC Link (TECH-131) not
-yet implemented
+**Status:** **In progress** — VPC, RDS, ECS task, internal service, and API
+Gateway/VPC Link foundations complete (TECH-138, TECH-139, TECH-140, TECH-141,
+TECH-131); real AWS provisioning still pending
 **Complexity:** M
 **Branch:** — (infrastructure work; VPC foundation landed via
 `infra/production-vpc-foundation` (TECH-138), RDS foundation via
 `infra/production-rds-foundation` (TECH-139), ECR/ECS task foundation via
 `infra/production-ecs-task-foundation` (TECH-140), internal ALB/ECS Service via
-`infra/internal-alb-ecs-service` (TECH-141))
+`infra/internal-alb-ecs-service` (TECH-141), API Gateway/VPC Link via
+`infra/api-gateway-private-integration` (TECH-131))
 
 **Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
 code changed):** full classification, gateway-bypass-prevention design, and evidence in
@@ -3165,11 +3332,14 @@ app is fully environment-driven for `DB_HOST`/`DB_PORT`, and it logs to stdout
 implemented via TECH-138/TECH-139/TECH-140/TECH-141, all as Terraform code, none applied
 to a real account):** ECS Fargate (over EC2); RDS for PostgreSQL (over self-managed),
 Single-AZ, PostgreSQL 18; internal ALB + ECS Service, with the ECS→RDS security-group
-rule in place. Still open (**D**): VPC-internal TLS policy, and whether Cloud Map service
-discovery is needed (TECH-141 evaluated it and found no justification yet — a single
-ALB-fronted service has no inter-service DNS need). Every real provisioning step itself is
-**C** (real AWS access) — **Cannot be marked Done** until API Gateway/VPC Link (TECH-131)
-are implemented, a real image exists, and the remaining D items are resolved.
+rule in place; API Gateway REST API with a VPC Link (via an NLB chained to the internal
+ALB — see [TECH-131](#tech-131) for the architecture correction this required). Still
+open (**D**): VPC-internal TLS policy, whether Cloud Map service discovery is needed
+(TECH-141 evaluated it and found no justification yet), and whether an IAM/SigV4
+authorizer path is needed alongside Cognito (TECH-131 left this open, no real consumer
+requiring it yet). Every real provisioning step itself is **C** (real AWS access) —
+**Cannot be marked Done** until a real image exists, a real deployment is verified, and
+the remaining D items are resolved.
 
 **Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
 (**Accepted**, 2026-07-21) — Fase 1 (network) and Fase 3 (compute/data) cover this story.
@@ -3231,9 +3401,23 @@ regardless); a target group (`target_type = ip`, health check
 `health_check_grace_period_seconds = 120` — unmeasured, flagged for validation) — all in
 `infra/terraform/modules/ecs-service/`, consumed by `environments/production`. **No
 image exists, no task ever runs, no AWS resource has been created** (no `terraform
-apply` run); validated via `terraform test` against a mocked provider. TECH-131 (API
-Gateway/VPC Link) — the only remaining piece of the full private-networking picture — is
-**not yet implemented**.
+apply` run); validated via `terraform test` against a mocked provider.
+
+**Progress (2026-07-22, [TECH-131](#tech-131), branch
+`infra/api-gateway-private-integration`):** the API Gateway/VPC Link piece — the last
+remaining part of the full private-networking picture — is now implemented too. A
+Network Load Balancer fronts the classic REST API VPC Link (confirmed via the
+provider's own docs that `aws_api_gateway_vpc_link` only accepts an NLB target, never
+an ALB directly — a correction to this story's own original, oversimplified diagram),
+chained to the existing internal ALB via AWS's documented `alb`-type NLB target group.
+The ALB's own security group gets its ingress from `alb_allowed_ingress_cidr_blocks`,
+now populated with this stack's private-application subnet CIDRs (the fallback TECH-141
+already built) rather than `alb_allowed_ingress_security_group_ids`, since the NLB
+deliberately has no security group of its own — all in
+`infra/terraform/modules/api-gateway/`, consumed by `environments/production`. **No
+AWS resource has been created** (no `terraform apply` run); validated via `terraform
+test` against a mocked provider, plus a stub of `module.api_gateway` in
+`environments/production/tests/production.tftest.hcl`.
 
 **Origin:** ADR-002 (Accepted, Option E), layer 4.
 
