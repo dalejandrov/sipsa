@@ -156,12 +156,20 @@ module "ecs_task" {
   log_retention_days = var.ecs_log_retention_days
 }
 
-# TECH-141 (ADR-010, partial TECH-132): internal ALB and ECS Service. No
-# API Gateway, VPC Link, or Cognito exists yet — the ALB has no ingress
-# rule until TECH-131 populates alb_allowed_ingress_security_group_ids with
-# its VPC Link security group. desired_count stays at 1 — the in-process
-# ingestion scheduler is not safe for multiple replicas (see
-# modules/ecs-service/README.md).
+# TECH-141 (ADR-010, partial TECH-132): internal ALB and ECS Service.
+# desired_count stays at 1 — the in-process ingestion scheduler is not safe
+# for multiple replicas (see modules/ecs-service/README.md).
+#
+# TECH-131: alb_allowed_ingress_cidr_blocks is populated with this stack's
+# own private-application subnet CIDRs — the CIDR fallback TECH-141 already
+# built for exactly this situation, chosen over
+# alb_allowed_ingress_security_group_ids because module.api_gateway's NLB
+# (fronting the VPC Link) deliberately has no security group of its own
+# (see modules/api-gateway/README.md's "Architecture correction" section:
+# AWS's docs do not confirm source-IP preservation for alb-type NLB
+# targets, so a security-group reference isn't a defensible choice here).
+# var.alb_allowed_ingress_cidr_blocks remains available for any additional,
+# manually-approved CIDR beyond the VPC Link's own path.
 module "ecs_service" {
   source = "../../modules/ecs-service"
 
@@ -181,7 +189,7 @@ module "ecs_service" {
   rds_port              = module.database.db_port
 
   alb_allowed_ingress_security_group_ids = var.alb_allowed_ingress_security_group_ids
-  alb_allowed_ingress_cidr_blocks        = var.alb_allowed_ingress_cidr_blocks
+  alb_allowed_ingress_cidr_blocks        = distinct(concat(var.private_app_subnet_cidrs, var.alb_allowed_ingress_cidr_blocks))
   alb_deletion_protection                = var.alb_deletion_protection
   enable_alb_access_logs                 = var.enable_alb_access_logs
   alb_access_logs_bucket                 = var.alb_access_logs_bucket
@@ -237,4 +245,43 @@ module "cognito" {
   refresh_token_validity_days   = var.cognito_refresh_token_validity_days
 
   publish_client_ids_to_ssm = var.cognito_publish_client_ids_to_ssm
+}
+
+# TECH-131 (ADR-010 Fase 4): API Gateway REST API, VPC Link (via an NLB
+# chained to TECH-141's internal ALB — see modules/api-gateway/README.md's
+# "Architecture correction" for why a plain "VPC Link to the ALB" is not
+# how classic REST API VPC Links actually work), Cognito authorizer, API
+# keys, usage plans, throttling, access logs. No custom domain, ACM, Route
+# 53, or WAF.
+module "api_gateway" {
+  source = "../../modules/api-gateway"
+
+  project_name = var.project_name
+  environment  = var.environment
+  common_tags  = local.common_tags
+
+  vpc_id                 = module.network.vpc_id
+  private_app_subnet_ids = module.network.private_app_subnet_ids
+  alb_arn                = module.ecs_service.alb_arn
+  alb_listener_port      = var.api_gateway_alb_listener_port
+  alb_health_check_path  = var.health_check_path
+
+  cognito_user_pool_arn              = module.cognito.user_pool_arn
+  cognito_resource_server_identifier = module.cognito.resource_server_identifier
+
+  endpoint_type = var.api_gateway_endpoint_type
+  stage_name    = var.api_gateway_stage_name
+
+  general_rate_limit            = var.api_gateway_general_rate_limit
+  general_burst_limit           = var.api_gateway_general_burst_limit
+  general_quota_limit           = var.api_gateway_general_quota_limit
+  ingestion_trigger_rate_limit  = var.api_gateway_ingestion_trigger_rate_limit
+  ingestion_trigger_burst_limit = var.api_gateway_ingestion_trigger_burst_limit
+
+  access_log_retention_days = var.api_gateway_access_log_retention_days
+
+  api_key_name = var.api_gateway_api_key_name
+
+  cors_allowed_origins   = var.api_gateway_cors_allowed_origins
+  cors_allow_credentials = var.api_gateway_cors_allow_credentials
 }

@@ -510,3 +510,77 @@ variable "cognito_publish_client_ids_to_ssm" {
   type        = bool
   default     = true
 }
+
+# --- API Gateway (TECH-131) --------------------------------------------------
+
+variable "api_gateway_alb_listener_port" {
+  description = "Port of the internal ALB's own listener — must match modules/ecs-service's own listener port exactly (see modules/api-gateway/README.md)."
+  type        = number
+  default     = 80
+}
+
+variable "api_gateway_endpoint_type" {
+  description = "API Gateway REST API endpoint configuration type. Default REGIONAL."
+  type        = string
+  default     = "REGIONAL"
+}
+
+variable "api_gateway_stage_name" {
+  description = "API Gateway stage name. Default \"production\" (ADR-010: one AWS environment)."
+  type        = string
+  default     = "production"
+}
+
+variable "api_gateway_general_rate_limit" {
+  description = "Stage-wide default requests/second. ADR-010 approved value: 10."
+  type        = number
+  default     = 10
+}
+
+variable "api_gateway_general_burst_limit" {
+  description = "Stage-wide default burst capacity. ADR-010 approved value: 20."
+  type        = number
+  default     = 20
+}
+
+variable "api_gateway_general_quota_limit" {
+  description = "Usage plan monthly request quota per consumer. ADR-010 approved value: 100000."
+  type        = number
+  default     = 100000
+}
+
+variable "api_gateway_ingestion_trigger_rate_limit" {
+  description = "Requests/second for the ingestion-trigger routes only. ADR-010 approved value: 1."
+  type        = number
+  default     = 1
+}
+
+variable "api_gateway_ingestion_trigger_burst_limit" {
+  description = "Burst capacity for the ingestion-trigger routes only. ADR-010 approved value: 2."
+  type        = number
+  default     = 2
+}
+
+variable "api_gateway_access_log_retention_days" {
+  description = "CloudWatch Logs retention, in days, for API Gateway access logs. Default 30."
+  type        = number
+  default     = 30
+}
+
+variable "api_gateway_api_key_name" {
+  description = "Name of the one API key provisioned for the general usage plan. Default \"sipsa-primary-consumer\" — see modules/api-gateway/README.md."
+  type        = string
+  default     = "sipsa-primary-consumer"
+}
+
+variable "api_gateway_cors_allowed_origins" {
+  description = "Origins allowed to call GET /api/sipsa/** with CORS. Empty by default — no browser-client requirement has been established anywhere in this repository (see docs/architecture/aws-production-readiness.md §1.6). Never invent a frontend domain to fill this in."
+  type        = list(string)
+  default     = []
+}
+
+variable "api_gateway_cors_allow_credentials" {
+  description = "Whether CORS responses include Access-Control-Allow-Credentials: true. Default false."
+  type        = bool
+  default     = false
+}
