@@ -91,6 +91,26 @@ override_module {
   }
 }
 
+# module.api_gateway is stubbed too — this suite only cares about
+# module.ecs_task's wiring; module.api_gateway's own internals (VPC
+# Link/NLB chaining, per-route scopes, throttling, CORS) are already
+# covered by modules/api-gateway/tests/api-gateway.tftest.hcl.
+override_module {
+  target = module.api_gateway
+  outputs = {
+    rest_api_id           = "mockapiid01"
+    rest_api_arn          = "arn:aws:apigateway:us-east-1::/restapis/mockapiid01"
+    execution_arn         = "arn:aws:execute-api:us-east-1:123456789012:mockapiid01"
+    invoke_url            = "https://mockapiid01.execute-api.us-east-1.amazonaws.com/production"
+    stage_name            = "production"
+    vpc_link_id           = "mockvpclinkid01"
+    usage_plan_id         = "mockusageplanid01"
+    api_key_ids           = ["mockapikeyid01"]
+    access_log_group_name = "/aws/apigateway/sipsa-production-access-logs"
+    authorizer_id         = "mockauthorizerid01"
+  }
+}
+
 # The distinctive mock values below (a recognizable user pool ID / SSM
 # parameter name) are what proves main.tf's module.ecs_task block actually
 # reads module.cognito's outputs, rather than some other, coincidentally
