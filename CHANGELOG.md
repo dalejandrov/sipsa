@@ -109,6 +109,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `In progress`: its network, database, ECS-task, and internal-service substrate are all
   done now; API Gateway and VPC Link (TECH-131) are not.
 
+- **Cognito authentication foundation defined as Terraform code** (TECH-130, ADR-002
+  layer 2 / ADR-010 — `infra/terraform/modules/cognito/`). A user pool with email as the
+  sole sign-in identifier, a 12-character-minimum password policy, `MFA=OPTIONAL` (no
+  operational MFA enrollment/recovery flow exists yet — forcing it now would create an
+  operational dead end), `advanced_security_mode=AUDIT` (risk-based visibility without
+  blocking sign-in, a deliberate middle ground given the real per-MAU cost of any non-OFF
+  mode), `deletion_protection=ACTIVE`, admin-only account creation, and account recovery
+  via verified email only. A resource server (`sipsa`) declaring exactly the four scopes
+  `SecurityConfig` already enforces (`ingestion.execute`, `ingestion.cancel`,
+  `ingestion.read`, `audit.read`), inventoried by grepping the real source, not invented.
+  Two independent, never-shared app clients: a confidential M2M client
+  (`client_credentials` grant only, with a secret) and a public human client
+  (Authorization Code grant only — Cognito enforces PKCE automatically for any public
+  client on this grant, with no separate Terraform argument for it — no secret, no
+  implicit flow). `human_callback_urls`/`human_logout_urls` are required variables with no
+  default and reject any `localhost`/`example.com` value, since no real frontend or
+  approved callback URL exists yet. A Cognito-managed Hosted UI domain is supported but
+  disabled by default (`create_hosted_ui_domain=false`) — enabling it later is a
+  one-variable change, not a restructuring. The M2M client's secret is written into a
+  dedicated Secrets Manager secret and never exposed as a Terraform output (only its ARN
+  is); the module's README documents that, unlike an IAM access key, a Cognito app client
+  secret *is* retrievable again after creation via the Cognito API — verified against the
+  real provider behavior, not assumed — so this design guards against casual
+  `terraform output`/state exposure, not an unrecoverable-secret problem. Both app client
+  IDs (identifiers, not secrets) are optionally published to an SSM Parameter Store
+  `String` parameter for a future `SIPSA_JWT_ALLOWED_CLIENT_IDS` wiring into
+  `modules/ecs-task` — publishing only, not connected to that module by this story.
+  Reviewed against `SecurityConfig`/`SipsaJwtProperties`/`TokenUseValidator`/
+  `AllowedClientIdsValidator` (already implemented, already e2e-validated against a mock
+  OIDC issuer): no incompatibility found, no Spring Security change made. One Trivy LOW
+  finding (Secrets Manager secret using the AWS-owned default key) addressed with a
+  documented exception, consistent with the same posture already applied to this
+  repository's other Secrets-Manager-adjacent resources. Verified with 21 `terraform test`
+  cases against a fully mocked AWS provider — **no real AWS account is contacted, no
+  token is ever requested, no Hosted UI is ever reached, no Cognito user is ever created,
+  and no `terraform apply` has been run.** TECH-130 is Done as Terraform foundation only —
+  no AWS resources have been applied yet; TECH-132 remains `In progress`, unaffected by
+  this story (Cognito is not VPC-scoped).
+
 ### Changed
 
 - **TECH-137 (Terraform bootstrap) corrected against current official documentation

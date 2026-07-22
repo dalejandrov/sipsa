@@ -55,8 +55,8 @@ When a story is implemented:
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
-| TECH-130 | Cognito resource server, scopes and app clients | High | — | Pending — decisions approved 2026-07-21 ([ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) Accepted), blocked on TECH-137 |
-| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-130 + TECH-132 |
+| TECH-130 | Cognito resource server, scopes and app clients | High | — | **Done** (2026-07-21, branch `infra/cognito-authentication-foundation` — `modules/cognito`, 21/21 `terraform test` green, no AWS resource created) |
+| TECH-131 | API Gateway: API keys, usage plans, throttling, access logs | High | — | Pending — blocked on TECH-132 (TECH-130 done 2026-07-21) |
 | TECH-132 | Private networking: ECS, VPC Link, internal ALB, gateway-bypass prevention | High | — | **In progress** — VPC, RDS, ECS task and internal service foundations complete (TECH-138, TECH-139, TECH-140, TECH-141, 2026-07-21); API Gateway/VPC Link (TECH-131) not yet implemented |
 | TECH-137 | Terraform bootstrap and GitHub OIDC validation | High | — | **Done** (2026-07-21, branch `infra/terraform-bootstrap` — corrected same day: S3-native locking, Terraform 1.15.7/AWS provider 6.55.0, Trivy scanning, OIDC contract, REST API decision) |
 | TECH-138 | Provision production VPC foundation | High | — | **Done** (2026-07-21, branch `infra/production-vpc-foundation` — `modules/network`, 16/16 `terraform test` green, no AWS resource created) |
@@ -2844,53 +2844,214 @@ step confirmed the suite ran).
 **Type:** Infrastructure / Security
 **Priority:** High
 **Phase:** —
-**Status:** Pending
+**Status:** **Done** — Terraform foundation complete. No AWS resources have been applied
+yet.
 **Complexity:** M
-**Branch:** — (infrastructure work; IaC location to be defined — likely a separate repository)
-
-**Audit (2026-07-20, `docs/production-aws-readiness-plan`, no AWS resource created, no
-code changed):** full classification and evidence in
-[aws-production-readiness.md](../architecture/aws-production-readiness.md) §2. Every
-application-side item (issuer/`token_use`/`client_id`/scope validation, key rotation) is
-already implemented and e2e-validated against a mock issuer — confirmed **E** (resolved).
-Remaining blockers are the real user pool/resource server/app clients (**C**, needs AWS
-account access) plus 3 open decisions (**D**): how many `client_credentials` app clients
-and their scopes, whether a human-operator `authorization_code` flow is needed at all,
-and where client secrets are stored. **Cannot be marked Done** until those are resolved.
-
-**Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
-(**Accepted**, 2026-07-21) resolves the IaC-tool and Cognito-ownership blockers —
-Terraform, this repository, repository owner administers Cognito initially — and approves
-the two-contract identity model (M2M `client_credentials` with confidential app clients;
-human users via Authorization Code + PKCE, public app client, no implicit flow, no shared
-app client between the two). Implementation is blocked on
-[TECH-137](#tech-137) (Terraform bootstrap) landing first. **Still Pending** — no real
-Cognito resource created yet; only decisions and Terraform scaffolding exist.
+**Branch:** `infra/cognito-authentication-foundation`
 
 **Origin:** [ADR-002](../adr/ADR-002-internal-endpoint-security.md) (Accepted, Option E),
-layer 2. The application side (Resource Server, TECH-001) is already implemented and
-validated against a local mock OIDC issuer (e2e re-validated 2026-07-15 post-merge, 9/9
-green); this story provisions the real identity provider.
+layer 2, y [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) — provisiona
+el identity provider real para el Resource Server ya implementado y validado en TECH-001
+(e2e contra un mock OIDC issuer, 9/9 verde, 2026-07-15). Alcance acotado explícitamente:
+sin API Gateway, VPC Link, WAF, Route 53, ACM, dominio custom, frontend, URLs de callback
+inventadas, secretos distribuidos reales, integración AWS real, ni cambio a Spring
+Security sin un defecto real demostrado.
 
-**Scope:**
-- Cognito user pool for the SIPSA platform (dev and prod).
-- Resource server `sipsa` declaring the custom scopes:
-  `sipsa/ingestion.execute`, `sipsa/ingestion.cancel`, `sipsa/ingestion.read`,
-  `sipsa/audit.read`.
-- One `client_credentials` app client per machine-to-machine integration, each authorized
-  only for the scopes it needs. Client secrets live in the consumer's secret store, never
-  in this repository.
-- App client (authorization code + hosted UI) for human operators.
-- Document the issuer URI per environment; the backend consumes it via
-  `SIPSA_JWT_ISSUER_URI` and optionally pins clients via `SIPSA_JWT_ALLOWED_CLIENT_IDS`.
+**Inventario de scopes reales** (`grep -RIn --exclude-dir=.git -e 'SCOPE_' -e
+'hasAuthority' -e 'hasAnyAuthority' -e 'scope' src/main src/test docs`, no inventado):
+
+| Scope | Endpoint / operación | M2M | Humano |
+|---|---|---:|---:|
+| `sipsa/ingestion.execute` | `POST /api/internal/ingestion/run` | Sí | Sí |
+| `sipsa/ingestion.cancel` | `POST /api/internal/ingestion/cancel/{runId}` | Sí | Sí |
+| `sipsa/ingestion.read` | `GET /api/internal/ingestion/**` | Sí | Sí |
+| `sipsa/audit.read` | `GET /api/internal/audit/**` | Sí | Sí |
+
+Las cuatro son las únicas autoridades `hasAuthority("SCOPE_sipsa/...")` que
+`SecurityConfig` valida hoy — confirmado leyendo el código, no asumido. Ningún scope fue
+creado sin un consumidor/endpoint real.
+
+**Dos contratos de app client, nunca compartidos:**
+- **M2M** (`aws_cognito_user_pool_client.m2m`): grant `client_credentials` únicamente,
+  confidencial (`generate_secret = true`). Nunca `authorization_code`, `implicit`, ni
+  password grant. Un cliente parametrizable en esta historia — el módulo ya soporta "un
+  cliente por integración futura" instanciándose de nuevo con otros inputs; no se inventa
+  un segundo consumidor puramente especulativo.
+- **Humano** (`aws_cognito_user_pool_client.human`): grant `authorization_code`
+  únicamente, público (`generate_secret = false`). Cognito exige PKCE automáticamente
+  para cualquier cliente público en este grant — no existe un argumento Terraform
+  separado para "requerir PKCE"; `generate_secret = false` es lo que define un cliente
+  público, y el propio endpoint de token de Cognito exige entonces el intercambio
+  `code_challenge`/`code_verifier`. Sin `implicit`, sin password grant.
+
+**User pool — configuración segura por defecto:** identificador de sign-in `email`
+(`username_attributes = ["email"]`, sin concepto de "username" separado en el resto del
+sistema); política de contraseña con longitud mínima 12 (parametrizable) y
+mayúscula/minúscula/número/símbolo requeridos; `mfa_configuration = "OPTIONAL"` por
+defecto (parametrizable) — no existe todavía un flujo operativo de
+inscripción/recuperación de MFA (sin frontend, sin proceso de soporte documentado para un
+usuario bloqueado), forzar MFA ahora crearía un callejón sin salida operativo; documentado
+como endurecimiento futuro, no adoptado preventivamente. `advanced_security_mode =
+"AUDIT"` por defecto (parametrizable) — visibilidad basada en riesgo sin bloquear ni
+desafiar ningún inicio de sesión; tanto `AUDIT` como `ENFORCED` tienen un costo real por
+MAU que `OFF` no tiene, `AUDIT` es el punto intermedio deliberado. `deletion_protection =
+"ACTIVE"` (nota: es un string, `"ACTIVE"`/`"INACTIVE"`, no un bool — confirmado contra el
+tipo real del argumento del provider), consistente con la postura de RDS/ALB de este
+repositorio. `allow_admin_create_user_only = true` por defecto — SIPSA es una herramienta
+operativa interna, no un producto de registro público. `prevent_user_existence_errors =
+"ENABLED"` y revocación de tokens habilitados en ambos clientes. Recuperación de cuenta
+solo por email verificado (`recovery_mechanism { name = "verified_email", priority = 1 }`)
+— el único atributo verificado de este pool.
+
+**Dominio Hosted UI — deliberadamente opcional:** `create_hosted_ui_domain` por defecto
+`false`. No existe frontend ni callback URL aprobada aún, así que un dominio Hosted UI no
+tendría a dónde redirigir. El cliente humano con Authorization Code + PKCE se crea
+igualmente cuando esto es `false` — simplemente no tiene un endpoint `/oauth2/authorize`
+alcanzable hasta que exista un dominio. Habilitarlo después es un cambio de una sola
+variable más `cognito_domain_prefix` (requerido, globalmente único, sin default
+inventado — misma clase de unicidad que un nombre de bucket S3), no una reestructuración.
+Sin dominio custom, sin certificado ACM, sin registro Route 53 — solo un dominio prefijo
+gestionado por Cognito.
+
+**Callback/logout URLs — sin placeholders inventados:** `human_callback_urls`/
+`human_logout_urls` son variables requeridas sin default. No existe frontend real, por lo
+tanto no existe una URL real tampoco — un `terraform plan`/`apply` real no debe proceder
+con valores inventados. Ambas variables rechazan cualquier URL que contenga `localhost` o
+`example.com` vía `validation`, específicamente para que nunca puedan confundirse con
+valores de producción aprobados; permanecen utilizables solo dentro de los tests offline
+de este módulo, que usan un hostname `*.invalid` (RFC 2606, garantizado a no resolver
+nunca) para dejar inequívoco su carácter de placeholder incluso ahí.
+
+**Validez de tokens:** `access_token_validity_minutes = 60`, `id_token_validity_minutes =
+60` (solo cliente humano — un token `client_credentials` no lleva ID token),
+`refresh_token_validity_days = 30` (solo cliente humano — `client_credentials` no es un
+grant basado en refresh token). Las tres son variables Terraform, propuestas iniciales sin
+medir contra un patrón operativo real.
+
+**Compatibilidad con la validación JWT existente de la aplicación:** confirmado leyendo
+`SecurityConfig`/`SipsaJwtProperties`/`TokenUseValidator`/`AllowedClientIdsValidator` (ya
+implementados, ya validados e2e contra un mock OIDC issuer, TECH-001/ADR-002) — **ningún
+defecto encontrado, ningún cambio a Spring Security hecho por esta historia**: `iss` se
+valida contra `SIPSA_JWT_ISSUER_URI` (el output `issuer_url` de este módulo, construido
+desde el atributo `endpoint` del user pool, es el valor a usar en un despliegue real);
+`exp` vía el validador estándar de Spring; `token_use = access` vía `TokenUseValidator`;
+`client_id` vía el `AllowedClientIdsValidator` opcional; `scope` por operación vía los
+matchers `hasAuthority` contra las autoridades `SCOPE_sipsa/...` que Spring deriva del
+claim `scope`. `aud` se ignora deliberadamente (ya documentado en
+`aws-production-readiness.md`) — un token `client_credentials` de Cognito no lleva `aud`,
+consistente, no un vacío que este módulo deba resolver.
+
+**Allowlist de client IDs hacia ECS — diseño, no conectado aún:**
+`publish_client_ids_to_ssm` (default `true`) publica ambos client IDs como un CSV en un
+parámetro SSM Parameter Store tipo `String` (`/  <project>-<environment>/sipsa/jwt-allowed-client-ids`)
+— son identificadores, no secretos, según el propio Javadoc de
+`AllowedClientIdsValidator`. Este módulo **no** conecta ese parámetro a la task definition
+de `modules/ecs-task` — hacerlo modificaría un módulo ya fusionado, fuera del alcance de
+esta historia; queda como seguimiento documentado para quien conecte
+`SIPSA_JWT_ALLOWED_CLIENT_IDS`/`SIPSA_JWT_ISSUER_URI` en el entorno de ECS.
+
+**Secreto del cliente M2M — Secrets Manager, comportamiento real verificado, no
+asumido:** a diferencia de algunos patrones de generación de secretos de AWS (p. ej. una
+IAM access key, verdaderamente irrecuperable tras su creación), el secreto de un app
+client de Cognito **no** es un valor de "mostrar una sola vez" — permanece recuperable en
+cualquier momento vía la API de Cognito (`DescribeUserPoolClient`), y el propio recurso de
+Terraform lo relee como atributo computado en cada refresh. El riesgo real que este diseño
+mitiga es la **exposición casual vía `terraform output` o una herramienta de
+visualización de state con control de acceso insuficiente** — no "perder un secreto
+irrecuperable". El secreto se escribe directamente en un `aws_secretsmanager_secret`
+dedicado (nunca expuesto como output — solo su ARN, `m2m_client_secret_arn`, mismo patrón
+que el secreto maestro de RDS en `modules/database`). Distribución al consumidor: no
+automatizada por esta historia — quien posea la integración M2M real recibe acceso de
+lectura a ese ARN específico, explícitamente, cuando ese consumidor exista. Sin rotación
+automática implementada — evaluar cuando exista un mecanismo real de distribución de un
+secreto rotado.
+
+**Trivy exceptions:**
+
+| Finding | Resource | Risk | Justification | Exception |
+|---|---|---|---|---|
+| AWS-0098 (LOW — Secret usa la clave por defecto) | `aws_secretsmanager_secret.m2m_client_secret` | Bajo — secreto de un solo dueño, sin acceso cross-account, sin requisito de compliance que exija hoy una CMK | Misma postura ya aplicada al bucket S3 de bootstrap, los grupos de logs de CloudWatch de database, el repositorio de ecr, y el grupo de Flow Logs de network | `# trivy:ignore:AVD-AWS-0098`, revisitar con una KMS key administrada por el cliente si surge un límite de acceso real (p. ej. un equipo externo que necesite decrypt acotado) |
+
+**Módulo:** `infra/terraform/modules/cognito/` (`main.tf`, `variables.tf`, `outputs.tf`,
+`versions.tf`, `README.md`, `tests/`). Sin módulos públicos de terceros.
+`environments/production/main.tf` consume el módulo — sin dependencia de `module.network`,
+`module.ecs_task`, ni `module.ecs_service` (Cognito no está anclado a la VPC).
+
+**Outputs:** `user_pool_id`, `user_pool_arn`, `issuer_url`, `resource_server_identifier`,
+`m2m_client_id`, `human_client_id`, `cognito_domain` (nullable), más
+`m2m_client_secret_arn` y `allowed_client_ids_parameter_name` (ambos no sensibles — ARN y
+nombre de parámetro, nunca el secreto ni su valor).
+
+**Tests:** `infra/terraform/modules/cognito/tests/cognito.tftest.hcl` — 21 casos, todos
+verdes, `terraform test` con proveedor AWS completamente mockeado, cero cuenta AWS real
+contactada. Cobertura: user pool creado; `prevent_user_existence_errors` y revocación de
+token en ambos clientes; política de contraseña (longitud 12, los cuatro requisitos);
+verificación de email; resource server con exactamente los cuatro scopes reales
+(comparación por `toset`); cliente M2M con secreto y solo `client_credentials`; cliente
+humano sin secreto y solo `code`; flujo `implicit` ausente en ambos; callback/logout URLs
+reflejan la variable exactamente; rechazo de `localhost`/`example.com` (`expect_failures`);
+validez de tokens (60/60/30); IDs de cliente distintos; tags comunes en el user pool; sin
+dominio Hosted UI por defecto (`cognito_domain` output `null`); dominio creado solo bajo
+solicitud explícita con prefijo; rechazo de dominio sin prefijo (`expect_failures`);
+secreto M2M escrito en `aws_secretsmanager_secret_version`; parámetro SSM de allowlist
+publicado por defecto como `String` (nunca `SecureString`) y desactivable por variable.
+Ausencia de API Gateway, VPC Link, dominio custom, ACM/Route53, y de secreto en outputs
+confirmada por inspección del código fuente del módulo, no como aserción en tiempo de
+ejecución.
 
 **Acceptance Criteria:**
-- [ ] A token obtained via `client_credentials` from the dev pool authorizes the matching
-      `/api/internal/**` operation against a deployed backend (401/403/2xx matrix passes).
-- [ ] Scopes not granted to a client are rejected with `403`.
-- [ ] No secret is committed to this repository.
+- [x] Cognito user pool con configuración segura por defecto (MFA opcional, advanced
+      security AUDIT, deletion protection, prevent-user-existence-errors, revocación de
+      token, recuperación por email verificado).
+- [x] Resource server `sipsa` con exactamente los cuatro scopes reales, confirmados por
+      grep contra el código, no inventados.
+- [x] Cliente M2M `client_credentials`-únicamente, con secreto, nunca expuesto como
+      output — solo su ARN en Secrets Manager.
+- [x] Cliente humano `authorization_code`+PKCE-únicamente, sin secreto, sin `implicit`,
+      callback/logout URLs parametrizadas sin placeholders inventados.
+- [x] Los dos clientes son recursos distintos, nunca comparten configuración de
+      scopes-vs-grant ni secreto.
+- [x] Sin dominio Hosted UI creado por defecto; creable explícitamente sin dominio
+      custom/ACM/Route53.
+- [x] Diseño de allowlist de client IDs hacia ECS documentado (SSM `String`), sin
+      conectar a `modules/ecs-task` en esta historia.
+- [x] Compatibilidad JWT confirmada sin cambios a Spring Security — ningún defecto real
+      encontrado.
+- [x] `terraform test` pasa (21/21) contra un proveedor mockeado.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (los ocho Terraform roots),
+      TFLint, y `trivy config` están todos limpios (1 excepción LOW, individualmente
+      justificada).
+- [x] `./mvnw -q -DskipTests compile` pasa; cero cambio en `src`/`pom.xml`.
+- [x] Sin `terraform apply`, `terraform import`, AWS CLI, solicitud real de token, Hosted
+      UI real, ni creación de usuario Cognito real.
+- [x] TECH-132 permanece `In progress` (no `Done`); TECH-131 permanece `Pending`.
 
-**Completed:** —
+**Completed:** `infra/terraform/modules/cognito/` creado (6 archivos incl. tests) y
+conectado a `environments/production` (sin dependencia de red/ECS). Verificado localmente
+vía las imágenes Docker oficiales `hashicorp/terraform:1.15.7`,
+`terraform-linters/tflint:v0.64.0`, y `aquasec/trivy` (ninguna instalada en esta máquina):
+`fmt -check -recursive` limpio; `terraform init -backend=false && terraform validate`
+limpio para los ocho Terraform roots (`bootstrap/`, `environments/production`,
+`modules/network/`, `modules/database/`, `modules/ecr/`, `modules/ecs-task/`,
+`modules/ecs-service/`, `modules/cognito/`); `terraform test` 21/21 pasando para el módulo
+nuevo; TFLint 0 issues; `trivy config` 0 hallazgos sin resolver en todo el árbol (1
+excepción nueva LOW, justificada individualmente). `.github/workflows/infra-plan.yml`
+ganó un paso `terraform test — modules/cognito`. `./mvnw -q -DskipTests compile` pasó;
+cero cambio en `src`/`pom.xml`. Ningún `terraform apply`, `terraform import`, comando AWS
+CLI, solicitud real de token, Hosted UI real, ni creación de usuario Cognito en ningún
+momento; ningún recurso AWS de ningún tipo existe; ninguna credencial AWS fue agregada.
+
+**Gaps documentados, previos a cualquier despliegue real** (ninguno resuelto por esta
+historia):
+- Dominio Hosted UI no creado — requiere una callback/logout URL real aprobada primero.
+- Allowlist SSM publicada pero no conectada a `modules/ecs-task` — seguimiento pendiente.
+- Distribución real del secreto M2M al consumidor no automatizada — acceso IAM explícito
+  pendiente de un consumidor real.
+- Sin rotación automática del secreto M2M.
+- MFA `OPTIONAL`, no forzado — pendiente de un flujo operativo de
+  inscripción/recuperación antes de considerar `ON`.
+- API Gateway y VPC Link (TECH-131) pendientes — siguen bloqueados también en TECH-132.
+- Ningún `terraform apply` ejecutado en ningún momento de esta secuencia de historias.
 
 ---
 
@@ -2912,11 +3073,13 @@ means `POST /api/internal/ingestion/run` returns `202` in milliseconds, so API G
 ~29s REST integration timeout is not at risk (**E**, resolved). No incompatibility found
 between the Cognito authorizer, API keys, private integration, and Spring Security's own
 re-validation — four independent responsibilities, not overlapping ones (§3 of the
-readiness doc). Open blockers: depends on TECH-130 existing (**C**); whether an IAM/SigV4
-authorizer path is needed, and CORS (**D**, both — CORS in particular has zero prior
-mention anywhere in this repo). REST-vs-HTTP-API and usage-plan tiers are **resolved**,
-no longer blockers (see below). **Cannot be marked Done** until the remaining **D**/**C**
-items are resolved.
+readiness doc). Open blockers: whether an IAM/SigV4 authorizer path is needed, and CORS
+(**D**, both — CORS in particular has zero prior mention anywhere in this repo).
+REST-vs-HTTP-API and usage-plan tiers are **resolved**, no longer blockers (see below).
+[TECH-130](#tech-130) (Cognito) landed 2026-07-21 — no longer a blocker; `issuer_url`,
+`resource_server_identifier`, and both app client IDs are available as module outputs for
+this story's authorizer wiring. **Cannot be marked Done** until the remaining **D** items
+and TECH-132 (VPC Link) are resolved.
 
 **Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
 (**Accepted**, revised 2026-07-21) — Fase 4 covers this story's gateway provisioning.
@@ -2927,7 +3090,7 @@ illustrative `basic`/`partner` figures below — these are best-effort operation
 protection, not an absolute defense against cost or abuse). No custom domain/ACM for the
 first version — API Gateway's managed `execute-api` endpoint is used. IAM/SigV4
 necessity and CORS remain open, deferred to this story's own implementation. **Still
-Pending**, blocked on TECH-130 and TECH-132.
+Pending**, blocked on TECH-132 (TECH-130 no longer a blocker, done 2026-07-21).
 
 **Origin:** ADR-002 (Accepted, Option E), layer 1.
 
