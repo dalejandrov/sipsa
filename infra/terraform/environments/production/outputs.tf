@@ -275,3 +275,40 @@ output "cognito_allowed_client_ids_parameter_name" {
   description = "SSM Parameter Store parameter name publishing the CSV of app client IDs, or null when publish_client_ids_to_ssm is false."
   value       = module.cognito.allowed_client_ids_parameter_name
 }
+
+# --- API Gateway (TECH-131) --------------------------------------------------
+
+output "api_gateway_rest_api_id" {
+  description = "REST API ID."
+  value       = module.api_gateway.rest_api_id
+}
+
+output "api_gateway_invoke_url" {
+  description = "Base invoke URL for the deployed stage (AWS-managed execute-api endpoint)."
+  value       = module.api_gateway.invoke_url
+}
+
+output "api_gateway_stage_name" {
+  description = "Deployed API Gateway stage name."
+  value       = module.api_gateway.stage_name
+}
+
+output "api_gateway_vpc_link_id" {
+  description = "ID of the classic REST API VPC Link."
+  value       = module.api_gateway.vpc_link_id
+}
+
+output "api_gateway_usage_plan_id" {
+  description = "ID of the general usage plan."
+  value       = module.api_gateway.usage_plan_id
+}
+
+output "api_gateway_api_key_ids" {
+  description = "IDs of every API key this stack provisions. Never the key values themselves."
+  value       = module.api_gateway.api_key_ids
+}
+
+output "api_gateway_access_log_group_name" {
+  description = "CloudWatch Logs group name for API Gateway access logs."
+  value       = module.api_gateway.access_log_group_name
+}
