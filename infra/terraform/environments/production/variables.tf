@@ -418,3 +418,95 @@ variable "ecs_health_check_grace_period_seconds" {
   type        = number
   default     = 120
 }
+
+# --- Cognito authentication foundation (TECH-130) ---------------------------
+
+variable "cognito_resource_server_identifier" {
+  description = "Resource server identifier. Default \"sipsa\" — matches SecurityConfig's own scope prefix."
+  type        = string
+  default     = "sipsa"
+}
+
+variable "cognito_resource_server_name" {
+  description = "Human-readable resource server name."
+  type        = string
+  default     = "SIPSA API"
+}
+
+variable "cognito_mfa_configuration" {
+  description = "Cognito MFA configuration. Default \"OPTIONAL\" (see modules/cognito/README.md)."
+  type        = string
+  default     = "OPTIONAL"
+}
+
+variable "cognito_advanced_security_mode" {
+  description = "Cognito advanced security features mode. Default \"AUDIT\" (see modules/cognito/README.md for the cost trade-off)."
+  type        = string
+  default     = "AUDIT"
+}
+
+variable "cognito_deletion_protection" {
+  description = "Cognito user pool deletion protection (\"ACTIVE\"/\"INACTIVE\"). Default \"ACTIVE\"."
+  type        = string
+  default     = "ACTIVE"
+}
+
+variable "cognito_allow_admin_create_user_only" {
+  description = "Whether only an administrator can create user pool accounts. Default true (see modules/cognito/README.md)."
+  type        = bool
+  default     = true
+}
+
+variable "cognito_password_minimum_length" {
+  description = "Minimum password length for human users. Default 12."
+  type        = number
+  default     = 12
+}
+
+variable "cognito_create_hosted_ui_domain" {
+  description = "Whether to create a Cognito-managed Hosted UI domain. Default false — no approved callback URL exists yet (see modules/cognito/README.md)."
+  type        = bool
+  default     = false
+}
+
+variable "cognito_domain_prefix" {
+  description = "Cognito Hosted UI domain prefix, only used when cognito_create_hosted_ui_domain is true. No default — must be globally unique, chosen at apply time."
+  type        = string
+  default     = null
+}
+
+variable "cognito_human_callback_urls" {
+  description = "OAuth2 callback URLs for the human app client. No default — no frontend exists yet; a real apply must supply real, approved URLs."
+  type        = list(string)
+  default     = []
+}
+
+variable "cognito_human_logout_urls" {
+  description = "OAuth2 logout URLs for the human app client. No default — same reasoning as cognito_human_callback_urls."
+  type        = list(string)
+  default     = []
+}
+
+variable "cognito_access_token_validity_minutes" {
+  description = "Access token validity, in minutes, for both app clients. Default 60."
+  type        = number
+  default     = 60
+}
+
+variable "cognito_id_token_validity_minutes" {
+  description = "ID token validity, in minutes, for the human app client. Default 60."
+  type        = number
+  default     = 60
+}
+
+variable "cognito_refresh_token_validity_days" {
+  description = "Refresh token validity, in days, for the human app client. Default 30."
+  type        = number
+  default     = 30
+}
+
+variable "cognito_publish_client_ids_to_ssm" {
+  description = "Whether to publish app client IDs as a CSV in SSM Parameter Store, for a future ECS task definition to consume. Default true (see modules/cognito/README.md)."
+  type        = bool
+  default     = true
+}

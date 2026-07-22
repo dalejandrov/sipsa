@@ -1,18 +1,26 @@
 # AWS Production Readiness — TECH-130 / TECH-131 / TECH-132
 
-**Version:** 1.6 (2026-07-21 — [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
-now **Accepted**: the repository owner resolved IaC tool, ownership, account, region,
+**Version:** 1.7 (2026-07-21 — [TECH-130](../backlog/technical-backlog.md#tech-130)
+(Cognito user pool, resource server, M2M + human app clients) is now **Done as Terraform
+foundation** (`modules/cognito`, 21/21 `terraform test` green) — no AWS resource created,
+no `terraform apply` run, no Hosted UI reached, no Cognito user created. This resolves
+TECH-130's app-client-count/scopes and secret-storage-strategy **D** items (one
+parameterizable M2M client + one human client, per ADR-010's two-contract model; secret
+storage via a dedicated Secrets Manager secret, ARN-only output); the Hosted UI domain
+decision itself remains deferred (module supports it, disabled by default, pending a real
+callback URL). TECH-131's dependency on TECH-130 existing is now resolved — see §2 below.
+Earlier same-day revision: [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) is
+**Accepted**: the repository owner resolved IaC tool, ownership, account, region,
 environments, VPC, ECS launch type, database, Cognito ownership, domain, NAT Gateway,
-logging retention, secrets management, and (in a same-day revision) API Gateway
-REST-vs-HTTP-API (Q8 — **REST API**, required for API key/usage-plan/quota/throttling
-support). §10 below is annotated per-item with each resolution; §9 Risks updated
-accordingly. TECH-132's network foundation (TECH-138), RDS PostgreSQL foundation
-(TECH-139), ECR/ECS-cluster/task-definition foundation (TECH-140), and internal
-ALB/ECS-Service foundation (TECH-141) are now implemented as Terraform code — no AWS
-resource created, no `terraform apply` run, no image published. Still open: exact M2M
-integration count/scopes (Q2), IAM/SigV4
-path necessity (Q9), and CORS/end-to-end-VPC-TLS — see the annotations below, not assumed
-resolved just because most of §10 now is)
+logging retention, secrets management, and API Gateway REST-vs-HTTP-API (Q8 — **REST
+API**, required for API key/usage-plan/quota/throttling support). §10 below is annotated
+per-item with each resolution; §9 Risks updated accordingly. TECH-132's network
+foundation (TECH-138), RDS PostgreSQL foundation (TECH-139), ECR/ECS-cluster/
+task-definition foundation (TECH-140), and internal ALB/ECS-Service foundation
+(TECH-141) are also implemented as Terraform code — no AWS resource created, no
+`terraform apply` run, no image published. Still open: IAM/SigV4 path necessity (Q9), and
+CORS/end-to-end-VPC-TLS — see the annotations below, not assumed resolved just because
+most of §10 now is)
 **Date:** 2026-07-20
 **Author:** Repository audit (branch `docs/production-aws-readiness-plan`), read-only —
 no AWS resource was created, no AWS CLI command was run against a real account, no
@@ -191,16 +199,20 @@ architecture/security decision, **E** = already resolved.
 | Client-id allowlist plumbing | E | Optional, CSV, fail-fast on malformed input |
 | Key rotation | E | Cognito JWKS + `NimbusJwtDecoder`, no app change needed |
 | Local/mock validation | E | 9/9 e2e, 2026-07-15 |
-| Real Cognito user pool (dev + prod) | C | Needs AWS account access to create |
-| `sipsa` resource server + 4 custom scopes | C | AWS action once IaC tool is chosen |
-| `client_credentials` app client(s) | C + D | Needs AWS access; **how many integrations and which scopes each gets is undecided** |
-| Authorization-code app client + hosted UI | C + D | **Whether human-operator login is needed at all, and its UI/domain, is undecided** |
-| Document issuer URI per environment | B | Mechanical once the pool exists — no code change, just documentation |
-| Client secret storage strategy | D | Backlog says "consumer's secret store" — **which store (AWS Secrets Manager, Parameter Store, consumer-owned) is undecided** |
-| Test against a real Cognito token | C | Needs a real pool; the mock-OIDC e2e already proves the app-side logic |
+| Real Cognito user pool (dev + prod) | Resolved (TECH-130) + C (apply) | `modules/cognito`'s `aws_cognito_user_pool.main`, implemented as Terraform code; not yet applied to a real account |
+| `sipsa` resource server + 4 custom scopes | Resolved (TECH-130) + C (apply) | `aws_cognito_resource_server.sipsa`, scopes confirmed by grep against `SecurityConfig`, not invented |
+| `client_credentials` app client(s) | Resolved (TECH-130) + C (apply) | One parameterizable M2M client (`aws_cognito_user_pool_client.m2m`) — ADR-010's two-contract model; module supports instantiating more without restructuring when a second real integration exists |
+| Authorization-code app client + hosted UI | Resolved (TECH-130) + C (apply) | Human client (`aws_cognito_user_pool_client.human`, Authorization Code + PKCE, no secret) always created; Hosted UI domain itself stays disabled by default (`create_hosted_ui_domain = false`) — no real callback URL exists yet, see §10 |
+| Document issuer URI per environment | Resolved (TECH-130) + B | `issuer_url` module output; still needs the real value wired into `SIPSA_JWT_ISSUER_URI` at apply time |
+| Client secret storage strategy | Resolved (TECH-130) | Dedicated `aws_secretsmanager_secret`/`_version`, ARN-only module output (`m2m_client_secret_arn`) — never the secret value; same pattern as RDS's master secret. Provider behavior verified, not assumed: Cognito's client secret is retrievable after creation (unlike an IAM access key), so this guards against casual `terraform output`/state exposure, not an unrecoverable-value risk — see `modules/cognito/README.md` |
+| Test against a real Cognito token | C | Needs a real, applied pool; the mock-OIDC e2e already proves the app-side logic, and `terraform test`'s 21/21 mocked-provider suite proves the Terraform contract |
 
-**TECH-130 cannot be marked Done**: 3 open **C**/**D** items (app clients, hosted-UI
-decision, secret storage strategy) beyond needing raw AWS access.
+**TECH-130 is Done as Terraform foundation** (2026-07-21, branch
+`infra/cognito-authentication-foundation`) — every **D** item above is resolved as code;
+the remaining item on every row is **C** (apply to a real account), which this story
+explicitly does not do. The Hosted UI domain itself stays undeployed pending a real,
+approved callback URL — not a blocker for TECH-130's own Done state, since the module
+supports enabling it later with a one-variable change.
 
 ### TECH-131 — API Gateway
 
@@ -209,7 +221,7 @@ decision, secret storage strategy) beyond needing raw AWS access.
 | Actuator never routed through the gateway | E (decided) / C (to implement) | ADR-002 §5 is explicit; enforcing it is an AWS config action |
 | Async trigger avoids the 29s integration timeout | E | Verified via TECH-053, see §1.8 |
 | REST API vs HTTP API | D | **Undecided** — HTTP API is cheaper/simpler with native JWT authorizers; REST API has more mature native API-key/usage-plan support. Needs an explicit choice, not an assumption (AWS's HTTP API feature set for usage plans has evolved — verify current support before deciding, don't assume either way) |
-| JWT authorizer wired to the TECH-130 pool | C | Depends on TECH-130 existing first |
+| JWT authorizer wired to the TECH-130 pool | C | TECH-130 done 2026-07-21 — `issuer_url`/`resource_server_identifier`/both client IDs are available as module outputs; wiring the authorizer itself still needs a real, applied pool |
 | IAM/SigV4 authorizer for admin routes | D | Backlog phrases this as "or" — **whether this path is needed at all, alongside Cognito, is undecided** |
 | API keys + usage plans (tiers, rps, quotas) | Resolved + C | ADR-010: general 10 req/s / burst 20 / 100k monthly per consumer; ingestion-trigger routes 1 req/s / burst 2 — replaces the previously-illustrative `basic`/`partner` figures; implementing requires AWS |
 | Access logs (`apiKeyId`/`clientId`) | C | Format can be decided now (B), implementing requires AWS |
@@ -217,11 +229,12 @@ decision, secret storage strategy) beyond needing raw AWS access.
 | Max payload size / integration timeout | E (verified safe for the async trigger) / D (for any future large-payload endpoint) | See §1.8 |
 | Cognito authorizer vs API keys vs private integration vs Spring Security — compatibility | E (no incompatibility found) | See §6 below — these are four independent, non-overlapping responsibilities already documented in ADR-002, not four mechanisms competing for the same route |
 
-**TECH-131 cannot be marked Done**: depends on TECH-130 (C). REST API is now decided
-(ADR-010) — the remaining open **D** decisions are IAM authorizer necessity and CORS; real
-usage-plan tiers are also decided (ADR-010: general 10 req/s / burst 20 / 100k monthly,
-ingestion-trigger 1 req/s / burst 2), replacing the previously-illustrative
-`basic`/`partner` figures.
+**TECH-131 cannot be marked Done**: REST API is now decided (ADR-010) — the remaining
+open **D** decisions are IAM authorizer necessity and CORS; real usage-plan tiers are also
+decided (ADR-010: general 10 req/s / burst 20 / 100k monthly, ingestion-trigger 1 req/s /
+burst 2), replacing the previously-illustrative `basic`/`partner` figures. TECH-130's
+Cognito pool no longer blocks this story (done 2026-07-21) — implementing the authorizer
+still needs a real, applied pool (**C**) and TECH-132's VPC Link (**C**).
 
 ### TECH-132 — Private networking
 

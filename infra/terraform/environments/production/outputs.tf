@@ -228,3 +228,50 @@ output "ecs_desired_count" {
   description = "Configured desired task count. Must not be raised above 1 without addressing the scheduler's multi-replica risk first (see modules/ecs-service/README.md)."
   value       = module.ecs_service.ecs_desired_count
 }
+
+# --- Cognito authentication foundation (TECH-130) ---------------------------
+
+output "cognito_user_pool_id" {
+  description = "Cognito user pool ID."
+  value       = module.cognito.user_pool_id
+}
+
+output "cognito_user_pool_arn" {
+  description = "ARN of the Cognito user pool."
+  value       = module.cognito.user_pool_arn
+}
+
+output "cognito_issuer_url" {
+  description = "OIDC issuer URL — wire into SIPSA_JWT_ISSUER_URI for a real deployment."
+  value       = module.cognito.issuer_url
+}
+
+output "cognito_resource_server_identifier" {
+  description = "Resource server identifier (\"sipsa\" by default) — the scope prefix SecurityConfig already enforces."
+  value       = module.cognito.resource_server_identifier
+}
+
+output "cognito_m2m_client_id" {
+  description = "Client ID of the M2M (client_credentials) app client. An identifier, not a secret."
+  value       = module.cognito.m2m_client_id
+}
+
+output "cognito_human_client_id" {
+  description = "Client ID of the human (Authorization Code + PKCE) app client. An identifier; this client has no secret at all (public client)."
+  value       = module.cognito.human_client_id
+}
+
+output "cognito_domain" {
+  description = "Cognito Hosted UI domain, or null when create_hosted_ui_domain is false (the default)."
+  value       = module.cognito.cognito_domain
+}
+
+output "cognito_m2m_client_secret_arn" {
+  description = "ARN of the Secrets Manager secret holding the M2M client's credentials. Never the secret value itself — see modules/cognito/README.md."
+  value       = module.cognito.m2m_client_secret_arn
+}
+
+output "cognito_allowed_client_ids_parameter_name" {
+  description = "SSM Parameter Store parameter name publishing the CSV of app client IDs, or null when publish_client_ids_to_ssm is false."
+  value       = module.cognito.allowed_client_ids_parameter_name
+}

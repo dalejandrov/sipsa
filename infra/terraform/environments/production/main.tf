@@ -183,3 +183,39 @@ module "ecs_service" {
   enable_execute_command             = var.ecs_enable_execute_command
   health_check_grace_period_seconds  = var.ecs_health_check_grace_period_seconds
 }
+
+# TECH-130 (ADR-010, layer 2 of ADR-002's Option E): Cognito user pool,
+# resource server/scopes, M2M and human app clients. No API Gateway, VPC
+# Link, or WAF exists yet — this module does not depend on module.network,
+# module.ecs_task, or module.ecs_service at all (Cognito is not VPC-scoped).
+# The M2M client's SIPSA_JWT_ALLOWED_CLIENT_IDS/SIPSA_JWT_ISSUER_URI wiring
+# into the ECS task definition is a documented follow-up, not done here —
+# see modules/cognito/README.md.
+module "cognito" {
+  source = "../../modules/cognito"
+
+  project_name = var.project_name
+  environment  = var.environment
+  common_tags  = local.common_tags
+
+  resource_server_identifier = var.cognito_resource_server_identifier
+  resource_server_name       = var.cognito_resource_server_name
+
+  mfa_configuration            = var.cognito_mfa_configuration
+  advanced_security_mode       = var.cognito_advanced_security_mode
+  deletion_protection          = var.cognito_deletion_protection
+  allow_admin_create_user_only = var.cognito_allow_admin_create_user_only
+  password_minimum_length      = var.cognito_password_minimum_length
+
+  create_hosted_ui_domain = var.cognito_create_hosted_ui_domain
+  cognito_domain_prefix   = var.cognito_domain_prefix
+
+  human_callback_urls = var.cognito_human_callback_urls
+  human_logout_urls   = var.cognito_human_logout_urls
+
+  access_token_validity_minutes = var.cognito_access_token_validity_minutes
+  id_token_validity_minutes     = var.cognito_id_token_validity_minutes
+  refresh_token_validity_days   = var.cognito_refresh_token_validity_days
+
+  publish_client_ids_to_ssm = var.cognito_publish_client_ids_to_ssm
+}
