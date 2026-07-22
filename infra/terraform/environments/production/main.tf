@@ -237,6 +237,7 @@ module "cognito" {
   create_hosted_ui_domain = var.cognito_create_hosted_ui_domain
   cognito_domain_prefix   = var.cognito_domain_prefix
 
+  enable_human_client = var.cognito_enable_human_client
   human_callback_urls = var.cognito_human_callback_urls
   human_logout_urls   = var.cognito_human_logout_urls
 

@@ -24,6 +24,13 @@ variables {
     Repository  = "dalejandrov/sipsa"
     CostCenter  = "test-cost-center"
   }
+  # TECH-143: enable_human_client defaults to false in production (see
+  # variables.tf), but this suite's base variables enable it so the
+  # existing per-client assertions below can still exercise its real
+  # configuration; "disabled_by_default_in_a_fresh_config" below overrides
+  # it back to false to test the actual default.
+  enable_human_client = true
+
   # RFC 2606-reserved .invalid TLD — guaranteed never to resolve, making the
   # placeholder nature of these test-only values unambiguous even here.
   human_callback_urls = ["https://app.sipsa.internal.invalid/callback"]
@@ -50,7 +57,7 @@ run "prevent_user_existence_errors_enabled" {
   }
 
   assert {
-    condition     = aws_cognito_user_pool_client.human.prevent_user_existence_errors == "ENABLED"
+    condition     = aws_cognito_user_pool_client.human[0].prevent_user_existence_errors == "ENABLED"
     error_message = "The human client must have prevent_user_existence_errors enabled."
   }
 }
@@ -65,7 +72,7 @@ run "token_revocation_enabled" {
   }
 
   assert {
-    condition     = aws_cognito_user_pool_client.human.enable_token_revocation == true
+    condition     = aws_cognito_user_pool_client.human[0].enable_token_revocation == true
     error_message = "The human client must have token revocation enabled."
   }
 }
@@ -135,12 +142,12 @@ run "human_client_has_no_secret_and_only_authorization_code" {
   command = apply
 
   assert {
-    condition     = aws_cognito_user_pool_client.human.generate_secret == false
+    condition     = aws_cognito_user_pool_client.human[0].generate_secret == false
     error_message = "The human client must not generate a secret (public client)."
   }
 
   assert {
-    condition     = aws_cognito_user_pool_client.human.allowed_oauth_flows == toset(["code"])
+    condition     = aws_cognito_user_pool_client.human[0].allowed_oauth_flows == toset(["code"])
     error_message = "The human client must allow exactly the authorization_code (\"code\") OAuth flow."
   }
 }
@@ -155,7 +162,7 @@ run "implicit_flow_disabled_everywhere" {
   }
 
   assert {
-    condition     = !contains(aws_cognito_user_pool_client.human.allowed_oauth_flows, "implicit")
+    condition     = !contains(aws_cognito_user_pool_client.human[0].allowed_oauth_flows, "implicit")
     error_message = "The human client must never allow the implicit flow."
   }
 }
@@ -165,12 +172,12 @@ run "callback_and_logout_urls_are_parameterized" {
   command = apply
 
   assert {
-    condition     = toset(aws_cognito_user_pool_client.human.callback_urls) == toset(["https://app.sipsa.internal.invalid/callback"])
+    condition     = toset(aws_cognito_user_pool_client.human[0].callback_urls) == toset(["https://app.sipsa.internal.invalid/callback"])
     error_message = "callback_urls must reflect the configured variable exactly."
   }
 
   assert {
-    condition     = toset(aws_cognito_user_pool_client.human.logout_urls) == toset(["https://app.sipsa.internal.invalid/logout"])
+    condition     = toset(aws_cognito_user_pool_client.human[0].logout_urls) == toset(["https://app.sipsa.internal.invalid/logout"])
     error_message = "logout_urls must reflect the configured variable exactly."
   }
 }
@@ -231,7 +238,7 @@ run "token_validity_matches_defaults" {
   command = apply
 
   assert {
-    condition     = aws_cognito_user_pool_client.human.access_token_validity == 60 && aws_cognito_user_pool_client.human.id_token_validity == 60 && aws_cognito_user_pool_client.human.refresh_token_validity == 30
+    condition     = aws_cognito_user_pool_client.human[0].access_token_validity == 60 && aws_cognito_user_pool_client.human[0].id_token_validity == 60 && aws_cognito_user_pool_client.human[0].refresh_token_validity == 30
     error_message = "Default token validity must be 60/60 minutes and 30 days."
   }
 
@@ -246,7 +253,7 @@ run "client_ids_are_distinct" {
   command = apply
 
   assert {
-    condition     = aws_cognito_user_pool_client.m2m.id != aws_cognito_user_pool_client.human.id
+    condition     = aws_cognito_user_pool_client.m2m.id != aws_cognito_user_pool_client.human[0].id
     error_message = "The M2M and human app clients must be distinct resources with distinct IDs."
   }
 }
@@ -361,4 +368,55 @@ run "client_id_allowlist_can_be_disabled" {
     condition     = output.allowed_client_ids_parameter_arn == null
     error_message = "allowed_client_ids_parameter_arn output must be null when disabled."
   }
+}
+
+# TECH-143: enable_human_client defaults to false — no human client is
+# created, human_client_id is null, and the M2M client (and its presence
+# in the SSM allowlist) is entirely unaffected.
+run "human_client_disabled_by_default" {
+  command = apply
+
+  variables {
+    enable_human_client = false
+    human_callback_urls = []
+    human_logout_urls   = []
+  }
+
+  assert {
+    condition     = length(aws_cognito_user_pool_client.human) == 0
+    error_message = "No human app client must be created when enable_human_client is false (the default)."
+  }
+
+  assert {
+    condition     = output.human_client_id == null
+    error_message = "human_client_id output must be null when enable_human_client is false."
+  }
+
+  assert {
+    condition     = can(aws_cognito_user_pool_client.m2m.id)
+    error_message = "The M2M client must still be created, entirely unaffected by enable_human_client."
+  }
+
+  assert {
+    condition     = aws_ssm_parameter.allowed_client_ids[0].value == aws_cognito_user_pool_client.m2m.id
+    error_message = "The SSM allowlist must contain only the M2M client ID when the human client does not exist."
+  }
+}
+
+# TECH-143: enabling the human client without real callback/logout URLs
+# is rejected — never silently created with an empty, unusable redirect
+# configuration.
+run "rejects_enabling_human_client_without_callback_urls" {
+  command = plan
+
+  variables {
+    enable_human_client = true
+    human_callback_urls = []
+    human_logout_urls   = []
+  }
+
+  expect_failures = [
+    var.human_callback_urls,
+    var.human_logout_urls,
+  ]
 }
