@@ -276,9 +276,19 @@ variable "ecs_task_cpu" {
 }
 
 variable "ecs_task_memory" {
-  description = "Task-level memory, in MiB (Fargate). Default 512 — a PROPOSAL requiring the same validation as ecs_task_cpu."
+  description = <<-EOT
+    Task-level memory, in MiB (Fargate). Default 1024 (TECH-144: bumped
+    from the earlier unmeasured 512 — three local Docker runs of the real
+    application image at a 512 MiB limit showed 459.4 MiB used, i.e.
+    89.73% memory utilization / 10.27% free, before any real ingestion
+    load; re-tested at a 1024 MiB limit across three more runs, peak
+    usage stayed at 44.89%-55.25% utilization, no OOM, exit code 0 in all
+    three — see modules/ecs-task/README.md and
+    docs/operations/aws-production-preflight.md). Still not validated
+    under real ingestion load (the large Parcial dataset).
+  EOT
   type        = number
-  default     = 512
+  default     = 1024
 }
 
 variable "ecs_cpu_architecture" {
@@ -411,12 +421,26 @@ variable "ecs_enable_execute_command" {
 variable "ecs_health_check_grace_period_seconds" {
   description = <<-EOT
     Seconds ECS waits after task start before counting a failed ALB
-    health check. Default 120 — a conservative, unmeasured proposal;
-    must be validated against a real application startup before the
-    first real deployment (see modules/ecs-service/README.md).
+    health check. Default 480 (TECH-144: measured locally, replacing the
+    unmeasured 120 guess). Six real local Docker runs of the actual
+    application image (three at 512 MiB, three at 1024 MiB, both under
+    0.25 vCPU) reached /actuator/health 200 after 187s/188s/207s/214s/
+    221s/385s — min 187s, median ~210.5s, max 385s. The 385s sample was
+    a real, reproducible measurement, not discarded as an outlier: Spring
+    Boot's own internal "Started SipsaApplication" log for that same run
+    reported ~192s (consistent with the other five samples), so the extra
+    ~193s gap before the host's curl-based health probe succeeded is most
+    likely attributable to local Docker Desktop network/host contention
+    from concurrent heavy Docker usage during this measurement session —
+    not confirmed, and not assumed away either. 480 gives ~95s margin
+    over the worst observed sample. See
+    docs/operations/aws-production-preflight.md for the full data.
+    Measured on local Docker Desktop (macOS/ARM64), not real AWS Fargate
+    hardware — still requires confirmation against a real deployment
+    before being treated as final.
   EOT
   type        = number
-  default     = 120
+  default     = 480
 }
 
 # --- Cognito authentication foundation (TECH-130) ---------------------------
@@ -475,8 +499,14 @@ variable "cognito_domain_prefix" {
   default     = null
 }
 
+variable "cognito_enable_human_client" {
+  description = "Whether to actually create the human app client. Default false (TECH-144 preflight decision) — no frontend or approved callback/logout URL exists yet. See modules/cognito/README.md."
+  type        = bool
+  default     = false
+}
+
 variable "cognito_human_callback_urls" {
-  description = "OAuth2 callback URLs for the human app client. No default — no frontend exists yet; a real apply must supply real, approved URLs."
+  description = "OAuth2 callback URLs for the human app client. No default — no frontend exists yet; required non-empty only once cognito_enable_human_client is true."
   type        = list(string)
   default     = []
 }
