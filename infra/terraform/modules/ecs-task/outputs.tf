@@ -42,3 +42,18 @@ output "container_port" {
   description = "Port the container listens on."
   value       = var.container_port
 }
+
+output "container_definitions" {
+  description = <<-EOT
+    The task definition's rendered container_definitions JSON (same value
+    Terraform sends to ECS). Exposed for introspection/testing by a caller
+    that wires values into environment_variables/secret_parameters (TECH-142:
+    environments/production's own tests/production.tftest.hcl asserts
+    against this to confirm module.cognito's outputs actually reach the
+    task definition, since a root-level test cannot otherwise see into this
+    module's internal resources). Not sensitive: this module's own design
+    never puts a secret value directly in the JSON — secrets are always
+    `valueFrom` ARN references, resolved by the ECS agent at task start.
+  EOT
+  value       = aws_ecs_task_definition.app.container_definitions
+}

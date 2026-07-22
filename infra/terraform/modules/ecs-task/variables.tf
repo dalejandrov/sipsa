@@ -190,6 +190,42 @@ variable "execution_ssm_parameter_arns" {
   default     = []
 }
 
+variable "environment_variables" {
+  description = <<-EOT
+    Additional plain (non-secret) container environment variables, appended
+    to this module's own fixed set (SPRING_PROFILES_ACTIVE, PORT, DB_HOST,
+    DB_PORT, DB_NAME). Keyed by environment variable name. Empty by default.
+    This module does not know about modules/cognito or any other specific
+    module — the caller (environments/production) passes values through,
+    e.g. wiring SIPSA_JWT_ISSUER_URI from module.cognito.issuer_url once a
+    real identity provider exists (TECH-130). Keeps this module reusable
+    without a direct dependency on which module produced the value.
+  EOT
+  type        = map(string)
+  default     = {}
+}
+
+variable "secret_parameters" {
+  description = <<-EOT
+    Additional container `secrets` entries — resolved by the ECS agent at
+    task start from Secrets Manager or SSM Parameter Store, never baked
+    into the task definition or the image — appended to this module's own
+    fixed set (DB_USERNAME/DB_PASSWORD from db_credentials_secret_arn).
+    Keyed by environment variable name; each value is the full `valueFrom`
+    (a Secrets Manager secret ARN, optionally with a JSON-key suffix, or an
+    SSM parameter ARN/name). The corresponding ARN must also be granted via
+    execution_extra_secret_arns/execution_ssm_parameter_arns for the
+    execution role to actually resolve it — this variable only shapes the
+    container definition, it does not grant IAM access. Empty by default.
+    This module does not know about modules/cognito or any other specific
+    module — e.g. wire SIPSA_JWT_ALLOWED_CLIENT_IDS here from
+    module.cognito.allowed_client_ids_parameter_arn once a real identity
+    provider exists (TECH-130).
+  EOT
+  type        = map(string)
+  default     = {}
+}
+
 variable "task_role_policy_arns" {
   description = <<-EOT
     Managed IAM policy ARNs to attach to the task role (the role the

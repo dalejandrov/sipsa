@@ -108,6 +108,14 @@ module "ecr" {
 # explicitly TEMPORARY placeholder (see modules/ecs-task/README.md) — not
 # the final design. A real deployment must replace this with a dedicated,
 # minimum-privilege application database credential first.
+#
+# TECH-142: SIPSA_JWT_ISSUER_URI/SIPSA_JWT_ALLOWED_CLIENT_IDS are wired here
+# from module.cognito's outputs, via ecs-task's generic environment_variables/
+# secret_parameters variables — modules/ecs-task itself has no direct
+# dependency on modules/cognito (see both modules' README.md). The allowlist
+# is guarded with compact()/a conditional map entry because
+# allowed_client_ids_parameter_arn is null when
+# var.cognito_publish_client_ids_to_ssm is false (default true).
 module "ecs_task" {
   source = "../../modules/ecs-task"
 
@@ -134,6 +142,16 @@ module "ecs_task" {
   db_name        = module.database.db_name
 
   db_credentials_secret_arn = module.database.master_secret_arn
+
+  environment_variables = {
+    SIPSA_JWT_ISSUER_URI = module.cognito.issuer_url
+  }
+
+  secret_parameters = module.cognito.allowed_client_ids_parameter_arn != null ? {
+    SIPSA_JWT_ALLOWED_CLIENT_IDS = module.cognito.allowed_client_ids_parameter_arn
+  } : {}
+
+  execution_ssm_parameter_arns = compact([module.cognito.allowed_client_ids_parameter_arn])
 
   log_retention_days = var.ecs_log_retention_days
 }
@@ -186,11 +204,12 @@ module "ecs_service" {
 
 # TECH-130 (ADR-010, layer 2 of ADR-002's Option E): Cognito user pool,
 # resource server/scopes, M2M and human app clients. No API Gateway, VPC
-# Link, or WAF exists yet — this module does not depend on module.network,
-# module.ecs_task, or module.ecs_service at all (Cognito is not VPC-scoped).
-# The M2M client's SIPSA_JWT_ALLOWED_CLIENT_IDS/SIPSA_JWT_ISSUER_URI wiring
-# into the ECS task definition is a documented follow-up, not done here —
-# see modules/cognito/README.md.
+# Link, or WAF exists yet — this module itself does not depend on
+# module.network, module.ecs_task, or module.ecs_service at all (Cognito is
+# not VPC-scoped). TECH-142 wires this module's issuer_url/
+# allowed_client_ids_parameter_arn outputs INTO module.ecs_task (see that
+# module block above, and modules/cognito/README.md's "Client-ID allowlist"
+# section) — the dependency runs ecs_task -> cognito, never the reverse.
 module "cognito" {
   source = "../../modules/cognito"
 

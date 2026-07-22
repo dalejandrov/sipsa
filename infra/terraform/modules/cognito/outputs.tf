@@ -48,3 +48,15 @@ output "allowed_client_ids_parameter_name" {
   description = "SSM Parameter Store parameter name publishing the CSV of app client IDs, or null when publish_client_ids_to_ssm is false. Not the value itself (though the value is non-sensitive — see variables.tf)."
   value       = var.publish_client_ids_to_ssm ? aws_ssm_parameter.allowed_client_ids[0].name : null
 }
+
+output "allowed_client_ids_parameter_arn" {
+  description = <<-EOT
+    ARN of the SSM parameter publishing the CSV of app client IDs, or null
+    when publish_client_ids_to_ssm is false. TECH-142 wires this into
+    modules/ecs-task's execution_ssm_parameter_arns (IAM read grant) and
+    secret_parameters (the container's SIPSA_JWT_ALLOWED_CLIENT_IDS
+    `secrets` entry) — the name alone is not enough for either of those,
+    both need the ARN. Not the value itself (non-sensitive regardless).
+  EOT
+  value       = var.publish_client_ids_to_ssm ? aws_ssm_parameter.allowed_client_ids[0].arn : null
+}
