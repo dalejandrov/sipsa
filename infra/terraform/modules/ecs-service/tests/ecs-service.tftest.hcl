@@ -148,13 +148,14 @@ run "deployment_circuit_breaker_enabled_with_rollback" {
   }
 }
 
-# 10: Grace period defaults to 120 seconds.
-run "grace_period_defaults_to_120_seconds" {
+# 10: Grace period defaults to 480 seconds (TECH-144: measured across six
+# real local Docker runs, not guessed — see variables.tf).
+run "grace_period_defaults_to_480_seconds" {
   command = apply
 
   assert {
-    condition     = aws_ecs_service.app.health_check_grace_period_seconds == 120
-    error_message = "health_check_grace_period_seconds must default to 120."
+    condition     = aws_ecs_service.app.health_check_grace_period_seconds == 480
+    error_message = "health_check_grace_period_seconds must default to 480 (TECH-144 measurement)."
   }
 }
 
