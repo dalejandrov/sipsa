@@ -8,13 +8,13 @@
 # TECH-139: modules/database/tests/; TECH-140: modules/ecr/tests/,
 # modules/ecs-task/tests/; TECH-141: modules/ecs-service/tests/; TECH-130:
 # modules/cognito/tests/; TECH-142: environments/production/tests/, root
-# module-wiring only, non-ecs_task modules stubbed via override_module) uses
-# a mocked AWS provider, never a real account. The plan step
-# is conditioned on the `AWS_TERRAFORM_PLAN_ROLE_ARN` repository variable
-# being set — that role does not exist yet (see infra/terraform/README.md and
-# ADR-010's OIDC trust-policy contract); creating it is a prerequisite for
-# whichever of TECH-130/TECH-132 lands first and needs a real `plan` in CI,
-# not invented here.
+# module-wiring only, non-ecs_task modules stubbed via override_module;
+# TECH-131: modules/api-gateway/tests/) uses a mocked AWS provider, never a
+# real account. The plan step is conditioned on the
+# `AWS_TERRAFORM_PLAN_ROLE_ARN` repository variable being set — that role
+# does not exist yet (see infra/terraform/README.md and ADR-010's OIDC
+# trust-policy contract); creating it is a prerequisite for whichever story
+# next needs a real `plan` in CI, not invented here.
 #
 # Third-party actions are pinned by immutable commit SHA (never a tag or
 # `@main`/`@master`) — each pin carries a comment with the human-readable
@@ -115,6 +115,12 @@ jobs:
 
       - name: terraform test — modules/cognito
         working-directory: infra/terraform/modules/cognito
+        run: |
+          terraform init -backend=false
+          terraform test
+
+      - name: terraform test — modules/api-gateway
+        working-directory: infra/terraform/modules/api-gateway
         run: |
           terraform init -backend=false
           terraform test
