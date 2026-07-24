@@ -30,8 +30,8 @@ output "m2m_client_id" {
 }
 
 output "human_client_id" {
-  description = "Client ID of the human (Authorization Code + PKCE) app client. An identifier, not a secret; this client has no secret at all (public client)."
-  value       = aws_cognito_user_pool_client.human.id
+  description = "Client ID of the human (Authorization Code + PKCE) app client, or null when enable_human_client is false (the default — TECH-143: no real callback/logout URL exists yet). An identifier, not a secret; this client has no secret at all (public client) when it exists."
+  value       = var.enable_human_client ? aws_cognito_user_pool_client.human[0].id : null
 }
 
 output "cognito_domain" {

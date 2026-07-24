@@ -58,13 +58,15 @@ run "fargate_and_awsvpc" {
   }
 }
 
-# 9: CPU/memory parameterizable, with sane defaults.
+# 9: CPU/memory parameterizable, with sane defaults (TECH-144: memory
+# bumped from 512 to 1024 based on real local measurements at both
+# values — see variables.tf).
 run "cpu_and_memory_are_parameterizable" {
   command = apply
 
   assert {
-    condition     = aws_ecs_task_definition.app.cpu == "256" && aws_ecs_task_definition.app.memory == "512"
-    error_message = "Default cpu/memory must be 256/512."
+    condition     = aws_ecs_task_definition.app.cpu == "256" && aws_ecs_task_definition.app.memory == "1024"
+    error_message = "Default cpu/memory must be 256/1024 (TECH-144 measurement)."
   }
 }
 
@@ -73,11 +75,11 @@ run "cpu_and_memory_overrides_take_effect" {
 
   variables {
     cpu    = 512
-    memory = 1024
+    memory = 2048
   }
 
   assert {
-    condition     = aws_ecs_task_definition.app.cpu == "512" && aws_ecs_task_definition.app.memory == "1024"
+    condition     = aws_ecs_task_definition.app.cpu == "512" && aws_ecs_task_definition.app.memory == "2048"
     error_message = "cpu/memory overrides must take effect."
   }
 }

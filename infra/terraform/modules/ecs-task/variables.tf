@@ -85,14 +85,23 @@ variable "cpu" {
 
 variable "memory" {
   description = <<-EOT
-    Task-level memory, in MiB (Fargate). Default 512 — a PROPOSAL, not a
-    confirmed capacity. Must be validated the same way as `cpu` (see above)
-    before the first real deployment — OOM risk from an under-sized value is
-    a real failure mode for a large SOAP payload / large-batch upsert, not a
-    theoretical one.
+    Task-level memory, in MiB (Fargate). Default 1024 (TECH-144: bumped
+    from the earlier unmeasured 512 proposal). Evidence: three local
+    Docker runs of the real application image under a 512 MiB limit
+    measured 459.4 MiB used at idle, immediately after startup, before
+    any real ingestion load — 89.73% memory utilization, only 10.27%
+    free. Re-tested at 1024 MiB across three more runs: peak usage
+    stayed between 44.89% and 55.25% utilization, no OOM, exit code 0 in
+    all three — real headroom, not just "no longer at 90%". 1024 is a
+    valid Fargate memory value for 256 CPU (.25 vCPU), so no cpu change
+    was needed. See docs/operations/aws-production-preflight.md for the
+    full measurement data. Still NOT validated under a real ingestion
+    load (the large Parcial dataset, 229k+ records) — OOM risk from an
+    under-sized value remains a real failure mode this measurement
+    de-risks but does not fully rule out.
   EOT
   type        = number
-  default     = 512
+  default     = 1024
 }
 
 variable "cpu_architecture" {

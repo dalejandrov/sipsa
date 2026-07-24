@@ -234,6 +234,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   TECH-132's status line now reflects this piece landing, but TECH-132 itself remains
   `In progress` (real AWS provisioning across the whole stack is still pending).
 
+- **Deployment configuration hardened from local preflight evidence, kept explicitly
+  separate from the blocked AWS validation it was attempted alongside** (TECH-144,
+  extracted from TECH-143). A deployment preflight was attempted
+  (`infra/production-deployment-preflight`, TECH-143) but found no SIPSA-specific AWS
+  credentials in this environment — only two unrelated profiles with permanent access
+  keys, neither used, no AWS command ever run with either. Every AWS-touching check
+  (RDS engine availability, backend bootstrap plan, OIDC trust-policy inspection, a
+  real `terraform plan`, cost estimation) remains **blocked**, kept on TECH-143's own
+  branch as evidence, **not merged into `main`**. What was verifiable entirely without
+  AWS access was extracted into this story and merged: the Cognito human app client is
+  now gated behind a new `enable_human_client` variable (default `false`) —
+  `aws_cognito_user_pool_client.human` only exists when `true`, the M2M client and
+  resource server are entirely unaffected, and enabling it with empty callback/logout
+  URLs is rejected outright (2 new tests, 25 total in `modules/cognito`). ECS task
+  memory moved from an unmeasured 512 MiB to 1024 MiB — not just because 512 MiB showed
+  89.73% memory utilization (10.27% free) at idle in three local Docker runs of the
+  real application image, but because 1024 MiB was **re-verified with three more real
+  runs specifically before merging**: peak usage stayed at 44.89%-55.25% utilization,
+  no OOM, exit code 0 in all three. `health_check_grace_period_seconds` moved from an
+  unmeasured 120 to 480, based on **six** real local startup samples (three at each
+  memory size, all under 0.25 vCPU) — 187s/188s/207s/214s/221s/385s. The 385s sample
+  was kept and explained, not quietly dropped as a convenient outlier: Spring Boot's
+  own internal "Started SipsaApplication" log for that exact run reported ~192s,
+  closely consistent with the other five samples, so the extra ~193s gap before the
+  host's `curl`-based probe succeeded is most plausibly local Docker Desktop
+  network/host contention from the heavy concurrent Docker usage during this
+  measurement session — not confirmed, not assumed away either; 480 gives ~95s margin
+  over the true worst observed sample, not a favorable subset. A new, hardened,
+  reusable measurement script (`scripts/measure-container-startup.sh`) backs this:
+  no credentials, no AWS dependency, `set -euo pipefail`, cleans up containers and the
+  compose stack on exit (including on error), configurable CPU/memory, a per-sample
+  timeout, and — unlike its first draft — **exits non-zero if any sample never reaches
+  `/actuator/health` 200**, never treating a fixed sleep as a success signal. An
+  application database credential strategy (`sipsa_migration` for Flyway DDL,
+  `sipsa_runtime` for DML only, replacing the RDS master secret currently wired
+  temporarily into the ECS task) is designed with exact `GRANT` statements in a tracked,
+  never-executed reference script — confirmed to grant neither role `SUPERUSER`,
+  `CREATEROLE`, or `CREATEDB`, and documented as deliberately non-idempotent on
+  `CREATE ROLE` (PostgreSQL has no `IF NOT EXISTS` for it) so a mistaken re-run fails
+  loudly instead of silently masking an error. The Flyway rolling-deployment risk got a
+  chosen direction (a one-off migration task before service rollout) with an explicit
+  four-part follow-up (task definition, pipeline step, failure handling, rollback
+  asymmetry — a completed migration does not auto-revert if the subsequent service
+  deployment fails); the scheduler's multi-replica risk keeps its four documented,
+  undecided options. **Nothing in this story claims to have validated RDS availability,
+  the backend, OIDC, a real plan, real costs, real callback URLs, or a real Cognito
+  endpoint** — those remain exclusively TECH-143's, unresolved. 131 `terraform test`
+  cases across the tree, all green — **no real AWS account is contacted anywhere, no
+  AWS credential was used or stored, and no `terraform apply` has been run.** TECH-144
+  is Done; TECH-143 remains `Blocked / In progress`, kept on its own branch, not merged;
+  TECH-132 stays `In progress`.
+
 ### Changed
 
 - **TECH-137 (Terraform bootstrap) corrected against current official documentation

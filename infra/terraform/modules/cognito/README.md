@@ -85,22 +85,34 @@ uniqueness class as an S3 bucket name), not a restructuring. **No custom domain,
 certificate, no Route 53 record** — only a Cognito-managed prefix domain is ever created
 by this module.
 
+## Human client creation gated by `enable_human_client` (TECH-143)
+
+**`enable_human_client` defaults to `false`.** No frontend exists, so no approved
+callback/logout URL exists either — the human app client, however fully and correctly
+configured, cannot be considered deployable until one does. This variable gates only
+resource creation (`count = var.enable_human_client ? 1 : 0` on
+`aws_cognito_user_pool_client.human`) — the M2M client, resource server, scopes, and
+user pool itself are entirely unaffected, created unconditionally regardless of this
+variable. `human_client_id` (module output) and the human client's entry in the
+`allowed_client_ids` SSM parameter are both simply absent/`null` when disabled — never a
+placeholder ID for a client that was never created. Flip this to `true` only once real,
+approved URLs exist.
+
 ## Callback and logout URLs — no invented placeholders
 
-`human_callback_urls`/`human_logout_urls` are **required variables with no default**. No
-frontend exists yet, so no real URL exists either — a real `terraform plan`/`apply` must
-not proceed with invented values. **The human app client is not usable until real,
-approved URLs are supplied here** — and, if the Hosted UI is needed, until
-`create_hosted_ui_domain`/`cognito_domain_prefix` are also set (see "Hosted UI domain"
-above). Both variables enforce two `validation` blocks: reject any URL containing
-`localhost` or `example.com` (so those can never be mistaken for approved production
-values), and require every URL to use `https://` — plain HTTP is never accepted, **not
-even as a test-only exception**. This module's own offline tests use a real `https://`
-URL on a `*.invalid` hostname (RFC 2606-reserved, guaranteed never to resolve) to stay
-both HTTPS-compliant and unambiguously non-production. Neither variable having a default
-does not block `terraform validate` (which does not require concrete variable values);
-supplying real values is only required for a genuine `plan`/`apply`, which this module
-never runs.
+`human_callback_urls`/`human_logout_urls` default to an **empty list** — meaningless
+while `enable_human_client` is `false`. A `validation` block requires both to be
+**non-empty once `enable_human_client` is `true`** — no frontend exists yet, so no real
+URL exists either, and a real `terraform plan`/`apply` must not proceed with invented
+values; enabling the human client with empty URLs is rejected outright, never silently
+created with an unusable redirect configuration. Two further `validation` blocks apply
+regardless of whether the client is enabled (so a bad value is caught even before
+flipping the switch): reject any URL containing `localhost` or `example.com` (so those
+can never be mistaken for approved production values), and require every URL to use
+`https://` — plain HTTP is never accepted, **not even as a test-only exception**. This
+module's own offline tests use a real `https://` URL on a `*.invalid` hostname (RFC
+2606-reserved, guaranteed never to resolve) to stay both HTTPS-compliant and
+unambiguously non-production.
 
 ## Token validity
 

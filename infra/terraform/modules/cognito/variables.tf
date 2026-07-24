@@ -141,22 +141,42 @@ variable "cognito_domain_prefix" {
 
 # --- Human app client (Authorization Code + PKCE) -----------------------------
 
+variable "enable_human_client" {
+  description = <<-EOT
+    Whether to actually create the human (Authorization Code + PKCE) app
+    client. Default false (TECH-143 preflight decision): no frontend and
+    no approved callback/logout URL exists yet, so this client cannot be
+    considered deployable — the module still fully declares its
+    configuration (this variable only gates resource creation, not the
+    design), and the M2M client is entirely unaffected by this variable.
+    Flip to true only once human_callback_urls/human_logout_urls carry
+    real, approved values.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "human_callback_urls" {
   description = <<-EOT
-    OAuth2 callback (redirect) URLs for the human app client. Required, no
-    default — no frontend exists yet, so no real callback URL exists
-    either. A real terraform plan/apply must not proceed with invented
-    values; supply the actual, approved URL(s) when a client exists. This
-    client is not usable until real URLs are supplied — and, if Hosted UI
-    is needed, until create_hosted_ui_domain/cognito_domain_prefix are also
-    set (see README.md).
+    OAuth2 callback (redirect) URLs for the human app client. Empty by
+    default — meaningless while enable_human_client is false. Required
+    (validated below) to be non-empty once enable_human_client is true —
+    no frontend exists yet, so no real callback URL exists either, and a
+    real terraform plan/apply must not proceed with invented values.
     Rejected outright: any URL containing "localhost" or "example.com" —
-    those are not valid production values. Required: every URL must use
-    "https://" — plain HTTP redirect URLs are never accepted, including in
-    this module's own offline tests (which use a real https:// URL on the
-    RFC 2606-reserved *.invalid TLD, never an http:// exception).
+    those are not valid production values. Required when non-empty: every
+    URL must use "https://" — plain HTTP redirect URLs are never
+    accepted, including in this module's own offline tests (which use a
+    real https:// URL on the RFC 2606-reserved *.invalid TLD, never an
+    http:// exception).
   EOT
   type        = list(string)
+  default     = []
+
+  validation {
+    condition     = !var.enable_human_client || length(var.human_callback_urls) > 0
+    error_message = "human_callback_urls must be non-empty when enable_human_client is true — supply the actual, approved URL(s) first."
+  }
 
   validation {
     condition     = alltrue([for u in var.human_callback_urls : !strcontains(lower(u), "localhost") && !strcontains(lower(u), "example.com")])
@@ -170,8 +190,14 @@ variable "human_callback_urls" {
 }
 
 variable "human_logout_urls" {
-  description = "OAuth2 logout redirect URLs for the human app client. Required, no default — same reasoning as human_callback_urls (localhost/example.com rejected, https:// required, no test exception)."
+  description = "OAuth2 logout redirect URLs for the human app client. Empty by default — same reasoning as human_callback_urls (required non-empty when enable_human_client is true, localhost/example.com rejected, https:// required, no test exception)."
   type        = list(string)
+  default     = []
+
+  validation {
+    condition     = !var.enable_human_client || length(var.human_logout_urls) > 0
+    error_message = "human_logout_urls must be non-empty when enable_human_client is true — supply the actual, approved URL(s) first."
+  }
 
   validation {
     condition     = alltrue([for u in var.human_logout_urls : !strcontains(lower(u), "localhost") && !strcontains(lower(u), "example.com")])

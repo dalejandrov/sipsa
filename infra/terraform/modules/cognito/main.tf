@@ -144,9 +144,17 @@ resource "aws_cognito_user_pool_client" "m2m" {
 # generate_secret = false is what makes this a public client, and Cognito
 # enforces the PKCE code_challenge/code_verifier exchange for such clients
 # by itself. No implicit flow, no password grant.
+#
+# TECH-143: gated behind var.enable_human_client (default false). No
+# frontend exists yet, so no real callback/logout URL exists either — the
+# human flow is declared (this resource's own config is fully real and
+# ready) but not created in production until real URLs are approved. The
+# M2M client above is entirely unaffected by this variable.
 # ---------------------------------------------------------------------------
 
 resource "aws_cognito_user_pool_client" "human" {
+  count = var.enable_human_client ? 1 : 0
+
   name         = "${local.name_prefix}-human"
   user_pool_id = aws_cognito_user_pool.main.id
 
@@ -226,7 +234,13 @@ resource "aws_ssm_parameter" "allowed_client_ids" {
   name        = "/${local.name_prefix}/sipsa/jwt-allowed-client-ids"
   type        = "String"
   description = "CSV of Cognito app client IDs allowed to call /api/internal/** (SIPSA_JWT_ALLOWED_CLIENT_IDS). Identifiers, not secrets."
-  value       = join(",", [aws_cognito_user_pool_client.m2m.id, aws_cognito_user_pool_client.human.id])
+  # The human client only contributes an ID here when it actually exists
+  # (var.enable_human_client) — never a phantom ID for a client that was
+  # never created.
+  value = join(",", concat(
+    [aws_cognito_user_pool_client.m2m.id],
+    var.enable_human_client ? [aws_cognito_user_pool_client.human[0].id] : []
+  ))
 
   tags = var.common_tags
 }

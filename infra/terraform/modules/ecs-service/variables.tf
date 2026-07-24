@@ -249,16 +249,26 @@ variable "enable_execute_command" {
 variable "health_check_grace_period_seconds" {
   description = <<-EOT
     Seconds ECS waits after a task starts before counting a failed ALB
-    health check against it. Default 120 — a conservative starting
-    proposal covering RDS connection establishment, Flyway migration,
-    Spring context initialization, and security configuration loading,
-    but NOT a measured value. Must be validated against a real
-    application startup before the first real deployment; too high a
-    value would hide a genuinely broken startup for that long, so this
-    is not padded further "to be safe."
+    health check against it. Default 480 (TECH-144: measured locally,
+    replacing the earlier unmeasured 120 guess). Six real local Docker
+    runs of the real application image (three at 512 MiB, three at
+    1024 MiB, both under 0.25 vCPU) reached /actuator/health 200 after
+    187s/188s/207s/214s/221s/385s — min 187s, median ~210.5s, max 385s.
+    The 385s sample is real and kept, not discarded: Spring Boot's own
+    "Started SipsaApplication" log for that run reported ~192s,
+    consistent with the other five samples, so the extra gap before the
+    host's curl-based probe succeeded is most likely local Docker
+    Desktop network/host contention from concurrent heavy Docker usage
+    during the measurement session — not confirmed, not assumed away.
+    480 gives ~95s margin over the worst observed sample. See
+    docs/operations/aws-production-preflight.md for the full data.
+    Measured on local Docker Desktop (macOS/ARM64), not real AWS Fargate
+    hardware — still requires confirmation against a real deployment;
+    too high a value would hide a genuinely broken startup for that
+    long, so this is not padded further "to be safe" beyond that margin.
   EOT
   type        = number
-  default     = 120
+  default     = 480
 
   validation {
     condition     = var.health_check_grace_period_seconds >= 0
