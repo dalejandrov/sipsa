@@ -1,0 +1,102 @@
+### SIPSA REST API — request collection
+### Compatible with the IntelliJ HTTP Client and the VS Code REST Client extension.
+### See http/README.md for how to set variables. Full endpoint docs: docs/api/sipsa-rest-api.md
+
+@baseUrl = http://localhost:8080
+@accessToken = {{accessToken}}
+@apiKey = {{apiKey}}
+
+
+### ============================================================
+### Health
+### ============================================================
+
+### Health check (public)
+GET {{baseUrl}}/actuator/health
+
+
+### ============================================================
+### Public query endpoints — GET /api/sipsa/**
+### ============================================================
+
+### List available public endpoints
+GET {{baseUrl}}/api/sipsa
+
+### Ciudad — city-level daily prices
+GET {{baseUrl}}/api/sipsa/ciudad?ciudad=ARMENIA&startDate=2026-01-01&endDate=2026-01-07&page=1&size=20&sort=fechaCaptura,desc
+x-api-key: {{apiKey}}
+
+### Mayoristas mensual — monthly wholesale aggregates
+GET {{baseUrl}}/api/sipsa/mayoristas/mensual?artiNombre=Bocadillo veleño&startDate=2023-01-01&endDate=2023-03-01
+x-api-key: {{apiKey}}
+
+### Mayoristas semanal — weekly wholesale aggregates
+GET {{baseUrl}}/api/sipsa/mayoristas/semanal?artiNombre=Kiwi&startDate=2025-05-01&endDate=2025-06-15
+x-api-key: {{apiKey}}
+
+### Parcial — municipality market data
+GET {{baseUrl}}/api/sipsa/parcial?muniId=05001&idArtiSemana=14&startDate=2020-01-01&endDate=2020-03-01
+x-api-key: {{apiKey}}
+
+### Parcial — validation error example (blank muniId -> 400 VALIDATION_ERROR)
+GET {{baseUrl}}/api/sipsa/parcial?muniId=
+x-api-key: {{apiKey}}
+
+### Abastecimientos mensual — monthly supply data
+GET {{baseUrl}}/api/sipsa/abastecimientos/mensual?artiNombre=Uchuva&startDate=2020-01-01&endDate=2020-06-01
+x-api-key: {{apiKey}}
+
+
+### ============================================================
+### Internal ingestion endpoints — require Bearer token
+### ============================================================
+
+### List available ingestion methods (scope: sipsa/ingestion.read)
+GET {{baseUrl}}/api/internal/ingestion/methods
+Authorization: Bearer {{accessToken}}
+
+### Trigger a manual ingestion run (scope: sipsa/ingestion.execute)
+POST {{baseUrl}}/api/internal/ingestion/run?method=promediosSipsaCiudad&force=false
+Authorization: Bearer {{accessToken}}
+
+### List currently active runs (scope: sipsa/ingestion.read)
+GET {{baseUrl}}/api/internal/ingestion/running
+Authorization: Bearer {{accessToken}}
+
+### List all runs, paginated (scope: sipsa/ingestion.read)
+GET {{baseUrl}}/api/internal/ingestion/runs?page=1&size=20
+Authorization: Bearer {{accessToken}}
+
+### Get a specific run's status (scope: sipsa/ingestion.read)
+### Replace {{runId}} with a runId from a previous response (e.g. the trigger response above).
+GET {{baseUrl}}/api/internal/ingestion/runs/{{runId}}
+Authorization: Bearer {{accessToken}}
+
+### Cancel an active run (scope: sipsa/ingestion.cancel)
+POST {{baseUrl}}/api/internal/ingestion/cancel/{{runId}}
+Authorization: Bearer {{accessToken}}
+
+### Trigger without a token — expect 401 (scope-protected endpoint, no Authorization header)
+POST {{baseUrl}}/api/internal/ingestion/run?method=promediosSipsaCiudad
+
+
+### ============================================================
+### Internal audit endpoints — require Bearer token (scope: sipsa/audit.read)
+### ============================================================
+
+### Most recent audit events (last 100)
+GET {{baseUrl}}/api/internal/audit/recent
+Authorization: Bearer {{accessToken}}
+
+### All audit events, paginated
+GET {{baseUrl}}/api/internal/audit/all?page=1&size=20
+Authorization: Bearer {{accessToken}}
+
+### Audit trail for a specific request
+### Replace {{requestId}} with a requestId from a trigger response.
+GET {{baseUrl}}/api/internal/audit/request/{{requestId}}
+Authorization: Bearer {{accessToken}}
+
+### Audit events for a specific run
+GET {{baseUrl}}/api/internal/audit/run/{{runId}}
+Authorization: Bearer {{accessToken}}
