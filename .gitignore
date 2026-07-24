@@ -117,3 +117,7 @@ terraform.tfvars.json
 # CLI history that can leak workspace/variable names.
 .terraformrc
 terraform.rc
+
+### HTTP Client (http/, IntelliJ HTTP Client / VS Code REST Client) ###
+# Local tokens/keys filled in from http/http-client.env.json.example — never committed.
+http/http-client.private.env.json
