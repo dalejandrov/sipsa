@@ -1,151 +1,42 @@
 # SIPSA Integration Service
 
+REST wrapper for DANE Colombia's SIPSA SOAP web service. It exposes official agricultural
+price and supply data through a modern REST API, with automatic scheduled syncing,
+pagination, filtering, and timezone-aware responses.
+
+[![CI](https://github.com/dalejandrov/sipsa/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dalejandrov/sipsa/actions/workflows/ci.yml)
+[![Infra Plan](https://github.com/dalejandrov/sipsa/actions/workflows/infra-plan.yml/badge.svg?branch=main)](https://github.com/dalejandrov/sipsa/actions/workflows/infra-plan.yml)
 ![Java](https://img.shields.io/badge/Java-25-orange?logo=openjdk)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.0-brightgreen?logo=springboot)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18.0-4169E1?logo=postgresql&logoColor=white)
+![Maven](https://img.shields.io/badge/Build-Maven-C71A36?logo=apachemaven&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+![Terraform](https://img.shields.io/badge/IaC-Terraform-844FBA?logo=terraform&logoColor=white)
 ![License](https://img.shields.io/github/license/dalejandrov/sipsa)
 
-REST API wrapper for DANE Colombia's SIPSA SOAP web service. Access agricultural price and supply data through a modern REST interface with automatic syncing, pagination, filtering, and timezone support.
+---
 
-## What is SIPSA?
+## Description
 
-SIPSA (Sistema de Información de Precios y Abastecimiento del Sector Agropecuario) is Colombia's official agricultural market information system maintained by DANE. It tracks prices and supply across different market types:
+SIPSA (Sistema de Información de Precios y Abastecimiento del Sector Agropecuario) is
+Colombia's official agricultural market information system, maintained by DANE. This
+service ingests SIPSA data through DANE's SOAP interface, stores it in PostgreSQL, and
+republishes it as a versioned, paginated, filterable REST API — no SOAP/XML handling
+required by consumers.
 
-- **Ciudad**: Daily city-level pricing
-- **Parcial**: Municipality market data  
-- **Mayoristas**: Weekly and monthly wholesale market aggregates
-- **Abastecimientos**: Monthly supply data to wholesale markets
+> This is an unofficial wrapper. For official data access, see
+> [DANE's SIPSA web service page](https://www.dane.gov.co/index.php/estadisticas-por-tema/agropecuario/sistema-de-informacion-de-precios-sipsa/servicio-web-para-consulta-de-la-base-de-datos-de-sipsa).
 
-## Quick Start
+## Key features
 
-### Docker (recommended)
+- **REST instead of SOAP** — no XML wrangling for API consumers.
+- **Automatic sync** — scheduled jobs fetch new data on DANE's publication schedule.
+- **Timezone support** — request data in any IANA timezone via the `X-Timezone` header.
+- **Pagination and filtering** — by date range, product, city, source, and more.
+- **Audit trail** — every ingestion run and its events are queryable.
+- **Health checks** — `/actuator/health`, including data-staleness indicators.
 
-```bash
-git clone https://github.com/dalejandrov/sipsa.git
-cd sipsa
-docker-compose up -d
-```
-
-API available at `http://localhost:8080`
-
-### Local Development
-
-Requirements: Java 25, PostgreSQL 18, Maven 3.9+
-
-```bash
-# 1. Clone and navigate
-git clone https://github.com/dalejandrov/sipsa.git
-cd sipsa
-
-# 2. (Optional) Override environment variables in your shell
-#    The default "dev" profile already provides local defaults;
-#    see .env.example for the full variable reference
-
-# 3. Create database (adjust credentials if needed)
-createdb sipsa_db
-
-# 4. Run
-./mvnw spring-boot:run
-```
-
-## API Usage
-
-### Query Endpoints (Public)
-
-**Base URL**: `/api/sipsa`
-
-- `GET /api/sipsa` - List all available endpoints
-- `GET /api/sipsa/ciudad` - Daily city-level prices
-- `GET /api/sipsa/parcial` - Municipality market data
-- `GET /api/sipsa/mayoristas/semanal` - Weekly wholesale prices
-- `GET /api/sipsa/mayoristas/mensual` - Monthly wholesale aggregates
-- `GET /api/sipsa/abastecimientos/mensual` - Monthly supply to wholesale markets
-
-### Operations Endpoints (Internal — require authentication)
-
-Every `/api/internal/**` endpoint requires a Cognito access token (JWT, `Bearer`) with
-the operation's scope — see [ADR-002](docs/adr/ADR-002-internal-endpoint-security.md).
-Locally, tokens come from the mock OIDC service — see
-[CONTRIBUTING.md](CONTRIBUTING.md#local-authentication-mock-oidc).
-
-**Base URL**: `/api/internal/ingestion`
-
-- `POST /api/internal/ingestion/run` - Trigger manual ingestion (query params: `method`, `force`) — scope `sipsa/ingestion.execute`
-- `GET /api/internal/ingestion/methods` - List available ingestion methods
-- `GET /api/internal/ingestion/running` - Get currently active ingestion runs
-- `GET /api/internal/ingestion/runs` - List ingestion runs, paginated (query params: `page` default 1, `size` default 20 max 100; ordered `startTime DESC, runId DESC`)
-- `GET /api/internal/ingestion/runs/{runId}` - Get specific run status
-- `POST /api/internal/ingestion/cancel/{runId}` - Cancel an active run — scope `sipsa/ingestion.cancel`
-
-The `GET` endpoints above require scope `sipsa/ingestion.read`.
-
-### Audit Endpoints (Internal — scope `sipsa/audit.read`)
-
-**Base URL**: `/api/internal/audit`
-
-- `GET /api/internal/audit/request/{requestId}` - Get audit trail for specific request
-- `GET /api/internal/audit/run/{runId}` - Get audit events for specific run
-- `GET /api/internal/audit/recent` - Get most recent audit events (last 100)
-- `GET /api/internal/audit/all` - Query all audit events with pagination and filters
-
-## Features
-
-- **REST instead of SOAP**: No more XML wrangling
-- **Automatic sync**: Scheduled jobs fetch new data from DANE
-- **Timezone support**: Get dates in your timezone via `X-Timezone` header
-- **Pagination**: Standard limit/offset pagination
-- **Filtering**: Query by date ranges, cities, products
-- **Docker ready**: Includes PostgreSQL in docker-compose
-- **Health checks**: `/actuator/health` for monitoring
-- **Audit trail**: Track all data ingestion runs
-
-## Configuration
-
-All configuration is done via environment variables, documented in
-[.env.example](.env.example). That file is a versioned reference template only —
-no `.env` file is read at runtime. Set the variables through your shell,
-`docker-compose`, or your deployment platform.
-
-Spring profiles:
-- **`dev`** (default when `SPRING_PROFILES_ACTIVE` is unset): local database
-  credentials, verbose logging, Actuator `loggers` endpoint, JWT issuer defaulting
-  to the local mock OIDC server (`http://localhost:9000/default`).
-- **`docker`** (set by `docker-compose.yml`): container topology (`db` host, `oidc`
-  issuer).
-- **Base / production**: no credential defaults — `DB_USERNAME`, `DB_PASSWORD` and
-  `SIPSA_JWT_ISSUER_URI` are required and the application fails fast if they are
-  missing.
-
-Key configurations available in [.env.example](.env.example):
-- **Security**: JWT issuer (`SIPSA_JWT_ISSUER_URI`) and optional client allowlist
-  (`SIPSA_JWT_ALLOWED_CLIENT_IDS`) — no secrets, see ADR-002
-- **Database**: Connection settings (host, port, credentials)
-- **Server**: Port and active profiles
-- **SOAP Service**: DANE endpoint and timeouts
-- **Ingestion**: Batch size and quality thresholds (windows and cron schedules
-  are fixed by the DANE contract in `application.yaml`). The batch size
-  (`INGESTION_BATCH_SIZE` → `sipsa.ingestion.batch-size`, default **500**,
-  positive integer up to 10,000) is validated at startup and affects batches
-  per run, memory use, dedup-query size, and ingestion duration — larger is
-  not automatically better. The monthly window start
-  (`INGESTION_MONTHLY_WINDOW_START` → `sipsa.ingestion.monthly-window-start`,
-  format `HH:mm`, default **14:00** in `America/Bogota`) is the earliest time a
-  monthly run is *authorized* on its publication/grace day — not the cron fire
-  time (14:30); invalid formats abort startup
-- **Logging**: Log levels per package
-
-For advanced configuration, see [application.yaml](src/main/resources/application.yaml).
-
-## Tech Stack
-
-- Java 25
-- Spring Boot 4.1.0
-- PostgreSQL 18
-- Apache CXF (SOAP client)
-- Resilience4j (circuit breaker)
-
-## Architecture
+## Architecture (summary)
 
 ```
 API Layer (REST controllers)
@@ -157,49 +48,72 @@ Domain Layer (entities, rules)
 Infrastructure (repositories, SOAP client, schedulers)
 ```
 
-**How it works:**
+Full details, request flow, and design principles:
+[Project Architecture](docs/architecture/project-architecture.md).
 
-1. Scheduled jobs run based on DANE's publication schedule
-2. SOAP client fetches data from DANE's web service
-3. Data is validated and stored in PostgreSQL
-4. REST API serves the data with filtering and pagination
-5. Audit system logs all operations
+## Technology
+
+- Java 25 · Spring Boot 4.1.0 · Maven (wrapper included)
+- PostgreSQL 18 · Flyway migrations
+- Apache CXF (SOAP client) · Resilience4j (circuit breaker)
+- Spring Security OAuth2 Resource Server (JWT)
+- Docker / Docker Compose for local orchestration
+- Terraform for the AWS target infrastructure (declared as code — see
+  [Project Status](#project-status))
+
+## Quick start
+
+```bash
+git clone https://github.com/dalejandrov/sipsa.git
+cd sipsa
+docker compose up --build -d
+curl http://localhost:8080/actuator/health
+```
+
+The API is now available at `http://localhost:8080`. For running without Docker, the
+full environment-variable reference, and troubleshooting, see
+[Local Development](docs/getting-started/local-development.md). For the full Docker
+Compose walkthrough, see [Docker](docs/getting-started/docker.md).
 
 ## Documentation
 
-Detailed technical documentation and diagrams are available in `docs/`:
+| | |
+|---|---|
+| [Documentation index](docs/README.md) | Central index of every document in this repository |
+| [Local Development](docs/getting-started/local-development.md) · [Docker](docs/getting-started/docker.md) | Getting started guides |
+| [API overview](docs/api/README.md) · [API reference](docs/api/sipsa-rest-api.md) | Authentication, endpoints, parameters, examples |
+| [HTTP request collection](http/sipsa-api.http) | Runnable requests (IntelliJ HTTP Client / VS Code REST Client) |
+| [Architecture](docs/architecture/) | Project architecture, ADRs, AWS production readiness |
+| [Operations](docs/operations/) | AWS deployment preflight and readiness evidence |
+| [Changelog](CHANGELOG.md) | Notable changes per release |
 
-- **[REST API Documentation](docs/SipsaRestController-API-Documentation.md)**: Public `/api/sipsa` reference with examples
-- **[ER Diagram](docs/diagrams/er-diagram.puml)**: Database schema with entities and relationships
-- **[Class Diagram](docs/diagrams/class-diagram.puml)**: System architecture organized by layers
-- **[Component Diagram](docs/diagrams/component-diagram.puml)**: Component interactions and dependencies
-- **Sequence Diagrams** (`docs/diagrams/sequence/`): Process flows for ingestion and API queries
-
-View diagrams using [PlantUML Online](https://www.plantuml.com/plantuml/) or IDE plugins.
-
-## Manual Data Ingestion
-
-Trigger a manual sync via operations API:
+## Tests
 
 ```bash
-curl -X POST "http://localhost:8080/api/internal/ingestion/run?method=promediosSipsaCiudad&force=false"
+./mvnw clean verify
 ```
 
-Available methods:
-- `promediosSipsaCiudad` - City-level pricing
-- `promediosSipsaParcial` - Municipality markets
-- `promediosSipsaSemanaMadr` - Weekly wholesale
-- `promediosSipsaMesMadr` - Monthly wholesale
-- `promedioAbasSipsaMesMadr` - Monthly supply
+Runs the full unit/integration suite (H2 in-memory) plus `FlywayMigrationsTest`, which
+validates every database migration against a real PostgreSQL 18 container via
+Testcontainers. This is the exact command the [CI workflow](.github/workflows/ci.yml)
+runs on every pull request and push to `main`; see
+[Testing Strategy](docs/architecture/testing-strategy.md) for the full test pyramid.
 
-Check available methods:
-```bash
-curl http://localhost:8080/api/internal/ingestion/methods
-```
+## Project status
+
+The application and its test suite are implemented and pass CI (`CI` workflow above).
+The target AWS production infrastructure (VPC, RDS, ECS, API Gateway, Cognito) is fully
+**declared as Terraform code** (validated by the `Infra Plan` workflow — format, lint,
+module tests, Trivy scan) but **`terraform apply` has not been run against any AWS
+account**. Real-AWS validation (TECH-143) remains blocked pending SIPSA-specific
+credentials — see [AWS Production Preflight](docs/operations/aws-production-preflight.md)
+for the current evidence and what's still outstanding.
 
 ## Contributing
 
-Pull requests welcome. For major changes, open an issue first.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for environment setup, branching/commit
+conventions, and the pull request checklist. AI agents should also read
+[AGENTS.md](AGENTS.md).
 
 ## License
 
@@ -207,6 +121,4 @@ Pull requests welcome. For major changes, open an issue first.
 
 ---
 
-Data provided by [DANE - Departamento Administrativo Nacional de Estadística](https://www.dane.gov.co/index.php/estadisticas-por-tema/agropecuario/sistema-de-informacion-de-precios-sipsa/servicio-web-para-consulta-de-la-base-de-datos-de-sipsa)
-
-*This is an unofficial wrapper. For official data access, visit DANE's website.*
+Data provided by [DANE — Departamento Administrativo Nacional de Estadística](https://www.dane.gov.co/index.php/estadisticas-por-tema/agropecuario/sistema-de-informacion-de-precios-sipsa/servicio-web-para-consulta-de-la-base-de-datos-de-sipsa).
