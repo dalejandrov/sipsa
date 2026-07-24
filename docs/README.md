@@ -19,6 +19,23 @@ When two documents disagree, the one below wins for its topic; fix the other one
 
 ---
 
+## Getting Started
+
+| Document | Description |
+|---|---|
+| [Local Development](getting-started/local-development.md) | Run the app directly on your machine: prerequisites, environment variables, build, run, tests |
+| [Docker](getting-started/docker.md) | Run the full stack (app + PostgreSQL + mock OIDC) with Docker Compose |
+
+## API
+
+| Document | Description |
+|---|---|
+| [API Overview](api/README.md) | Entry point: authentication, response codes, where to find examples |
+| [SIPSA REST API Reference](api/sipsa-rest-api.md) | Every endpoint, parameters, request/response examples, error codes |
+| [HTTP Request Collection](../http/sipsa-api.http) | Runnable requests for IntelliJ HTTP Client / VS Code REST Client — setup in [`http/README.md`](../http/README.md) |
+
+---
+
 ## Architecture
 
 | Document | Description |
@@ -32,6 +49,7 @@ When two documents disagree, the one below wins for its topic; fix the other one
 | [Testing Strategy](architecture/testing-strategy.md) | Test pyramid, mandatory/recommended/optional tests, tooling |
 | [Scheduled Ingestion Validation](architecture/scheduled-ingestion-validation.md) | Evidence-backed validation of the scheduled ingestion pipeline (TECH-110): job inventory, cron table, DANE contrast matrix, findings F-WP-01/02/03 (all fixed by TECH-111, 2026-07-14) |
 | [Timezone/Locale Strategy Review](architecture/timezone-locale-date-strategy-review.md) | Temporal inventory, DANE contrast matrix, `TimezoneFilter`/`WindowPolicy` evaluation, alternatives comparison — evidence for ADR-008 (Proposed) |
+| [AWS Production Readiness](architecture/aws-production-readiness.md) | Classification and evidence for the AWS target architecture (TECH-130/131/132) — declared as Terraform code, **not yet deployed** |
 
 ## Architecture Decision Records
 
@@ -50,17 +68,21 @@ When two documents disagree, the one below wins for its topic; fix the other one
 
 See [ADR Index](adr/README.md) for the full list and status guide.
 
-## Backlog
+## Operations
 
 | Document | Description |
 |---|---|
-| [Technical Backlog](backlog/technical-backlog.md) | All 40 stories, prioritized with acceptance criteria and Git branches — the official source of truth for story status |
+| [AWS Production Preflight](operations/aws-production-preflight.md) | Deployment prerequisites checked locally (TECH-144, Done) vs. blocked on real AWS credentials (TECH-143, unmerged) |
+| [Database Migrations](development/database-migrations.md) | Day-to-day Flyway workflow (ADR-009): naming, conventions, the Testcontainers migration gate — see also [Development Process](#development-process) |
+| [Spring Boot 4 + Java 25 Migration](migrations/spring-boot-4-java-25.md) | Framework migration notes, breaking changes, validation results |
 
-## Migrations
+## Project
 
 | Document | Description |
 |---|---|
-| [Spring Boot 4 + Java 25](migrations/spring-boot-4-java-25.md) | Migration notes, breaking changes, validation results |
+| [Implementation Roadmap](architecture/implementation-roadmap.md) | Phased plan for all backlog items |
+| [Technical Backlog](backlog/technical-backlog.md) | All stories, prioritized with acceptance criteria and Git branches — the official source of truth for story status |
+| [Changelog](../CHANGELOG.md) | Notable changes per release, `[Unreleased]` section for delivered-but-unreleased work |
 
 ## Diagrams
 
@@ -72,10 +94,6 @@ See [ADR Index](adr/README.md) for the full list and status guide.
 | [Scheduled Ingestion Sequence](diagrams/sequence/scheduled-ingestion-sequence.puml) | Automated ingestion flow |
 | [API Query Sequence](diagrams/sequence/api-query-sequence.puml) | Request/response handling |
 | [Manual Ingestion Sequence](diagrams/sequence/manual-ingestion-sequence.puml) | Manual trigger flow |
-
-## API Reference
-
-- [SIPSA REST API](SipsaRestController-API-Documentation.md) — Public `/api/sipsa` endpoints
 
 ---
 
