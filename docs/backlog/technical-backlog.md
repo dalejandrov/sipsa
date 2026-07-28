@@ -52,6 +52,13 @@ When a story is implemented:
 | TECH-093 | Add ArchUnit package-boundary rules (Historia B) | Low | — | Done |
 | TECH-094 | SPIKE: Evaluate relocating CXF-generated SOAP sources | Low | — | Done |
 | TECH-095 | Remove domain→infrastructure Javadoc reference in `SoapGateway` (Historia A) | Low | — | **Done** |
+| TECH-100 | Define the API's canonical date/time representation (`LocalDate` vs `OffsetDateTime`) as an explicit contract | Medium | — | **Done** (2026-07-27, `fix/timezone-calendar-dates-and-invalid-header-400`, PR #36 — see [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md)) |
+| TECH-101 | Fix `WindowPolicy.validateMonthly` method binding and monthly `windowKey` contract | High | 3 | **Superseded by [TECH-111](#tech-111)** — same defects (F-WP-01/02/03), fixed 2026-07-14, one day before this story was formalized |
+| TECH-102 | Add timezone-conversion tests (instants vs. calendar dates) for the 5 `api/mapper` classes across `America/Bogota`, `America/New_York`, `America/Los_Angeles`, `UTC`, including DST transitions | Medium | — | Pending — not started. `TimezoneUtilTest`/`SipsaCiudadMapperTest` (PR #36) cover the calendar-date fix but not the full multi-zone/DST matrix this story asks for |
+| TECH-103 | `TimezoneFilter` responds `400 SIPSA_INVALID_TIMEZONE` on an invalid `X-Timezone` header instead of silently degrading to UTC | Medium | — | **Done** (2026-07-27, `fix/timezone-calendar-dates-and-invalid-header-400`, PR #36) |
+| TECH-104 | SPIKE: evaluate cost/impact of migrating `fecha_captura`/`fecha_mes_ini`/`fecha_ini`/`enma_fecha` from `TIMESTAMPTZ` to `DATE` | Low | — | **Done** (2026-07-27, SPIKE only — see write-up below; migration itself deliberately **not implemented**, proposed as a future follow-up story) |
+| TECH-105 | Evaluate the real need for i18n (`Accept-Language` + `MessageSource`) before implementing it | Low | — | Deferred — deliberately not prioritized (ADR-008 F6); no evidence of business urgency |
+| TECH-106 | Fix `GlobalExceptionHandler`'s 3 `LocalDateTime` timestamps to an explicit-zone type | Low | — | **Done** (2026-07-27, `fix/timezone-calendar-dates-and-invalid-header-400`, PR #36) |
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
 | TECH-111 | Correct monthly `WindowPolicy` method binding, grace days, and stable window keys | High | 3 | **Done** |
 | TECH-120 | Continuous integration pipeline (GitHub Actions) | High | — | **Done** |
@@ -2273,6 +2280,97 @@ Javadoc tag (line 39) — the only confirmed `domain → infrastructure` import 
 - [x] `domain → infrastructure` import count drops from 1 to 0.
 
 **Completed:** 2026-07-13, branch `refactor/internal-models-and-api-filter`.
+
+### TECH-104
+
+**Title:** SPIKE — evaluate cost/impact of migrating the 4 calendar-date columns from
+`TIMESTAMPTZ` to `DATE`
+**Type:** SPIKE (investigation only, per [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md) — "do not implement without the SPIKE confirming the scope")
+**Priority:** Low
+**Phase:** —
+**Status:** **Done** — investigation completed 2026-07-27. **The migration itself was
+deliberately not implemented** by this story; see recommendation below.
+**Complexity:** XS (investigation) / M (the migration it evaluates, if a future story
+picks it up)
+
+**Origin:** [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md) item 3 /
+Finding F1, and section I of the
+[timezone/locale strategy review](../architecture/timezone-locale-date-strategy-review.md).
+PR #36 (`fix/timezone-calendar-dates-and-invalid-header-400`) already retyped the *API
+response* layer for these 4 fields to `LocalDate` (TECH-100/TECH-103/TECH-106); this SPIKE
+evaluates whether the underlying entity/DB column should follow.
+
+**Fields in scope:** `sipsa_ciudad.fecha_captura`, `sipsa_parcial.enma_fecha`,
+`sipsa_mayoristas_semanal.fecha_ini`, `sipsa_mayoristas_mensual.fecha_mes_ini`,
+`sipsa_abastecimientos_mensual.fecha_mes_ini` — 5 columns across 5 tables (4 distinct
+logical fields; `fecha_mes_ini` exists in 2 tables), all currently `TIMESTAMPTZ` (V1).
+
+**Findings — exact blast radius, enumerated by reading the code, not estimated:**
+
+1. **Migration:** one new Flyway script, `ALTER COLUMN ... TYPE DATE USING (col AT TIME
+   ZONE 'America/Bogota')::date` for the 5 columns. This is exactly the same expression
+   `TimezoneUtil.toBusinessLocalDate` already performs in Java today — the migration
+   would just move that computation from "every API read" to "once, at migration time".
+   PostgreSQL rewrites the 5 single-column indexes (`idx_sipsa_ciudad_fecha`,
+   `idx_sipsa_parcial_fecha`, `idx_sipsa_semana_fecha`, `idx_sipsa_mes_fecha`,
+   `idx_sipsa_abas_fecha`) and the 2 composite indexes that include `enma_fecha`
+   (`V2`'s natural-key index, `V4`'s covering index) automatically as part of the
+   `ALTER COLUMN TYPE` — no separate `DROP`/`CREATE INDEX` needed. The 3 `UNIQUE`
+   constraints that include one of these columns (`ux_semana_fallback`,
+   `ux_mes_fallback`, `ux_abas_fallback`) are unaffected in behavior: every stored value
+   today is already exact Bogotá midnight, so equality semantics don't change, only the
+   stored precision does.
+2. **Entities (5 fields, 5 files):** `SipsaCiudad.fechaCaptura`,
+   `SipsaParcial.enmaFecha`, `SipsaMayoristasSemanal.fechaIni`,
+   `SipsaMayoristasMensual.fechaMesIni`, `SipsaAbastecimientosMensual.fechaMesIni`
+   change from `Instant` to `LocalDate`.
+3. **Ingestion mapping (`SipsaIngestionMapper`):** the `qualifiedByName =
+   "millisToInstant"` mappings for these 5 fields (currently lines 61, 98, 115, 134; line
+   78 already maps `enmaFecha` from a pre-parsed `LocalDate` — see
+   `ParcialIngestionHandler`) become `qualifiedByName = "millisToBusinessLocalDate"` (a
+   new small helper, same shape as the existing `millisToInstant`). This is where the
+   Bogotá-zone extraction would move to — computed once per ingested record, not on
+   every API read.
+4. **API mappers (5 files, already touched by PR #36):** the `TimezoneUtil
+   .toBusinessLocalDate(entity.getX())` expressions become plain field passthrough
+   (`entity.getX()`) — MapStruct maps `LocalDate → LocalDate` with no custom expression
+   needed at all. Net simplification, not just a wash.
+5. **`SpecificationBuilder`:** `withDateOrRange`/`addDateFilter` is used **exclusively**
+   for these 4 fields (`grep` confirms zero other callers) — today it always builds an
+   `Instant` range via an injected timezone (`start.atStartOfDay(zone).toInstant()`).
+   After migration this entire zone-conversion path is unneeded: filtering becomes a
+   direct `LocalDate` `cb.between`, and the `timezone` constructor parameter
+   `SpecificationBuilder.builder(String timezone)` takes today could be dropped
+   entirely. This is the single biggest simplification the migration would unlock.
+6. **Tests:** ~8 files reference these fields at the `Instant`-typed entity/fixture
+   level and would need their fixtures changed to `LocalDate`:
+   `ParcialQueryFilterIntegrationTest`, `ParcialConcurrentIngestionAppTest`,
+   `ParcialIngestionHandlerTest`, `SpecificationBuilderPostgresTest`,
+   `SipsaDecimalPrecisionAlignmentTest`, `ParcialDecimalPrecisionTest`,
+   `SipsaMayoristasSemanalFallbackUpsertTest`, `ParcialConcurrentDedupTest` — this is the
+   largest single cost item, not the schema change itself.
+7. **No consumer-visible contract change:** the JSON response shape is already
+   `LocalDate` since PR #36 — this migration is a pure internal-consistency change, not
+   a second breaking change for API clients.
+
+**Recommendation:** proceed, but as its **own follow-up story**, not bundled into this
+SPIKE. The change is a genuine correctness/simplicity improvement (removes the
+"did-the-mapper-remember-to-call-`toBusinessLocalDate`" class of risk by construction,
+simplifies `SpecificationBuilder`, moves the zone computation from read-time — every API
+call — to write-time — once per ingested record) and is fully enumerated above, so
+TECH-104's own precondition ("do not implement without the SPIKE confirming the scope")
+is satisfied. It is **not urgent**: the user-facing date-shift risk this whole
+investigation started from is already closed by PR #36's response-layer fix, so the DB
+column type is now purely an internal consistency concern, not a live bug. Suggested
+next ID: the first free `TECH-1xx` slot at the time the follow-up story is picked up
+(**not** reusing TECH-104 itself — this entry is the completed SPIKE, not the
+migration).
+
+**Risk of NOT migrating:** low and already mitigated — `TimezoneUtil
+.toBusinessLocalDate` centralizes the Bogotá-zone extraction in one place, so the
+residual risk is "a future mapper change forgets to call it", not "the API returns the
+wrong date today".
+
 ### TECH-110
 
 **Title:** Validate scheduled ingestion jobs and add scheduling tests

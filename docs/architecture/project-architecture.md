@@ -313,16 +313,26 @@ What is approved and in effect today:
 - **`Instant` + `TIMESTAMPTZ` is the storage representation for instants** (audit
   timestamps, run start/end times, system-generated sync timestamps). This is consistent
   across every entity that has a temporal field.
-- **API responses expose `OffsetDateTime`** (ISO-8601 with explicit offset) for temporal
-  fields, and a client-supplied `X-Timezone` header (via `TimezoneFilter`) controls how
-  *system-generated* timestamps are presented, defaulting to UTC when absent or invalid.
+- **API responses expose `OffsetDateTime`** (ISO-8601 with explicit offset) for genuine
+  instant fields (e.g. `fechaSincronizacion`, `fechaCreacion`), and a client-supplied
+  `X-Timezone` header (via `TimezoneFilter`) controls how *system-generated* timestamps are
+  presented — defaulting to UTC when absent, but rejected with `400
+  SIPSA_INVALID_TIMEZONE` when present and invalid (ADR-008 F4, TECH-103).
+- **Calendar/period-start fields are `LocalDate`, not `OffsetDateTime`.** `fechaCaptura`,
+  `fechaMesIni`, `fechaIni`, and `enmaFecha` represent DANE calendar dates, not instants;
+  they're resolved via `TimezoneUtil.toBusinessLocalDate` in a fixed `America/Bogota` zone,
+  ignoring `X-Timezone` entirely (ADR-008 F1, TECH-100/106). The underlying entity/DB
+  column is still `Instant`/`TIMESTAMPTZ` — retyping those was evaluated (TECH-104, a
+  SPIKE) and recommended, but deliberately left as a separate, not-yet-scheduled
+  follow-up story.
 
-**Not yet decided:** whether every temporal field's *type* correctly reflects its semantics
-(e.g., whether fields that represent a calendar date, not an instant, should be `LocalDate`
-instead of `OffsetDateTime`); locale/message internationalization; the exact contract for
-an invalid `X-Timezone` header. These are documented as open questions in
-[ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md), which remains
-**`Proposed`**. Do not treat any part of ADR-008 as decided.
+**Still open:** multi-zone/DST test coverage for the mapper conversions (TECH-102);
+locale/message internationalization (TECH-105, deliberately deferred, not scheduled); the
+TIMESTAMPTZ→DATE entity/DB migration TECH-104 recommended. These remain open items in
+[ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md), which is now
+**`Accepted`, scoped** (items 1, 2, 4, 5, 6 done; item 3 done at its authorized
+response-layer scope; item 7 deliberately deferred, not rejected) — see the ADR's own
+per-item status for exactly what is and isn't decided.
 
 ---
 
@@ -335,8 +345,9 @@ exceptions.
 **Contract:** every error response is a structured JSON body with a stable `code` field
 (e.g., `VALIDATION_ERROR`, `BUSINESS_ERROR`, `INGESTION_ERROR`, `EXTERNAL_ERROR`), an HTTP
 status, and a human-readable `message`. Codes are independent of message wording, which is
-the correct precondition for future localization (see [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md),
-`Proposed` — not yet implemented).
+the correct precondition for future localization — not yet implemented, deliberately
+deferred (see [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md) item 7 /
+TECH-105, `Accepted`, scoped).
 
 **Not RFC 9457 `ProblemDetail`.** This was evaluated and explicitly not adopted (see
 [ADR-003](../adr/ADR-003-error-response-model.md), `Proposed`, and
@@ -468,7 +479,7 @@ Items marked **Pending Decision** require an ADR or SPIKE to resolve before impl
 | Initiative | State | Reference |
 |---|---|---|
 | Fix `WindowPolicy` monthly day-to-method binding, grace days, and stable window keys | **Implemented** (2026-07-14, merged via PR #15) | TECH-111, [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) |
-| Timezone, locale, and date-semantics strategy | **Pending Decision** — ADR-008 is `Proposed`, not accepted | [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md) |
+| Timezone, locale, and date-semantics strategy | **Decided and implemented, scoped** — ADR-008 `Accepted` (2026-07-27); items 1,2,4,5,6 done, item 3 done at response-layer scope (TECH-104 migration recommended but deferred), item 7 (i18n) deliberately deferred | [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md), TECH-100/103/106 (PR #36), TECH-111 |
 | ArchUnit package-boundary rules | Pending — dependencies (TECH-090/091/095) are merged; story not started | TECH-093 |
 | Separate CXF-generated SOAP sources from hand-written code | **Pending Decision** — blocked on a SPIKE | TECH-092 (blocked by TECH-094) |
 | `isMonthly()` as an explicit `IngestionHandler` contract method | **Pending Decision** — ADR-006 is `Proposed` | ADR-006, TECH-055 (SPIKE) |
