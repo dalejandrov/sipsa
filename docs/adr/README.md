@@ -26,7 +26,7 @@ the decision taken, and its consequences.
 | [ADR-005](ADR-005-scheduler-execution-model.md) | Scheduler Execution Model | Proposed | 2026-07-13 |
 | [ADR-006](ADR-006-ingestion-handler-contract.md) | Ingestion Handler Contract | Proposed | 2026-07-13 |
 | [ADR-007](ADR-007-package-boundaries-and-internal-models.md) | Package Boundaries and Internal Models | Accepted (scoped to F1, F2, F4, F5 — F3 pending SPIKE) | 2026-07-13 |
-| [ADR-008](ADR-008-timezone-locale-and-date-semantics.md) | Timezone, Locale, and Date Semantics Strategy | Proposed | 2026-07-13 |
+| [ADR-008](ADR-008-timezone-locale-and-date-semantics.md) | Timezone, Locale, and Date Semantics Strategy | Accepted (scoped — items 1,2,4,5,6 done; item 3 done at response-layer scope, TECH-104 migration deferred; item 7 deferred) | 2026-07-27 |
 | [ADR-009](ADR-009-database-migration-strategy.md) | Database Migration Strategy (Flyway) | **Accepted** | 2026-07-14 |
 | [ADR-010](ADR-010-aws-infrastructure-as-code.md) | AWS Infrastructure-as-Code Tooling and Initial Production Topology | **Accepted** | 2026-07-21 |
 

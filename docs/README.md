@@ -48,7 +48,7 @@ When two documents disagree, the one below wins for its topic; fix the other one
 | [Implementation Roadmap](architecture/implementation-roadmap.md) | Phased plan for all backlog items |
 | [Testing Strategy](architecture/testing-strategy.md) | Test pyramid, mandatory/recommended/optional tests, tooling |
 | [Scheduled Ingestion Validation](architecture/scheduled-ingestion-validation.md) | Evidence-backed validation of the scheduled ingestion pipeline (TECH-110): job inventory, cron table, DANE contrast matrix, findings F-WP-01/02/03 (all fixed by TECH-111, 2026-07-14) |
-| [Timezone/Locale Strategy Review](architecture/timezone-locale-date-strategy-review.md) | Temporal inventory, DANE contrast matrix, `TimezoneFilter`/`WindowPolicy` evaluation, alternatives comparison — evidence for ADR-008 (Proposed) |
+| [Timezone/Locale Strategy Review](architecture/timezone-locale-date-strategy-review.md) | Temporal inventory, DANE contrast matrix, `TimezoneFilter`/`WindowPolicy` evaluation, alternatives comparison — evidence for ADR-008 (**Accepted**, scoped) |
 | [AWS Production Readiness](architecture/aws-production-readiness.md) | Classification and evidence for the AWS target architecture (TECH-130/131/132) — declared as Terraform code, **not yet deployed** |
 
 ## Architecture Decision Records
@@ -63,7 +63,7 @@ When two documents disagree, the one below wins for its topic; fix the other one
 | [ADR-005](adr/ADR-005-scheduler-execution-model.md) | Scheduler Execution Model | Proposed |
 | [ADR-006](adr/ADR-006-ingestion-handler-contract.md) | Ingestion Handler Contract | Proposed |
 | [ADR-007](adr/ADR-007-package-boundaries-and-internal-models.md) | Package Boundaries and Internal Models | **Accepted** (scoped to F1, F2, F4, F5) |
-| [ADR-008](adr/ADR-008-timezone-locale-and-date-semantics.md) | Timezone, Locale, and Date Semantics Strategy | Proposed |
+| [ADR-008](adr/ADR-008-timezone-locale-and-date-semantics.md) | Timezone, Locale, and Date Semantics Strategy | **Accepted** (scoped — items 1,2,4,5,6 done; item 3 done at response-layer scope; item 7 deferred) |
 | [ADR-009](adr/ADR-009-database-migration-strategy.md) | Database Migration Strategy (Flyway) | **Accepted** |
 
 See [ADR Index](adr/README.md) for the full list and status guide.
