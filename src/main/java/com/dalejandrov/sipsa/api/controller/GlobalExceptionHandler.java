@@ -1,6 +1,7 @@
 package com.dalejandrov.sipsa.api.controller;
 
 import com.dalejandrov.sipsa.api.filter.RequestIdFilter;
+import com.dalejandrov.sipsa.api.util.TimezoneUtil;
 import com.dalejandrov.sipsa.domain.exception.SipsaBusinessException;
 import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
 import com.dalejandrov.sipsa.domain.exception.SipsaNotFoundException;
@@ -25,7 +26,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -219,7 +221,7 @@ public class GlobalExceptionHandler {
             SipsaIngestionValidationException ex, HttpServletRequest request) {
         log.warn("Ingestion validation error: {}", ex.getMessage());
         return ResponseEntity.badRequest().body(new IngestionValidationErrorResponse(
-                LocalDateTime.now(),
+                TimezoneUtil.convertToOffsetDateTime(Instant.now(), true),
                 HttpStatus.BAD_REQUEST.value(),
                 "Bad Request",
                 "INGESTION_VALIDATION_ERROR",
@@ -252,7 +254,7 @@ public class GlobalExceptionHandler {
 
         log.warn("Validation error on request parameters: {}", errors);
         return ResponseEntity.badRequest().body(new ValidationErrorResponse(
-                LocalDateTime.now(),
+                TimezoneUtil.convertToOffsetDateTime(Instant.now(), true),
                 HttpStatus.BAD_REQUEST.value(),
                 "Bad Request",
                 "VALIDATION_ERROR",
@@ -363,7 +365,7 @@ public class GlobalExceptionHandler {
     private ResponseEntity<ErrorResponse> buildErrorResponse(
             HttpStatus status, String errorCode, String message, HttpServletRequest request) {
         ErrorResponse errorResponse = new ErrorResponse(
-                LocalDateTime.now(),
+                TimezoneUtil.convertToOffsetDateTime(Instant.now(), true),
                 status.value(),
                 status.getReasonPhrase(),
                 errorCode,
@@ -396,7 +398,10 @@ public class GlobalExceptionHandler {
      * This record provides a consistent format for all error responses
      * returned by the API.
      *
-     * @param timestamp when the error occurred
+     * @param timestamp when the error occurred (ISO-8601 with explicit offset; ADR-008 F5 —
+     *     converted via {@link TimezoneUtil} like every other system timestamp in the API,
+     *     honoring the request's {@code X-Timezone} instead of the ambiguous, offset-less
+     *     {@code LocalDateTime} used before)
      * @param status HTTP status code (e.g., 400, 500)
      * @param error HTTP status reason phrase (e.g., "Bad Request")
      * @param code application-specific error code (e.g., "VALIDATION_ERROR")
@@ -405,7 +410,7 @@ public class GlobalExceptionHandler {
      * @param instance path of the request that produced the error (TECH-023)
      */
     public record ErrorResponse(
-            LocalDateTime timestamp,
+            OffsetDateTime timestamp,
             int status,
             String error,
             String code,
@@ -430,7 +435,7 @@ public class GlobalExceptionHandler {
      * @param availableMethods set of available methods for the request
      */
     public record IngestionValidationErrorResponse(
-            LocalDateTime timestamp,
+            OffsetDateTime timestamp,
             int status,
             String error,
             String code,
@@ -456,7 +461,7 @@ public class GlobalExceptionHandler {
      * @param fieldErrors map of field names to error messages
      */
     public record ValidationErrorResponse(
-            LocalDateTime timestamp,
+            OffsetDateTime timestamp,
             int status,
             String error,
             String code,

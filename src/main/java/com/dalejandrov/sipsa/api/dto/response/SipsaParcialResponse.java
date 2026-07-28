@@ -1,6 +1,7 @@
 package com.dalejandrov.sipsa.api.dto.response;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 /**
@@ -18,7 +19,7 @@ import java.time.OffsetDateTime;
  * @param idArtiSemana weekly product article identifier
  * @param artiNombre product/article name
  * @param grupNombre product group/category name
- * @param enmaFecha survey/data collection date (external, in UTC)
+ * @param enmaFecha survey/data collection date (DANE calendar date, Colombia — not an instant, never shifted by timezone; ADR-008)
  * @param promedioKg average price per kilogram
  * @param maximoKg maximum price per kilogram
  * @param minimoKg minimum price per kilogram
@@ -34,7 +35,7 @@ public record SipsaParcialResponse(
         Long idArtiSemana,
         String artiNombre,
         String grupNombre,
-        OffsetDateTime enmaFecha,
+        LocalDate enmaFecha,
         BigDecimal promedioKg,
         BigDecimal maximoKg,
         BigDecimal minimoKg,

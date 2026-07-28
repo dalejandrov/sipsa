@@ -25,7 +25,7 @@ public interface SipsaAbastecimientosMensualMapper {
      * @param entity the source entity from database
      * @return mapped response DTO for API
      */
-    @Mapping(target = "fechaMesIni", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaMesIni(), false))")
+    @Mapping(target = "fechaMesIni", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.toBusinessLocalDate(entity.getFechaMesIni()))")
     @Mapping(target = "fechaCreacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaCreacion(), false))")
     @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaAbastecimientosMensualResponse toDto(SipsaAbastecimientosMensual entity);

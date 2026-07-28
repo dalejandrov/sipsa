@@ -1,6 +1,7 @@
 package com.dalejandrov.sipsa.api.dto.response;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 /**
@@ -13,7 +14,7 @@ import java.time.OffsetDateTime;
  * @param artiNombre product/article name
  * @param fuenId source identifier (wholesale market ID)
  * @param fuenNombre source name (wholesale market name)
- * @param fechaMesIni month start date (external, in UTC)
+ * @param fechaMesIni month start date (DANE calendar date, Colombia — not an instant, never shifted by timezone; ADR-008)
  * @param minimoKg minimum price per kilogram for the month
  * @param maximoKg maximum price per kilogram for the month
  * @param promedioKg average price per kilogram for the month
@@ -24,7 +25,7 @@ public record SipsaMayoristasMensualResponse(
         String artiNombre,
         Long fuenId,
         String fuenNombre,
-        OffsetDateTime fechaMesIni,
+        LocalDate fechaMesIni,
         BigDecimal minimoKg,
         BigDecimal maximoKg,
         BigDecimal promedioKg,

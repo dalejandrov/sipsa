@@ -1,6 +1,7 @@
 package com.dalejandrov.sipsa.api.dto.response;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 /**
@@ -14,7 +15,7 @@ import java.time.OffsetDateTime;
  * @param fuenId         source identifier (wholesale market ID)
  * @param fuenNombre     source name (wholesale market name)
  * @param futiId         source type identifier
- * @param fechaMesIni    month start date (external, in UTC)
+ * @param fechaMesIni    month start date (DANE calendar date, Colombia — not an instant, never shifted by timezone; ADR-008)
  * @param fechaCreacion  timestamp when the record was created in source system (external, in UTC)
  * @param cantidadTon    quantity supplied in tons for the month
  * @param enviado        amount sent/dispatched (specific to source system)
@@ -26,7 +27,7 @@ public record SipsaAbastecimientosMensualResponse(
         Long fuenId,
         String fuenNombre,
         Long futiId,
-        OffsetDateTime fechaMesIni,
+        LocalDate fechaMesIni,
         OffsetDateTime fechaCreacion,
         BigDecimal cantidadTon,
         BigDecimal enviado,

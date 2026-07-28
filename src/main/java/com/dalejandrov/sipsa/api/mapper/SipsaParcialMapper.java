@@ -25,7 +25,7 @@ public interface SipsaParcialMapper {
      * @param entity the source entity from database
      * @return mapped response DTO for API
      */
-    @Mapping(target = "enmaFecha", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getEnmaFecha(), false))")
+    @Mapping(target = "enmaFecha", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.toBusinessLocalDate(entity.getEnmaFecha()))")
     @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaParcialResponse toDto(SipsaParcial entity);
 }
