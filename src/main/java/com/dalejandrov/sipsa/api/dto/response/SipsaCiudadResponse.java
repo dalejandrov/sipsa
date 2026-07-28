@@ -1,6 +1,7 @@
 package com.dalejandrov.sipsa.api.dto.response;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 /**
@@ -13,7 +14,7 @@ import java.time.OffsetDateTime;
  * @param ciudad         city name where data was collected
  * @param codProducto    product code identifier
  * @param producto       product name/description
- * @param fechaCaptura   timestamp when the price was captured/recorded (external, in UTC)
+ * @param fechaCaptura   calendar date the price was captured (DANE survey date, Colombia — not an instant, never shifted by timezone; ADR-008)
  * @param fechaCreacion  timestamp when the record was created in source system (external, in UTC)
  * @param precioPromedio average price for the product (in local currency per unit)
  * @param enviado        amount sent/dispatched (specific to source system)
@@ -24,7 +25,7 @@ public record SipsaCiudadResponse(
         String ciudad,
         Long codProducto,
         String producto,
-        OffsetDateTime fechaCaptura,
+        LocalDate fechaCaptura,
         OffsetDateTime fechaCreacion,
         BigDecimal precioPromedio,
         BigDecimal enviado,
