@@ -18,8 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * across {@code America/Bogota} (fixed offset, never DST), {@code America/New_York} and
  * {@code America/Los_Angeles} (both observe US DST), and {@code UTC} — including the exact
  * 2026 US DST transition instants. TECH-104 narrowed this method's remaining scope to
- * genuine instants only ({@code fechaCreacion}, {@code fechaSincronizacion}, error-response
- * timestamps); the 4 DANE calendar-date fields moved to
+ * genuine instants only ({@code fechaCreacion}, error-response timestamps —
+ * {@code fechaSincronizacion} is an internal audit timestamp, never exposed on a response
+ * DTO, so it is no longer converted here either); the 4 DANE calendar-date fields moved to
  * {@code SipsaIngestionMapper.millisToBusinessLocalDate}, covered separately in
  * {@link com.dalejandrov.sipsa.infrastructure.soap.mapper.SipsaIngestionMapperTest}.
  */

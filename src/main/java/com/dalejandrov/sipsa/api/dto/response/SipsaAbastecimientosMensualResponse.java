@@ -19,7 +19,6 @@ import java.time.OffsetDateTime;
  * @param fechaCreacion  timestamp when the record was created in source system (external, in UTC)
  * @param cantidadTon    quantity supplied in tons for the month
  * @param enviado        amount sent/dispatched (specific to source system)
- * @param fechaSincronizacion timestamp when the record was ingested into this system (system, converted to client timezone)
  */
 public record SipsaAbastecimientosMensualResponse(
         Long artiId,
@@ -30,6 +29,5 @@ public record SipsaAbastecimientosMensualResponse(
         LocalDate fechaMesIni,
         OffsetDateTime fechaCreacion,
         BigDecimal cantidadTon,
-        BigDecimal enviado,
-        OffsetDateTime fechaSincronizacion) {
+        BigDecimal enviado) {
 }

@@ -18,14 +18,10 @@ public interface SipsaAbastecimientosMensualMapper {
 
     /**
      * Converts monthly supply entity to response DTO.
-     * <p>
-     * Includes ingestion timestamp to allow API clients to track data freshness
-     * and determine when the data was last updated.
      *
      * @param entity the source entity from database
      * @return mapped response DTO for API
      */
     @Mapping(target = "fechaCreacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaCreacion(), false))")
-    @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaAbastecimientosMensualResponse toDto(SipsaAbastecimientosMensual entity);
 }

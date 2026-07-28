@@ -27,6 +27,5 @@ public interface SipsaCiudadMapper {
      * @return mapped response DTO for API
      */
     @Mapping(target = "fechaCreacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaCreacion(), false))")
-    @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaCiudadResponse toDto(SipsaCiudad entity);
 }
