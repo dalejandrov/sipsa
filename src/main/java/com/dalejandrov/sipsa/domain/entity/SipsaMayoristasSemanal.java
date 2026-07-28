@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 /**
  * JPA entity representing weekly wholesale market pricing data.
@@ -67,9 +68,9 @@ public class SipsaMayoristasSemanal {
     @Column(name = "futi_id", nullable = false)
     private Long futiId;
 
-    /** Week start date (stored as timestamp, received as milliseconds from SOAP) */
+    /** Week start calendar date (DANE date, Colombia — not an instant; TECH-104) */
     @Column(name = "fecha_ini", nullable = false)
-    private Instant fechaIni;
+    private LocalDate fechaIni;
 
     /* Decimal columns mirror the versioned DDL (V1: NUMERIC(19,2)) — the storage
      * contract; DANE's XSD declares plain unbounded xs:decimal (TECH-134, same

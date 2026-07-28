@@ -17,7 +17,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -163,7 +163,7 @@ class SipsaDecimalPrecisionAlignmentTest {
                 .ciudad("MEDELLIN")
                 .codProducto(seq)
                 .producto("PRODUCTO " + seq)
-                .fechaCaptura(Instant.parse("2026-07-15T05:00:00Z"))
+                .fechaCaptura(LocalDate.of(2026, 7, 15))
                 .precioPromedio(precio)
                 .enviado(new BigDecimal("0.00"))
                 .ingestionRunId(runId)
@@ -177,7 +177,7 @@ class SipsaDecimalPrecisionAlignmentTest {
                 .fuenId(10L)
                 .fuenNombre("FUENTE")
                 .futiId(2L)
-                .fechaIni(Instant.parse("2026-07-14T05:00:00Z"))
+                .fechaIni(LocalDate.of(2026, 7, 14))
                 .minimoKg(price)
                 .maximoKg(price)
                 .promedioKg(price)

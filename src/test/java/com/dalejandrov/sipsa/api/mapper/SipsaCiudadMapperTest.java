@@ -18,11 +18,13 @@ import java.time.ZoneOffset;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * ADR-008 F1: {@code fechaCaptura} is a DANE calendar date, not an instant — it must map
- * to {@link LocalDate} via {@link TimezoneUtil#toBusinessLocalDate}, unaffected by the
- * request's {@code X-Timezone}. {@code fechaCreacion} and {@code fechaSincronizacion} are
- * genuine instants and keep their prior {@link OffsetDateTime} behavior (UTC and
- * request-timezone respectively) — unchanged by this story.
+ * ADR-008 F1 / TECH-104: {@code fechaCaptura} is a DANE calendar date, not an instant.
+ * Since TECH-104 retyped the entity/DB column itself to {@link LocalDate}, the mapper is a
+ * plain passthrough — no zone conversion happens here at all (that now happens once, at
+ * ingestion time, in {@code SipsaIngestionMapper}). {@code fechaCreacion} and
+ * {@code fechaSincronizacion} are genuine instants and keep their prior
+ * {@link OffsetDateTime} behavior (UTC and request-timezone respectively) — unchanged by
+ * this story.
  */
 class SipsaCiudadMapperTest {
 
@@ -34,10 +36,9 @@ class SipsaCiudadMapperTest {
     }
 
     @Test
-    @DisplayName("fechaCaptura maps to the Bogota calendar date, ignoring the request timezone")
-    void fechaCaptura_mapsToBusinessLocalDate() {
-        // 2026-07-16T01:00:00Z is already 2026-07-16 in UTC, but still 2026-07-15 in Bogota.
-        Instant fechaCaptura = Instant.parse("2026-07-16T01:00:00Z");
+    @DisplayName("fechaCaptura maps straight across as a LocalDate, unaffected by the request timezone")
+    void fechaCaptura_mapsAsPlainLocalDate() {
+        LocalDate fechaCaptura = LocalDate.of(2026, 7, 15);
         Instant fechaCreacion = Instant.parse("2026-07-16T01:00:00Z");
         Instant fechaSincronizacion = Instant.parse("2026-07-16T01:00:00Z");
         TimezoneUtil.setRequestTimezone(ZoneId.of("Asia/Tokyo"));
@@ -55,7 +56,7 @@ class SipsaCiudadMapperTest {
 
         SipsaCiudadResponse response = mapper.toDto(entity);
 
-        assertThat(response.fechaCaptura()).isEqualTo(LocalDate.of(2026, 7, 15));
+        assertThat(response.fechaCaptura()).isEqualTo(fechaCaptura);
         assertThat(response.fechaCreacion()).isEqualTo(fechaCreacion.atOffset(ZoneOffset.UTC));
         assertThat(response.fechaSincronizacion()).isEqualTo(fechaSincronizacion.atZone(ZoneId.of("Asia/Tokyo")).toOffsetDateTime());
     }

@@ -1,7 +1,6 @@
 package com.dalejandrov.sipsa.api.util;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -13,15 +12,6 @@ import java.time.ZoneOffset;
  * for system-generated records, while keeping historical/external records in UTC.
  */
 public class TimezoneUtil {
-
-    /**
-     * Fixed business zone (ADR-008) used to resolve calendar-date fields sourced from
-     * DANE (survey/period-start dates). Deliberately not {@code ZoneId.systemDefault()}
-     * and not the request's {@code X-Timezone} — these fields are Colombia dates by
-     * definition, so the day they represent must never depend on the server host's zone
-     * or on what a client happens to request.
-     */
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("America/Bogota");
 
     private static final ThreadLocal<ZoneId> REQUEST_TIMEZONE = new ThreadLocal<>();
 
@@ -65,24 +55,5 @@ public class TimezoneUtil {
         }
         ZoneId zone = isSystemGenerated ? getRequestTimezone() : ZoneOffset.UTC;
         return instant.atZone(zone).toOffsetDateTime();
-    }
-
-    /**
-     * Resolves the calendar date of a stored {@link Instant} that represents a
-     * period-start/survey date from DANE (e.g. {@code fechaCaptura}, {@code fechaMesIni},
-     * {@code fechaIni}, {@code enmaFecha}), never an instant a client should see converted
-     * to their own zone. Always uses the fixed business zone, ignoring both the request's
-     * {@code X-Timezone} and UTC — this is what makes those fields immune to date-shifting
-     * by construction (ADR-008 F1), rather than by the convention previously enforced only
-     * through {@link #convertToOffsetDateTime}'s {@code isSystemGenerated=false} default.
-     *
-     * @param instant the stored instant backing a calendar-date field
-     * @return the calendar date in {@code America/Bogota}, or {@code null} if the instant is null
-     */
-    public static LocalDate toBusinessLocalDate(Instant instant) {
-        if (instant == null) {
-            return null;
-        }
-        return instant.atZone(BUSINESS_ZONE).toLocalDate();
     }
 }

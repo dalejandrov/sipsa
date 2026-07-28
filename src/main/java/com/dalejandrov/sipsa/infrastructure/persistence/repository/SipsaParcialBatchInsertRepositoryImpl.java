@@ -5,11 +5,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -82,7 +84,7 @@ public class SipsaParcialBatchInsertRepositoryImpl implements SipsaParcialBatchI
         setNullableLong(ps, 8, row.getIdArtiSemana());
         ps.setString(9, row.getArtiNombre());
         ps.setString(10, row.getGrupNombre());
-        ps.setTimestamp(11, toTimestamp(row.getEnmaFecha()));
+        ps.setDate(11, toSqlDate(row.getEnmaFecha()));
         ps.setBigDecimal(12, row.getPromedioKg());
         ps.setBigDecimal(13, row.getMaximoKg());
         ps.setBigDecimal(14, row.getMinimoKg());
@@ -100,5 +102,9 @@ public class SipsaParcialBatchInsertRepositoryImpl implements SipsaParcialBatchI
 
     private static Timestamp toTimestamp(Instant instant) {
         return instant == null ? null : Timestamp.from(instant);
+    }
+
+    private static Date toSqlDate(LocalDate localDate) {
+        return localDate == null ? null : Date.valueOf(localDate);
     }
 }

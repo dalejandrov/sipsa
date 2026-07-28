@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 /**
  * JPA entity representing city-level agricultural pricing data.
@@ -62,9 +63,9 @@ public class SipsaCiudad {
     @Column(name = "producto")
     private String producto;
 
-    /** Date when the price was captured */
+    /** Calendar date the price was captured (DANE survey date, Colombia — not an instant; TECH-104) */
     @Column(name = "fecha_captura")
-    private Instant fechaCaptura;
+    private LocalDate fechaCaptura;
 
     /** Date when the record was created in source system */
     @Column(name = "fecha_creacion")

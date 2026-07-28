@@ -16,6 +16,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -107,7 +108,7 @@ class ParcialIngestionHandlerTest {
             return found;
         });
         when(repository.findByEnmaFechaIn(anyCollection())).thenAnswer(inv -> {
-            Collection<Instant> fechas = inv.getArgument(0);
+            Collection<LocalDate> fechas = inv.getArgument(0);
             List<SipsaParcial> found = new ArrayList<>();
             for (SipsaParcial row : store.values()) {
                 if (fechas.contains(row.getEnmaFecha())) {
@@ -177,7 +178,7 @@ class ParcialIngestionHandlerTest {
                 .id(++idSequence)
                 .keyHash("7d0e8400-e29b-41d4-a716-446655440000")
                 .muniId("05001").fuenId(10L).futiId(2L).idArtiSemana(101L)
-                .enmaFecha(Instant.parse("2026-07-15T05:00:00Z"))
+                .enmaFecha(LocalDate.of(2026, 7, 15))
                 .ingestionRunId(99L)
                 .build();
         store.put(legacy.getId(), legacy);

@@ -15,6 +15,8 @@ import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -50,6 +52,12 @@ import java.util.List;
 @Slf4j
 @RequiredArgsConstructor
 public class ParcialIngestionHandler implements IngestionHandler {
+
+    /**
+     * Fixed business zone (ADR-008/TECH-104) — {@code enmaFecha} is a DANE calendar date,
+     * Colombia by definition, never {@code ZoneId.systemDefault()}.
+     */
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("America/Bogota");
 
     private final SoapGateway soapGateway;
     private final SipsaParcialRepository repository;
@@ -88,8 +96,8 @@ public class ParcialIngestionHandler implements IngestionHandler {
                     continue;
                 }
 
-                Instant fechaEncuesta = parseDate(record.fechaEncuestaText());
-                if (fechaEncuesta == null) {
+                Instant fechaEncuestaInstant = parseDate(record.fechaEncuestaText());
+                if (fechaEncuestaInstant == null) {
                     String rawData = String.format("muniId=%s, fuenId=%s, futiId=%s, idArtiSemana=%s, enmaFecha=%s",
                             record.muniId(), record.fuenId(), record.futiId(), record.idArtiSemana(),
                             record.enmaFecha());
@@ -98,6 +106,7 @@ public class ParcialIngestionHandler implements IngestionHandler {
                                     + record.fechaEncuestaText());
                     continue;
                 }
+                LocalDate fechaEncuesta = fechaEncuestaInstant.atZone(BUSINESS_ZONE).toLocalDate();
 
                 batch.add(mapper.toEntity(record, fechaEncuesta, context.getRunId()));
 

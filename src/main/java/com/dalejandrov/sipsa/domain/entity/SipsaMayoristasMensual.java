@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 /**
  * JPA entity representing monthly wholesale market pricing data.
@@ -67,9 +68,9 @@ public class SipsaMayoristasMensual {
     @Column(name = "futi_id", nullable = false)
     private Long futiId;
 
-    /** Start date of the month - when the data becomes effective */
+    /** Month start calendar date (DANE date, Colombia — not an instant; TECH-104) */
     @Column(name = "fecha_mes_ini", nullable = false)
-    private Instant fechaMesIni;
+    private LocalDate fechaMesIni;
 
     /** Creation date - usually null from SOAP */
     @Column(name = "fecha_creacion")

@@ -62,11 +62,39 @@ class FlywayMigrationsTest {
     void flywayAppliedMigrations() {
         MigrationInfo[] applied = flyway.info().applied();
 
-        assertThat(applied).hasSizeGreaterThanOrEqualTo(4);
+        assertThat(applied).hasSizeGreaterThanOrEqualTo(5);
         assertThat(applied[0].getVersion().getVersion()).isEqualTo("1");
         assertThat(applied[1].getVersion().getVersion()).isEqualTo("2");
         assertThat(applied[2].getVersion().getVersion()).isEqualTo("3");
         assertThat(applied[3].getVersion().getVersion()).isEqualTo("4");
+        assertThat(applied[4].getVersion().getVersion()).isEqualTo("5");
+    }
+
+    @Test
+    @DisplayName("V5: the 4 DANE calendar-date columns (5 columns across 5 tables) are DATE, not TIMESTAMPTZ (TECH-104)")
+    void calendarDateColumnsRetypedToDate() {
+        record ColumnRef(String table, String column) {}
+        List<ColumnRef> calendarColumns = List.of(
+                new ColumnRef("sipsa_ciudad", "fecha_captura"),
+                new ColumnRef("sipsa_parcial", "enma_fecha"),
+                new ColumnRef("sipsa_mayoristas_semanal", "fecha_ini"),
+                new ColumnRef("sipsa_mayoristas_mensual", "fecha_mes_ini"),
+                new ColumnRef("sipsa_abastecimientos_mensual", "fecha_mes_ini"));
+
+        for (ColumnRef ref : calendarColumns) {
+            String dataType = jdbc.queryForObject(
+                    "SELECT data_type FROM information_schema.columns "
+                            + "WHERE table_name = ? AND column_name = ?",
+                    String.class, ref.table(), ref.column());
+            assertThat(dataType).as("%s.%s", ref.table(), ref.column()).isEqualTo("date");
+        }
+
+        // fecha_creacion (a genuine instant, untouched by V5) must still be timestamptz.
+        String untouched = jdbc.queryForObject(
+                "SELECT data_type FROM information_schema.columns "
+                        + "WHERE table_name = 'sipsa_ciudad' AND column_name = 'fecha_creacion'",
+                String.class);
+        assertThat(untouched).isEqualTo("timestamp with time zone");
     }
 
     @Test

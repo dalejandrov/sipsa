@@ -21,6 +21,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -85,7 +86,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
         entityManagerFactory.unwrap(SessionFactory.class).getStatistics().clear();
     }
 
-    private SipsaMayoristasSemanal item(long artiId, long fuenId, Instant fechaIni) {
+    private SipsaMayoristasSemanal item(long artiId, long fuenId, LocalDate fechaIni) {
         return SipsaMayoristasSemanal.builder()
                 .artiId(artiId)
                 .artiNombre("ARTICULO " + artiId)
@@ -118,7 +119,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @DisplayName("2. one new record: inserted=1")
     void oneNewRecord() {
         UpsertMetrics metrics = repository.upsertFallbackBatch(
-                List.of(item(1L, 10L, Instant.parse("2026-07-06T00:00:00Z"))));
+                List.of(item(1L, 10L, LocalDate.of(2026, 7, 6))));
 
         assertThat(metrics.inserted()).isEqualTo(1);
         assertThat(metrics.skipped()).isZero();
@@ -128,7 +129,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @Test
     @DisplayName("3. several new records: all inserted")
     void severalNewRecords() {
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
         List<SipsaMayoristasSemanal> batch = List.of(
                 item(1L, 10L, fecha), item(2L, 10L, fecha), item(3L, 10L, fecha),
                 item(4L, 10L, fecha), item(5L, 10L, fecha));
@@ -142,7 +143,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @Test
     @DisplayName("4. all already existing: all skipped, none inserted")
     void allExisting() {
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
         List<SipsaMayoristasSemanal> batch = List.of(
                 item(1L, 10L, fecha), item(2L, 10L, fecha), item(3L, 10L, fecha));
         repository.upsertFallbackBatch(batch);
@@ -158,7 +159,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @Test
     @DisplayName("5. mix of new and existing: correct split")
     void mixNewAndExisting() {
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
         repository.upsertFallbackBatch(List.of(item(1L, 10L, fecha), item(2L, 10L, fecha)));
 
         UpsertMetrics metrics = repository.upsertFallbackBatch(List.of(
@@ -176,7 +177,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @Test
     @DisplayName("6. duplicates within the batch: last occurrence wins, silently uncounted (matches prior behavior)")
     void intraBatchDuplicates_notDoubleCounted() {
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
         SipsaMayoristasSemanal dup1 = item(1L, 10L, fecha);
         dup1.setPromedioKg(new BigDecimal("100.00"));
         SipsaMayoristasSemanal dup2 = item(1L, 10L, fecha);
@@ -201,7 +202,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @Test
     @DisplayName("7. null business-key components: always insert, never match an existing row (mirrors the removed per-row lookup)")
     void nullBusinessKeyComponents_alwaysInsert() {
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
         SipsaMayoristasSemanal nullFecha = item(1L, 10L, null);
 
         UpsertMetrics first = repository.upsertFallbackBatch(List.of(nullFecha));
@@ -230,7 +231,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @Test
     @DisplayName("11+12. skip is never an update: an existing row's stored values are untouched")
     void skipNeverUpdates() {
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
         SipsaMayoristasSemanal original = item(1L, 10L, fecha);
         original.setPromedioKg(new BigDecimal("111.11"));
         repository.upsertFallbackBatch(List.of(original));
@@ -258,7 +259,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @DisplayName("9. rollback: no row persists if the surrounding transaction rolls back")
     void rollback_noRowsPersisted() {
         TransactionTemplate tx = new TransactionTemplate(txManager);
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
 
         assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
             repository.upsertFallbackBatch(List.of(item(1L, 10L, fecha)));
@@ -276,7 +277,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @Test
     @DisplayName("10. structural: batches of 1, 10, and 100 all issue zero Hibernate-tracked queries (no per-row SELECT, regardless of batch size)")
     void noPerRowHibernateQuery_regardlessOfBatchSize() {
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
         var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
 
         for (int batchSize : List.of(1, 10, 100)) {
@@ -308,7 +309,7 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @Test
     @DisplayName("8. concurrent collision: two transactions racing on the same business key - loser is skipped, not failed")
     void concurrentCollision_loserSkippedNotFailed() throws Exception {
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             CountDownLatch winnerCommitted = new CountDownLatch(1);
@@ -343,16 +344,16 @@ class SipsaMayoristasSemanalFallbackUpsertTest {
     @Test
     @DisplayName("8b. concurrent constraint enforcement: the ux_semana_fallback constraint is real and backs ON CONFLICT")
     void uniqueConstraintExists_backsOnConflict() {
-        Instant fecha = Instant.parse("2026-07-06T00:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 6);
         jdbc.update("""
                 INSERT INTO sipsa_mayoristas_semanal
                     (arti_id, arti_nombre, fuen_id, fuen_nombre, futi_id, fecha_ini, ingestion_run_id)
-                VALUES (1, 'X', 10, 'Y', 1, ?, ?)""", java.sql.Timestamp.from(fecha), runId);
+                VALUES (1, 'X', 10, 'Y', 1, ?, ?)""", java.sql.Date.valueOf(fecha), runId);
 
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO sipsa_mayoristas_semanal
                     (arti_id, arti_nombre, fuen_id, fuen_nombre, futi_id, fecha_ini, ingestion_run_id)
-                VALUES (1, 'X2', 10, 'Y2', 1, ?, ?)""", java.sql.Timestamp.from(fecha), runId))
+                VALUES (1, 'X2', 10, 'Y2', 1, ?, ?)""", java.sql.Date.valueOf(fecha), runId))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ux_semana_fallback");
     }

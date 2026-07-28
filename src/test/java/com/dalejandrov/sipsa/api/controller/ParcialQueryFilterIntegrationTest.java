@@ -20,6 +20,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -58,8 +59,8 @@ class ParcialQueryFilterIntegrationTest {
     @ServiceConnection
     static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18.0-alpine3.22");
 
-    private static final Instant FECHA_1 = Instant.parse("2026-07-14T05:00:00Z");
-    private static final Instant FECHA_2 = Instant.parse("2026-07-15T05:00:00Z");
+    private static final LocalDate FECHA_1 = LocalDate.of(2026, 7, 14);
+    private static final LocalDate FECHA_2 = LocalDate.of(2026, 7, 15);
 
     private static boolean fixturesLoaded = false;
 
@@ -89,7 +90,7 @@ class ParcialQueryFilterIntegrationTest {
         fixturesLoaded = true;
     }
 
-    private static SipsaParcial fixture(String muniId, Long idArtiSemana, Instant fecha, Long runId) {
+    private static SipsaParcial fixture(String muniId, Long idArtiSemana, LocalDate fecha, Long runId) {
         return SipsaParcial.builder()
                 .keyHash(ParcialKeyHash.compute(muniId, 10L, 2L, idArtiSemana, fecha))
                 .muniId(muniId)
