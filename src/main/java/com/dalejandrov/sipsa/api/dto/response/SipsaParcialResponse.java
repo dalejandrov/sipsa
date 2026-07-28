@@ -23,7 +23,6 @@ import java.time.OffsetDateTime;
  * @param promedioKg average price per kilogram
  * @param maximoKg maximum price per kilogram
  * @param minimoKg minimum price per kilogram
- * @param fechaSincronizacion timestamp of last update in this system (system, converted to client timezone)
  */
 public record SipsaParcialResponse(
         String muniId,
@@ -38,6 +37,5 @@ public record SipsaParcialResponse(
         LocalDate enmaFecha,
         BigDecimal promedioKg,
         BigDecimal maximoKg,
-        BigDecimal minimoKg,
-        OffsetDateTime fechaSincronizacion) {
+        BigDecimal minimoKg) {
 }

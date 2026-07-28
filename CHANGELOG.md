@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+
+- **`fechaSincronizacion` no longer appears in any REST response** (`GET
+  /api/sipsa/ciudad`, `/parcial`, `/mayoristas/mensual`, `/mayoristas/semanal`,
+  `/abastecimientos/mensual`). It is an internal system-sync audit timestamp — when this
+  system's own ingestion pipeline last wrote the row — not a fact about the underlying
+  DANE data, and API consumers have no legitimate use for it. The entity field, the DB
+  column, and the `X-Timezone`-aware conversion machinery it used to go through
+  (`TimezoneUtil.convertToOffsetDateTime`) are untouched; only the five MapStruct
+  mappers' `@Mapping` for this field, and the field on the five response records, were
+  removed. Breaking change for any consumer reading this field — acceptable pre-release
+  (no external consumers yet).
+
 ### Added
 
 - **Production VPC foundation defined as Terraform code** (TECH-138, ADR-010 Fase 1 —

@@ -21,10 +21,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ADR-008 F1 / TECH-104: {@code fechaCaptura} is a DANE calendar date, not an instant.
  * Since TECH-104 retyped the entity/DB column itself to {@link LocalDate}, the mapper is a
  * plain passthrough — no zone conversion happens here at all (that now happens once, at
- * ingestion time, in {@code SipsaIngestionMapper}). {@code fechaCreacion} and
- * {@code fechaSincronizacion} are genuine instants and keep their prior
- * {@link OffsetDateTime} behavior (UTC and request-timezone respectively) — unchanged by
- * this story.
+ * ingestion time, in {@code SipsaIngestionMapper}). {@code fechaCreacion} is a genuine
+ * instant and keeps its prior {@link OffsetDateTime} (UTC) behavior — unchanged by this
+ * story. {@code fechaSincronizacion} is an internal audit timestamp and is not exposed on
+ * {@link SipsaCiudadResponse} at all.
  */
 class SipsaCiudadMapperTest {
 
@@ -40,7 +40,6 @@ class SipsaCiudadMapperTest {
     void fechaCaptura_mapsAsPlainLocalDate() {
         LocalDate fechaCaptura = LocalDate.of(2026, 7, 15);
         Instant fechaCreacion = Instant.parse("2026-07-16T01:00:00Z");
-        Instant fechaSincronizacion = Instant.parse("2026-07-16T01:00:00Z");
         TimezoneUtil.setRequestTimezone(ZoneId.of("Asia/Tokyo"));
 
         SipsaCiudad entity = SipsaCiudad.builder()
@@ -51,14 +50,12 @@ class SipsaCiudadMapperTest {
                 .fechaCaptura(fechaCaptura)
                 .fechaCreacion(fechaCreacion)
                 .precioPromedio(new BigDecimal("1500.00"))
-                .fechaSincronizacion(fechaSincronizacion)
                 .build();
 
         SipsaCiudadResponse response = mapper.toDto(entity);
 
         assertThat(response.fechaCaptura()).isEqualTo(fechaCaptura);
         assertThat(response.fechaCreacion()).isEqualTo(fechaCreacion.atOffset(ZoneOffset.UTC));
-        assertThat(response.fechaSincronizacion()).isEqualTo(fechaSincronizacion.atZone(ZoneId.of("Asia/Tokyo")).toOffsetDateTime());
     }
 
     @Test
@@ -72,7 +69,6 @@ class SipsaCiudadMapperTest {
                 .fechaCaptura(null)
                 .fechaCreacion(Instant.parse("2026-07-15T00:00:00Z"))
                 .precioPromedio(new BigDecimal("1500.00"))
-                .fechaSincronizacion(Instant.parse("2026-07-15T00:00:00Z"))
                 .build();
 
         SipsaCiudadResponse response = mapper.toDto(entity);

@@ -314,14 +314,18 @@ What is approved and in effect today:
   timestamps, run start/end times, system-generated sync timestamps). This is consistent
   across every entity that has a temporal field.
 - **API responses expose `OffsetDateTime`** (ISO-8601 with explicit offset) for genuine
-  instant fields (e.g. `fechaSincronizacion`, `fechaCreacion`), and a client-supplied
+  instant fields that are actually returned (e.g. `fechaCreacion`), and a client-supplied
   `X-Timezone` header (via `TimezoneFilter`) controls how *system-generated* timestamps are
   presented — defaulting to UTC when absent, but rejected with `400
   SIPSA_INVALID_TIMEZONE` when present and invalid (ADR-008 F4, TECH-103).
+  `fechaSincronizacion` is a genuine instant on the entity (sync/ingestion audit
+  timestamp) but is deliberately **not** exposed on any REST response DTO — it belongs to
+  the system's own operational record-keeping, not to API consumers.
 - **Calendar/period-start fields are `LocalDate`, both in the API response and in the
   entity/DB column.** `fechaCaptura`, `fechaMesIni`, `fechaIni`, and `enmaFecha` represent
-  DANE calendar dates, not instants; the underlying columns are `DATE` (TECH-104, V5
-  migration), resolved once at ingestion time in the fixed `America/Bogota` zone by
+  DANE calendar dates, not instants; the underlying columns are `DATE` (TECH-104,
+  consolidated into `V1__initial_schema.sql`), resolved once at ingestion time in the
+  fixed `America/Bogota` zone by
   `SipsaIngestionMapper.millisToBusinessLocalDate`/`ParcialIngestionHandler` — never
   converted again afterward, and never influenced by `X-Timezone` (ADR-008 F1,
   TECH-100/104/106). `SpecificationBuilder`'s date filters compare `LocalDate` directly,

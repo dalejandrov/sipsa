@@ -45,9 +45,10 @@ e.g. `America/Bogota`). It defaults to UTC when absent or invalid.
 - **External/historical dates** (`fechaCaptura`, `fechaCreacion`, `fechaIni`,
   `fechaMesIni`, `enmaFecha`) are **always UTC**, regardless of the header — they
   represent DANE source data and must stay consistent across clients.
-- **System timestamps** (`fechaSincronizacion`, `fechaIngestion`, `lastUpdated`,
-  `occurredAt`, `startTime`, `endTime`, `firstEvent`, `lastEvent`) are converted to the
-  requested timezone.
+- **System timestamps** (`fechaIngestion`, `lastUpdated`, `occurredAt`, `startTime`,
+  `endTime`, `firstEvent`, `lastEvent`) are converted to the requested timezone.
+  `fechaSincronizacion` is an internal audit timestamp and is never returned by any
+  endpoint.
 
 ```bash
 curl -H "X-Timezone: America/Bogota" "http://localhost:8080/api/sipsa/ciudad?ciudad=ARMENIA"
@@ -431,11 +432,10 @@ HTTP/1.1 200 OK
       "idArtiSemana": 14,
       "artiNombre": "Aguacate*",
       "grupNombre": "FRUTAS",
-      "enmaFecha": "2020-02-01T05:00:00Z",
+      "enmaFecha": "2020-02-01",
       "promedioKg": 3650,
       "maximoKg": 3800,
-      "minimoKg": 3500,
-      "fechaSincronizacion": "2026-01-07T00:13:41.804511Z"
+      "minimoKg": 3500
     }
   ]
 }
