@@ -1310,3 +1310,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `CONTRIBUTING.md` — Developer guide for contributions.
 - `.github/` — Issue templates and PR template. (The "no CI workflow exists yet" caveat
   originally recorded here was resolved by TECH-120 — see the Added section above.)
+
+### Fixed
+
+- **ADR-008 F1 — `fechaCaptura`, `fechaMesIni` (`SipsaMayoristasMensual` and
+  `SipsaAbastecimientosMensual`), `fechaIni`, and `enmaFecha` now serialize as
+  `LocalDate`, not `OffsetDateTime`.** These are DANE calendar/period-start dates, not
+  instants; the prior mapping (`TimezoneUtil.convertToOffsetDateTime(value,
+  isSystemGenerated=false)`) only pinned them to UTC by convention, leaving a latent
+  date-shift risk if a stored value was ever anything other than exact Bogotá midnight.
+  New `TimezoneUtil.toBusinessLocalDate(Instant)` always resolves the calendar day in a
+  fixed `America/Bogota` zone, ignoring both the request's `X-Timezone` and UTC — the
+  five affected mappers (`SipsaCiudadMapper`, `SipsaParcialMapper`,
+  `SipsaMayoristasMensualMapper`, `SipsaMayoristasSemanalMapper`,
+  `SipsaAbastecimientosMensualMapper`) now call it for these fields only;
+  `fechaCreacion`/`fechaSincronizacion` are unaffected. **Contract change:** these five
+  JSON fields change format from `"2026-07-15T00:00:00Z"` to `"2026-07-15"`. New tests:
+  `TimezoneUtilTest`, `SipsaCiudadMapperTest`.
+
+- **ADR-008 F4 — `TimezoneFilter` now rejects an invalid `X-Timezone` header with `400
+  SIPSA_INVALID_TIMEZONE`** instead of silently falling back to UTC. An absent header is
+  unchanged (still defaults to UTC — the intended behavior for an international API);
+  only a header that is present but not a valid IANA zone ID is now rejected, in the
+  same `GlobalExceptionHandler.ErrorResponse` JSON shape as every other API error.
+  Serialized by hand rather than via a Jackson `ObjectMapper`, since
+  `jackson-datatype-jsr310` is `test`-scope only in this repo and a Spring-managed
+  `ObjectMapper` bean isn't reliably present in every servlet-filter context. New test:
+  `TimezoneFilterValidationTest`.
+
+- **ADR-008 F5 — `GlobalExceptionHandler`'s three error-response `timestamp` fields
+  switch from `LocalDateTime` to `OffsetDateTime`**, converted via
+  `TimezoneUtil.convertToOffsetDateTime(Instant.now(), true)` like every other
+  system-generated timestamp in the API (honors the request's `X-Timezone`). Previously
+  ambiguous (no explicit offset), inconsistent with the rest of the JSON contract.
+
+  Implements items 3, 5, and 6 of ADR-008's proposed decision; **ADR-008 itself remains
+  `Proposed`, not `Accepted`** — items 4 (`WindowPolicy` F2/F3) and 7 (i18n, explicitly
+  deferred) are unimplemented. No TECH-1xx ID is attached to this entry since the
+  backlog stories ADR-008 references (TECH-100–TECH-106) haven't been created with real
+  IDs yet.
