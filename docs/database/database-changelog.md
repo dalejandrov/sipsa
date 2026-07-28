@@ -48,89 +48,36 @@ Cada migración añade una entrada con estos campos:
 
 ## Registro
 
-### V1 — initial_schema  *(entrada retroactiva)*
+### V1 — initial_schema
 
-> **Nota:** esta entrada es **documentación histórica** de una migración ya aplicada en
-> todos los ambientes. No es una migración nueva ni una modificación del archivo aplicado
-> (`V1__initial_schema.sql` es inmutable — ADR-009 regla 2).
+> **Nota (2026-07-28):** el sistema aún no ha salido a producción y no hay ambientes
+> compartidos ni desarrolladores externos con el proyecto clonado. Aprovechando esa
+> ventana, las antiguas `V2`–`V5` (índice de clave natural, eliminación de índice
+> redundante, índice cubriente de artículo, retipado de fechas a `DATE`) se
+> **consolidaron dentro de `V1__initial_schema.sql`** en lugar de mantenerse como
+> migraciones incrementales separadas — no hay datos ni historial de
+> `flyway_schema_history` reales que proteger. Esta entrada documenta el estado final
+> resultante; el detalle de *por qué* cada índice tiene la forma que tiene permanece en
+> el propio archivo SQL (comentarios por tabla) y en los documentos de diagnóstico
+> enlazados abajo. A partir de aquí, la regla de inmutabilidad de ADR-009 (regla 2)
+> aplica de nuevo con normalidad: toda migración nueva es `V2` en adelante.
 
 | Campo | Valor |
 |---|---|
-| Archivo | `V1__initial_schema.sql` (10.7 KB) |
-| Fecha | Presente desde el inicio del historial del repositorio (esquema fundacional) |
-| Historia relacionada | — (anterior al backlog); endurecimiento posterior por ADR-009 (2026-07-14) |
-| Propósito | Esquema completo inicial del servicio |
+| Archivo | `V1__initial_schema.sql` |
+| Fecha | Esquema fundacional; consolidación de V2–V5 el 2026-07-28 |
+| Historia relacionada | TECH-011/TECH-012 (índice de clave natural), TECH-119 (eliminación de índice redundante), TECH-124 (índice cubriente de artículo), TECH-104 (retipado de fechas) |
+| Propósito | Esquema completo del servicio en su estado actual |
 | Cambios de esquema | 8 tablas: `ingestion_runs`, `ingestion_audit`, `ingestion_rejects`, `sipsa_ciudad`, `sipsa_parcial`, `sipsa_mayoristas_semanal`, `sipsa_mayoristas_mensual`, `sipsa_abastecimientos_mensual` |
 | Cambios de datos | Ninguno |
-| Impacto en índices | Índices de consulta por tabla (fechas, claves de negocio, `ingestion_run_id`); en `sipsa_parcial`: `idx_sipsa_parcial_fecha`, `idx_sipsa_parcial_muni`, `idx_sipsa_parcial_ingestion_run`, `idx_sipsa_parcial_key_hash` |
-| Impacto en constraints | `uq_ingestion_runs_window (method_name, window_key)`; `ux_ciudad`; `ux_semana_tmp`/`ux_semana_fallback`; `ux_mes_*`; `ux_abas_*`; `sipsa_parcial.key_hash UNIQUE` (inefectivo hoy por el UUID aleatorio — PS-01, ver SPIKE) |
-| Compatibilidad hacia atrás | n/a (fundacional) |
+| Impacto en índices | Índices de consulta por tabla (fechas, claves de negocio, `ingestion_run_id`); en `sipsa_parcial`: `idx_sipsa_parcial_fecha`, `idx_sipsa_parcial_muni`, `idx_sipsa_parcial_ingestion_run`, `idx_sipsa_parcial_natural_key` (TECH-011), `idx_sipsa_parcial_article_date` — cubriente `(id_arti_semana, enma_fecha DESC) INCLUDE (id)` (TECH-124). Sin índice explícito duplicado sobre `key_hash` (TECH-119) |
+| Impacto en constraints | `uq_ingestion_runs_window (method_name, window_key)`; `ux_ciudad`; `ux_semana_tmp`/`ux_semana_fallback`; `ux_mes_*`; `ux_abas_*`; `sipsa_parcial.key_hash UNIQUE`, efectivo por el hash determinista (ADR-001) |
+| Compatibilidad hacia atrás | n/a (aún no hay producción ni ambientes compartidos) |
 | Requiere downtime | n/a |
-| Estrategia ante fallo | n/a (aplicada) |
-| Riesgos | El `key_hash UNIQUE` de `sipsa_parcial` transmite una garantía de deduplicación que no existe (documentado en el [SPIKE](../architecture/sipsa-parcial-data-integrity-spike.md)) |
-| Evidencia de validación | `FlywayMigrationsTest` (Testcontainers, PostgreSQL 18) en cada `./mvnw clean verify` y en CI (TECH-120) |
-| Ambientes aplicados | dev / docker / CI (por diseño en cada arranque); staging / prod: **pendiente de inventario** (ver §Baseline) |
-
-### V2 — add_parcial_natural_key_index
-
-| Campo | Valor |
-|---|---|
-| Archivo | `V2__add_parcial_natural_key_index.sql` |
-| Fecha (merge a main) | 2026-07-16 (rama `fix/sipsa-parcial-data-integrity`) |
-| Historia relacionada | TECH-011 (fase expand — corresponde a la "E1" conceptual del runbook) |
-| Propósito | Índice compuesto de soporte sobre la clave natural de `sipsa_parcial`, confirmada por TECH-012 contra datos reales de DANE |
-| Cambios de esquema | `CREATE INDEX idx_sipsa_parcial_natural_key ON sipsa_parcial (muni_id, fuen_id, futi_id, id_arti_semana, enma_fecha)` |
-| Cambios de datos | **Ninguno** (expand-only; sin limpieza, sin backfill, sin NOT NULL, sin constraint único natural) |
-| Impacto en índices | +1 índice no-único; sin `CONCURRENTLY` (justificación en el propio script: no hay tráfico productivo que proteger) |
-| Impacto en constraints | Ninguno (el `key_hash UNIQUE` existente pasa a ser efectivo por el hash determinista, sin cambio de DDL) |
-| Compatibilidad hacia atrás | Total — la versión anterior de la aplicación opera igual con el índice presente |
-| Requiere downtime | No |
-| Estrategia ante fallo | Fix-forward (índice sin datos; re-creación en `V3` si fuera necesario) |
-| Riesgos | Bajo — índice adicional sobre tabla que se reconstruyó localmente desde cero |
-| Evidencia de validación | `FlywayMigrationsTest` (cadena completa desde base vacía + existencia del índice, PostgreSQL 18 real); `ParcialMigrationUpgradeTest` (upgrade V1→V2 sobre datos duplicados legados, verifica que no toca datos); ciclo Docker Compose completo con 3 ingestas reales de DANE |
-| Ambientes aplicados | dev/docker/CI (por diseño en cada arranque/build); staging/producción: **no existen aún** (TECH-130..132 pendientes) |
-
-### V3 — drop_redundant_parcial_key_hash_index
-
-| Campo | Valor |
-|---|---|
-| Archivo | `V3__drop_redundant_parcial_key_hash_index.sql` |
-| Fecha (merge a main) | 2026-07-16 (rama `fix/remove-redundant-parcial-key-hash-index`) |
-| Historia relacionada | TECH-119 |
-| Propósito | Eliminar `idx_sipsa_parcial_key_hash` (V1 creó dos índices B-tree idénticos sobre `key_hash`: el explícito no-único y el implícito del constraint `UNIQUE`) |
-| Cambios de esquema | `DROP INDEX idx_sipsa_parcial_key_hash`. **Se conserva** `sipsa_parcial_key_hash_key` (índice de respaldo del constraint `UNIQUE (key_hash)`, que queda intacto y activo) |
-| Cambios de datos | **Ninguno** — 676.210 filas verificadas idénticas antes/después en la base local |
-| Impacto en índices | −80 MB en la base local de 676K filas (254 MB → 174 MB de índices totales); menor amplificación de escritura en cada inserción |
-| Impacto en constraints | Ninguno — la unicidad de `key_hash` sigue vigente (verificado con inserción duplicada → unique violation post-V3) |
-| Compatibilidad hacia atrás | Total — el planner usa `sipsa_parcial_key_hash_key` para los lookups por hash con costo idéntico (EXPLAIN antes/después) |
-| Requiere downtime | No en los ambientes actuales (sin tráfico productivo; TECH-130..132 pendientes). `DROP INDEX` transaccional toma un lock ACCESS EXCLUSIVE breve — ejecutado en **8 ms** sobre la base local de 676K filas. Si un ambiente futuro con tráfico concurrente y tabla grande necesitara esta migración, aplicarla en una ventana breve (o re-evaluar `CONCURRENTLY` con `executeInTransaction=false`, no necesario hoy) |
-| Estrategia ante fallo | Migración **transaccional**: PostgreSQL revierte el DROP si falla → reintento tras diagnóstico o fix-forward `V4`. Sin estados parciales posibles |
-| Riesgos | Mínimos — el índice eliminado no respaldaba ningún constraint y ninguna consulta/test/script referencia su nombre (verificado por grep en todo el repo) |
-| Evidencia de validación | `FlywayMigrationsTest` (cadena V1→V2→V3 desde base vacía + ausencia del índice + constraint presente); `ParcialKeyHashIndexMigrationTest` (upgrade V2→V3 con datos: filas y hashes preservados, plan usa el índice único, duplicado rechazado); upgrade en vivo sobre la base local real de 676.210 filas; re-ingestión completa idempotente posterior (dedupe TECH-011 operando solo con el índice único) |
-| Ambientes aplicados | dev/docker/CI (por diseño en cada arranque/build); staging/producción: **no existen aún** |
-
-### V4 — add_parcial_article_query_index
-
-| Campo | Valor |
-|---|---|
-| Archivo | `V4__add_parcial_article_query_index.sql` |
-| Fecha (merge a main) | pendiente (rama `perf/sipsa-parcial-article-filter-index`) |
-| Historia relacionada | TECH-124 |
-| Propósito | Índice cubriente para el filtro por artículo de `GET /api/sipsa/parcial` (`idArtiSemana` / alias `artiId`): el count por página — Hibernate emite `count(id)` — corría como Parallel Seq Scan de toda la tabla (~17–28 ms por petición a 677K filas), igual que el filtro por artículo inexistente |
-| Cambios de esquema | `CREATE INDEX idx_sipsa_parcial_article_date ON sipsa_parcial (id_arti_semana, enma_fecha DESC) INCLUDE (id)` |
-| Cambios de datos | **Ninguno** — 677.061 filas verificadas idénticas antes/después en la base local |
-| Impacto en índices | +1 índice, 26 MB a 677K filas (tabla 170 MB). Count por artículo: seq scan ~18 ms → **Index Only Scan 0,5–2,3 ms** (`Heap Fetches: 0`); artículo inexistente: 18 ms → 0,02 ms. Escritura: ≈ +0,55 ms por batch de ingesta de 500 filas (medido con inserción masiva local); reingestión todo-skip real sin impacto (0 inserts). Evidencia completa y matriz de alternativas (A/B/C/INCLUDE) en [tech-124-article-filter-analysis.md](../diagnostics/tech-124-article-filter-analysis.md) |
-| Impacto en constraints | Ninguno |
-| Compatibilidad hacia atrás | Total — índice adicional puro; la versión anterior de la aplicación opera igual |
-| Requiere downtime | No en los ambientes actuales (sin tráfico productivo; TECH-130..132 pendientes). `CREATE INDEX` transaccional (no `CONCURRENTLY`, mismo criterio que V2/V3): **197 ms** medidos aplicándola en vivo sobre la base local de 677K filas. Si un ambiente futuro con tráfico concurrente y tabla mucho mayor la necesitara, aplicarla en ventana breve o re-evaluar `CONCURRENTLY` con `executeInTransaction=false` |
-| Estrategia ante fallo | Migración **transaccional**: PostgreSQL revierte el CREATE INDEX si falla → reintento tras diagnóstico o fix-forward `V5`. Sin estados parciales posibles |
-| Riesgos | Bajos — índice no respaldado por constraint, ninguna consulta depende de su existencia (solo de su beneficio); el Index Only Scan del count depende del visibility map (patrón batch semanal + autovacuum lo mantiene efectivo) |
-| Evidencia de validación | `FlywayMigrationsTest` (cadena V1→V4 desde base vacía + forma del índice); `ParcialArticleQueryIndexMigrationTest` (upgrade V3→V4 con 60K filas generadas: filas e índices previos preservados, planner usa el índice en count y en artículo inexistente, sin seq scan en la página); upgrade en vivo sobre la base local real de 677.061 filas (197 ms, `success=true`); ciclo `docker compose down -v && up --build` con carga DANE completa posterior (2m04s, misma magnitud que sin índice) y smoke HTTP funcional 9/9 |
-| Ambientes aplicados | dev/docker/CI (por diseño en cada arranque/build); staging/producción: **no existen aún** |
-
-*(Las próximas migraciones de la transición — constraint natural definitivo y fase
-contract, "E2/E3" del runbook — añadirán aquí su entrada con numeración asignada desde
-`main` justo antes de implementar.)*
+| Estrategia ante fallo | n/a (aplicada en cada arranque desde cero) |
+| Riesgos | Ninguno activo; el retipado de fechas a `DATE` (antes `V5`, TECH-104) documentó un riesgo de invalidación de `key_hash` que solo aplicaría si existieran datos reales pre-migración — no es el caso |
+| Evidencia de validación | `FlywayMigrationsTest` (Testcontainers, PostgreSQL 18) en cada `./mvnw clean verify` y en CI; detalle de diseño de los índices en [tech-124-article-filter-analysis.md](../diagnostics/tech-124-article-filter-analysis.md) y [tech-012-runbook.md](../diagnostics/tech-012-runbook.md) |
+| Ambientes aplicados | dev / docker / CI (por diseño en cada arranque); staging / prod: aún no existen (TECH-130..132 pendientes) |
 
 ---
 

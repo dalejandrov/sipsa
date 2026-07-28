@@ -99,6 +99,11 @@ CREATE INDEX idx_ingestion_rejects_run_id ON ingestion_rejects (run_id);
 
 -- =================================================================================================
 -- 2. DOMAIN DATA TABLES (CURATED)
+--
+-- Calendar/period-start columns (fecha_captura, enma_fecha, fecha_ini, fecha_mes_ini) are typed
+-- DATE, not TIMESTAMPTZ: DANE documents them as a survey/period date, always effectively midnight
+-- in Colombia, so DATE is the type that actually matches the domain (TECH-104). fecha_creacion
+-- columns are genuine instants and stay TIMESTAMPTZ.
 -- =================================================================================================
 
 -- -------------------------------------------------------------------------------------------------
@@ -114,7 +119,7 @@ CREATE TABLE sipsa_ciudad
     cod_producto     BIGINT,
     producto         VARCHAR(255),
 
-    fecha_captura    TIMESTAMPTZ,
+    fecha_captura    DATE,
     fecha_creacion   TIMESTAMPTZ,
 
     precio_promedio  NUMERIC(19, 2),
@@ -137,6 +142,14 @@ CREATE INDEX idx_sipsa_ciudad_ingestion_run ON sipsa_ciudad (ingestion_run_id);
 
 -- -------------------------------------------------------------------------------------------------
 -- 2.2 SIPSA PARCIAL
+--
+-- key_hash carries the only uniqueness guarantee (deterministic hash of the natural key,
+-- ADR-001/TECH-011); it is backed by a single UNIQUE index (no separate explicit duplicate,
+-- TECH-119). idx_sipsa_parcial_natural_key supports natural-key lookups/verification
+-- (TECH-011/TECH-012). idx_sipsa_parcial_article_date is a covering index
+-- (id_arti_semana, enma_fecha DESC) INCLUDE (id) for GET /api/sipsa/parcial?idArtiSemana=...:
+-- it turns Hibernate's per-page count(id) into an Index Only Scan and serves the
+-- article-filtered, date-ordered page query without a sort or a sequential scan (TECH-124).
 -- -------------------------------------------------------------------------------------------------
 
 CREATE TABLE sipsa_parcial
@@ -157,7 +170,7 @@ CREATE TABLE sipsa_parcial
     arti_nombre      VARCHAR(255),
     grup_nombre      VARCHAR(255),
 
-    enma_fecha       TIMESTAMPTZ,
+    enma_fecha       DATE,
 
     promedio_kg      NUMERIC(19, 2),
     maximo_kg        NUMERIC(19, 2),
@@ -173,7 +186,10 @@ COMMENT ON TABLE sipsa_parcial IS 'SIPSA partial market data at municipality lev
 CREATE INDEX idx_sipsa_parcial_fecha ON sipsa_parcial (enma_fecha);
 CREATE INDEX idx_sipsa_parcial_muni ON sipsa_parcial (muni_id);
 CREATE INDEX idx_sipsa_parcial_ingestion_run ON sipsa_parcial (ingestion_run_id);
-CREATE INDEX idx_sipsa_parcial_key_hash ON sipsa_parcial (key_hash);
+CREATE INDEX idx_sipsa_parcial_natural_key
+    ON sipsa_parcial (muni_id, fuen_id, futi_id, id_arti_semana, enma_fecha);
+CREATE INDEX idx_sipsa_parcial_article_date
+    ON sipsa_parcial (id_arti_semana, enma_fecha DESC) INCLUDE (id);
 
 -- -------------------------------------------------------------------------------------------------
 -- 2.3 SIPSA MAYORISTAS SEMANAL
@@ -193,7 +209,7 @@ CREATE TABLE sipsa_mayoristas_semanal
 
     futi_id          BIGINT,
 
-    fecha_ini        TIMESTAMPTZ,
+    fecha_ini        DATE,
     fecha_creacion   TIMESTAMPTZ,
 
     minimo_kg        NUMERIC(19, 2),
@@ -233,7 +249,7 @@ CREATE TABLE sipsa_mayoristas_mensual
 
     futi_id          BIGINT      NOT NULL,
 
-    fecha_mes_ini    TIMESTAMPTZ NOT NULL,
+    fecha_mes_ini    DATE        NOT NULL,
     fecha_creacion   TIMESTAMPTZ,
 
     minimo_kg        NUMERIC(19, 2),
@@ -273,7 +289,7 @@ CREATE TABLE sipsa_abastecimientos_mensual
 
     futi_id          BIGINT      NOT NULL,
 
-    fecha_mes_ini    TIMESTAMPTZ NOT NULL,
+    fecha_mes_ini    DATE        NOT NULL,
     fecha_creacion   TIMESTAMPTZ,
 
     cantidad_ton     NUMERIC(19, 2),
