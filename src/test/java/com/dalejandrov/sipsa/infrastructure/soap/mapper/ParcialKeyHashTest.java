@@ -3,13 +3,14 @@ package com.dalejandrov.sipsa.infrastructure.soap.mapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
+import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 /**
- * Unit tests for {@link ParcialKeyHash} (TECH-011, ADR-001 Option A).
+ * Unit tests for {@link ParcialKeyHash} (TECH-011, ADR-001 Option A; TECH-104 — {@code v2}
+ * payload, {@code enmaFecha} is a {@link LocalDate}, not an {@code Instant}).
  * <p>
  * The hash IS the deduplication identity: these tests pin determinism, sensitivity to
  * every key component, normalization, and the rejection of incomplete keys.
@@ -17,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 @DisplayName("ParcialKeyHash — deterministic natural-key hash")
 class ParcialKeyHashTest {
 
-    private static final Instant FECHA = Instant.parse("2026-07-15T05:00:00Z");
+    private static final LocalDate FECHA = LocalDate.of(2026, 7, 15);
 
     @Test
     @DisplayName("Same business inputs always produce the same hash")
@@ -45,7 +46,7 @@ class ParcialKeyHashTest {
         assertThat(ParcialKeyHash.compute("05001", 9L, 2L, 101L, FECHA)).isNotEqualTo(base);
         assertThat(ParcialKeyHash.compute("05001", 1L, 9L, 101L, FECHA)).isNotEqualTo(base);
         assertThat(ParcialKeyHash.compute("05001", 1L, 2L, 999L, FECHA)).isNotEqualTo(base);
-        assertThat(ParcialKeyHash.compute("05001", 1L, 2L, 101L, FECHA.plusSeconds(86400)))
+        assertThat(ParcialKeyHash.compute("05001", 1L, 2L, 101L, FECHA.plusDays(1)))
                 .isNotEqualTo(base);
     }
 
@@ -89,6 +90,6 @@ class ParcialKeyHashTest {
     @DisplayName("muniId containing the reserved separator is rejected")
     void rejectsReservedSeparator() {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> ParcialKeyHash.compute("05\u001F001", 1L, 2L, 101L, FECHA));
+                .isThrownBy(() -> ParcialKeyHash.compute("05001", 1L, 2L, 101L, FECHA));
     }
 }

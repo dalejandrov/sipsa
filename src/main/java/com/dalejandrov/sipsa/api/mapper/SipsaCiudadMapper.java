@@ -19,13 +19,13 @@ public interface SipsaCiudadMapper {
     /**
      * Converts city price entity to response DTO.
      * <p>
-     * Converts timestamps appropriately: external dates to UTC OffsetDateTime,
-     * system ingestion date to client timezone OffsetDateTime.
+     * {@code fechaCaptura} is already {@link java.time.LocalDate} on the entity
+     * (TECH-104) — MapStruct maps it straight across, no conversion needed.
+     * {@code fechaCreacion} (a genuine instant) still converts to UTC.
      *
      * @param entity the source entity
      * @return mapped response DTO for API
      */
-    @Mapping(target = "fechaCaptura", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.toBusinessLocalDate(entity.getFechaCaptura()))")
     @Mapping(target = "fechaCreacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaCreacion(), false))")
     @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaCiudadResponse toDto(SipsaCiudad entity);

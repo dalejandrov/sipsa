@@ -1349,3 +1349,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   deferred) are unimplemented. No TECH-1xx ID is attached to this entry since the
   backlog stories ADR-008 references (TECH-100–TECH-106) haven't been created with real
   IDs yet.
+
+### Changed
+
+- **TECH-104 — the 4 DANE calendar-date columns are now `DATE`, not `TIMESTAMPTZ`,
+  closing out ADR-008 item 3 fully (previously response-layer only, PR #36).** New V5
+  Flyway migration (`ALTER COLUMN ... TYPE DATE USING (col AT TIME ZONE
+  'America/Bogota')::date` for `sipsa_ciudad.fecha_captura`,
+  `sipsa_parcial.enma_fecha`, `sipsa_mayoristas_semanal.fecha_ini`,
+  `sipsa_mayoristas_mensual.fecha_mes_ini`, `sipsa_abastecimientos_mensual.fecha_mes_ini`)
+  — indexes and `UNIQUE` constraints on these columns are preserved automatically by
+  PostgreSQL's column-type rewrite, no separate migration step needed. The 5 entities now
+  type these fields `LocalDate`. Calendar-date resolution moved from "every API read"
+  (`TimezoneUtil.toBusinessLocalDate`, now removed — it had become dead code) to "once,
+  at ingestion time": a new `SipsaIngestionMapper.millisToBusinessLocalDate` qualifier for
+  `fechaCaptura`/`fechaMesIni`/`fechaIni`, and an inline conversion in
+  `ParcialIngestionHandler` for `enmaFecha`. The 5 API mappers no longer need any custom
+  expression for these fields — MapStruct maps `LocalDate → LocalDate` directly.
+  `SpecificationBuilder` lost its `timezone` constructor parameter and now compares
+  `LocalDate` directly (`BETWEEN`/`>=`/`<=`, all bounds inclusive — no more "start of next
+  day" exclusive-upper-bound trick, since a `DATE` column has no time component to be
+  ambiguous about); it was confirmed via `grep` to be used **exclusively** for these 4
+  fields, so the entire timezone-conversion path it used to carry is gone, not just
+  narrowed.
+
+  **Accepted, documented risk:** `SipsaParcial`'s deduplication hash (`ParcialKeyHash`,
+  ADR-001) used `enmaFecha.toEpochMilli()` in its payload — a `LocalDate` has no such
+  method, so the payload's date component switched to `enmaFecha.toString()` (ISO date)
+  and the version prefix bumped `v1` → `v2`. A `key_hash` computed before this change does
+  **not** equal one computed after it for the same logical record — a full re-ingestion of
+  already-ingested `SipsaParcial` data would insert duplicates rather than deduplicate,
+  unless `key_hash` is backfilled with the v2 formula first. Accepted deliberately, not an
+  oversight: no live production data exists yet (ADR-009/TECH-132 — no `terraform apply`
+  has been run against a real AWS account).
+
+  **Validated against real production data, not just tests:** ran the full stack in
+  Docker against the live DANE SOAP endpoint. `promediosSipsaCiudad` — 374,523 records,
+  0 rejected; cross-checked raw XML `fechaCaptura` (e.g.
+  `2025-11-12T00:00:00-05:00`) against both the stored `DATE` and the API's JSON output
+  for multiple records, including one where `fechaCaptura` and `fechaCreacion` fall on
+  different calendar days — exact match in every case. `promediosSipsaParcial` — 679,609
+  records, 0 rejected, 0 duplicate `key_hash` values, all 64-char v2 hex hashes; a second,
+  identical ingestion produced `Inserted: 0, Skipped: 679609` — v2 hash determinism and
+  dedup confirmed stable against itself.
+
+  New tests: `SipsaIngestionMapperTest` (`millisToBusinessLocalDate` — exact/near-boundary
+  Bogota-midnight cases, confirms `America/Bogota` never observes DST),
+  `TimezoneUtilTest` (re-added, narrowed to `convertToOffsetDateTime` — genuine instants
+  across `America/Bogota`/`America/New_York`/`America/Los_Angeles`/`UTC` and the 2026 US
+  DST transition instants; TECH-102), plus fixture updates across ~9 existing test files
+  (`ParcialKeyHashTest`, `SpecificationBuilderTest`, `SpecificationBuilderPostgresTest`,
+  and others) for the new `LocalDate` field types. `FlywayMigrationsTest` gained a V5
+  assertion confirming the 5 columns are `date` and `fecha_creacion` is untouched
+  (`timestamp with time zone`).
+
+  Closes ADR-008 items 3 (fully, not just response-layer), and TECH-102. TECH-105 (i18n)
+  evaluated and still deferred — no `Accept-Language`/`MessageSource` infrastructure
+  exists anywhere in the codebase, no client requirement ever documented. ADR-008 moved
+  from `Proposed` to `Accepted, scoped`.

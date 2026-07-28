@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -105,7 +106,7 @@ public interface SipsaAbastecimientosMensualRepository extends JpaRepository<Sip
     Optional<SipsaAbastecimientosMensual> findByBusinessKeys(
             @Param("artiId") Long artiId,
             @Param("fuenId") Long fuenId,
-            @Param("fechaMesIni") Instant fechaMesIni);
+            @Param("fechaMesIni") LocalDate fechaMesIni);
 
     /**
      * Batch upserts records without temporary IDs (fallback strategy).

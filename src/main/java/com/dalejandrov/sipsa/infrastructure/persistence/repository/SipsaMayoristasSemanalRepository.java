@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -116,7 +117,7 @@ public interface SipsaMayoristasSemanalRepository
      * string-concatenation key had, even though PostgreSQL's own unique constraint
      * treats {@code NULL} as distinct from itself.
      */
-    record BusinessKey(Long artiId, Long fuenId, Instant fechaIni) {}
+    record BusinessKey(Long artiId, Long fuenId, LocalDate fechaIni) {}
 
     /**
      * Batch upserts records without temporary IDs (fallback strategy).

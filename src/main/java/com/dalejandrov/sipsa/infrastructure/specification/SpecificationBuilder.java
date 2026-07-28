@@ -1,11 +1,8 @@
 package com.dalejandrov.sipsa.infrastructure.specification;
 
-import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
 import org.springframework.data.jpa.domain.Specification;
 
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,35 +11,35 @@ import java.util.List;
  * <p>
  * <b>Example:</b>
  * <pre>
- * SpecificationBuilder.&lt;Product&gt;builder("America/Bogotá")
+ * SpecificationBuilder.&lt;Product&gt;builder()
  *     .withAttribute("categoryId", categoryId)
  *     .withDateOrRange("createdAt", exactDate, startDate, endDate)
  *     .build();
  * </pre>
+ * <p>
+ * TECH-104: {@code withDateOrRange} used to build an {@code Instant} range from a
+ * timezone-converted {@code LocalDate} — necessary when the target attribute was an
+ * instant. Every attribute it's ever called with (the 5 DANE calendar-date fields) is now
+ * itself {@code LocalDate}, so no timezone conversion happens here anymore; the builder
+ * lost its {@code timezone} constructor parameter entirely (dead once that conversion was
+ * removed, not deprecated in place).
  */
 public class SpecificationBuilder<T> {
 
-    private final String timezone;
     private final List<Specification<T>> specifications;
 
-    private SpecificationBuilder(String timezone) {
-        this.timezone = timezone;
+    private SpecificationBuilder() {
         this.specifications = new ArrayList<>();
     }
 
     /**
      * Creates a new SpecificationBuilder instance.
      *
-     * @param timezone the timezone ID for date conversions (e.g., "America/Bogotá")
-     * @param <T>      the entity type
+     * @param <T> the entity type
      * @return a new SpecificationBuilder instance
-     * @throws SipsaConfigurationException if timezone is null or blank
      */
-    public static <T> SpecificationBuilder<T> builder(String timezone) {
-        if (timezone == null || timezone.isBlank()) {
-            throw new SipsaConfigurationException("Timezone cannot be null or blank");
-        }
-        return new SpecificationBuilder<>(timezone);
+    public static <T> SpecificationBuilder<T> builder() {
+        return new SpecificationBuilder<>();
     }
 
     /**
@@ -71,7 +68,7 @@ public class SpecificationBuilder<T> {
      *   <li>Otherwise → no filter added</li>
      * </ol>
      *
-     * @param attribute the entity attribute name
+     * @param attribute the entity attribute name (must be a {@code LocalDate} field)
      * @param exactDate optional exact date (takes precedence)
      * @param startDate optional range start date
      * @param endDate   optional range end date
@@ -88,23 +85,19 @@ public class SpecificationBuilder<T> {
     }
 
     /**
-     * Internal method to add date range filter.
+     * Internal method to add a date range filter directly on a {@code LocalDate}
+     * attribute — no timezone conversion, no half-open-range/next-day trick: a
+     * {@code DATE} column has no time component, so inclusive bounds on both ends are
+     * exact (TECH-104).
      */
     private SpecificationBuilder<T> addDateFilter(String attribute, LocalDate start, LocalDate end) {
         specifications.add((root, query, cb) -> {
-            ZoneId zone = ZoneId.of(timezone);
-
             if (start != null && end != null) {
-                Instant startInstant = start.atStartOfDay(zone).toInstant();
-                Instant endInstant = (end.plusDays(1))
-                        .atStartOfDay(zone).toInstant();
-                return cb.between(root.get(attribute), startInstant, endInstant);
+                return cb.between(root.get(attribute), start, end);
             } else if (start != null) {
-                Instant startInstant = start.atStartOfDay(zone).toInstant();
-                return cb.greaterThanOrEqualTo(root.get(attribute), startInstant);
+                return cb.greaterThanOrEqualTo(root.get(attribute), start);
             } else {
-                Instant endInstant = end.plusDays(1).atStartOfDay(zone).toInstant();
-                return cb.lessThan(root.get(attribute), endInstant);
+                return cb.lessThanOrEqualTo(root.get(attribute), end);
             }
         });
         return this;
@@ -127,4 +120,3 @@ public class SpecificationBuilder<T> {
         return result;
     }
 }
-

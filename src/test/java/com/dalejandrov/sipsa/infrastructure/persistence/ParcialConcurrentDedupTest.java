@@ -19,8 +19,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -97,7 +97,7 @@ class ParcialConcurrentDedupTest {
     @Test
     @DisplayName("SELECT→INSERT primitive: both observe absent, both insert — constraint decides, loser throws")
     void rawRace_bothObserveAbsent_uniqueConstraintDecides() throws Exception {
-        String hash = ParcialKeyHash.compute("05001", 10L, 2L, 101L, Instant.parse("2026-07-15T05:00:00Z"));
+        String hash = ParcialKeyHash.compute("05001", 10L, 2L, 101L, LocalDate.of(2026, 7, 15));
         CyclicBarrier bothObservedAbsent = new CyclicBarrier(2);
         TransactionTemplate tx = new TransactionTemplate(txManager);
 
@@ -132,7 +132,7 @@ class ParcialConcurrentDedupTest {
                         .as("dedup lookup sees no committed row").isEmpty();
                 await(barrier);
                 repository.saveAndFlush(entity(hash, "05001", 10L, 2L, 101L,
-                        Instant.parse("2026-07-15T05:00:00Z")));
+                        LocalDate.of(2026, 7, 15)));
             });
             return null;
         } catch (Throwable t) {
@@ -178,7 +178,7 @@ class ParcialConcurrentDedupTest {
     @Test
     @DisplayName("batchUpsert race with partial overlap: loser must not fail and must keep its non-conflicting rows")
     void batchUpsertRace_overlappingBatches() throws Exception {
-        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 15);
         // Run A carries keys {A, B, C}; run B carries {B, C, D}.
         SipsaParcial a = named("11001", fecha);
         SipsaParcial b = named("05001", fecha);
@@ -220,7 +220,7 @@ class ParcialConcurrentDedupTest {
     @Test
     @DisplayName("single-key race: winner inserted=1/skipped=0, loser inserted=0/skipped=1, one row, no failure")
     void singleKeyRace() throws Exception {
-        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 15);
         SipsaParcial k = named("05001", fecha);
 
         RaceOutcome outcome = race(List.of(copy(k)), List.of(copy(k)));
@@ -240,7 +240,7 @@ class ParcialConcurrentDedupTest {
     @Test
     @DisplayName("identical-batch race: N rows, N inserted + N skipped in total, both sides complete")
     void identicalBatchRace() throws Exception {
-        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 15);
         List<String> munis = List.of("05001", "08001", "11001", "76001", "13001");
         List<SipsaParcial> winnerBatch = munis.stream().map(m -> named(m, fecha)).toList();
         List<SipsaParcial> loserBatch = munis.stream().map(m -> named(m, fecha)).toList();
@@ -264,7 +264,7 @@ class ParcialConcurrentDedupTest {
     @Test
     @DisplayName("retry after the race: re-running the same batch skips everything and succeeds")
     void retryAfterRace_allSkip() throws Exception {
-        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 15);
         SipsaParcial k = named("05001", fecha);
         race(List.of(copy(k)), List.of(copy(k)));
 
@@ -281,7 +281,7 @@ class ParcialConcurrentDedupTest {
     @Test
     @DisplayName("intra-batch duplicate is not double-counted: inserted + skipped == batch size")
     void intraBatchDuplicateNotDoubleCounted() {
-        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 15);
         SipsaParcial k = named("05001", fecha);
 
         var metrics = repository.batchUpsert(List.of(copy(k), copy(k), named("08001", fecha)));
@@ -294,13 +294,13 @@ class ParcialConcurrentDedupTest {
     @Test
     @DisplayName("legacy UUID row on real PostgreSQL: equivalent new record skips without touching the stored row")
     void legacyUuidRowStillDeduplicates() {
-        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 15);
         long legacyRunId = runId;
         jdbc.update("""
                 INSERT INTO sipsa_parcial
                     (key_hash, muni_id, fuen_id, futi_id, id_arti_semana, enma_fecha, ingestion_run_id)
                 VALUES ('7d0e8400-e29b-41d4-a716-446655440000', '05001', 10, 2, 101, ?, ?)""",
-                Timestamp.from(fecha), legacyRunId);
+                java.sql.Date.valueOf(fecha), legacyRunId);
 
         var metrics = repository.batchUpsert(List.of(named("05001", fecha)));
 
@@ -354,7 +354,7 @@ class ParcialConcurrentDedupTest {
         return sb.toString();
     }
 
-    private SipsaParcial named(String muniId, Instant fecha) {
+    private SipsaParcial named(String muniId, LocalDate fecha) {
         String hash = ParcialKeyHash.compute(muniId, 10L, 2L, 101L, fecha);
         return entity(hash, muniId, 10L, 2L, 101L, fecha);
     }
@@ -366,7 +366,7 @@ class ParcialConcurrentDedupTest {
     }
 
     private SipsaParcial entity(String hash, String muniId, Long fuenId, Long futiId,
-                                Long idArtiSemana, Instant fecha) {
+                                Long idArtiSemana, LocalDate fecha) {
         return SipsaParcial.builder()
                 .keyHash(hash)
                 .muniId(muniId)

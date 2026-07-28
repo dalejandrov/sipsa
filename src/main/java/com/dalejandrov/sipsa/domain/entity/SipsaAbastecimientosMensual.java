@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 /**
  * JPA entity representing monthly supply data to wholesale markets.
@@ -82,10 +83,11 @@ public class SipsaAbastecimientosMensual {
     private Long futiId;
 
     /**
-     * Start date of the month for the supply data.
+     * Month start calendar date for the supply data (DANE date, Colombia — not an
+     * instant; TECH-104).
      */
     @Column(name = "fecha_mes_ini")
-    private Instant fechaMesIni;
+    private LocalDate fechaMesIni;
 
     /**
      * Record creation date.

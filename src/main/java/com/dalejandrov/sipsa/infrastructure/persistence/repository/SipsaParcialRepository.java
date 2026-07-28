@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -65,7 +66,7 @@ public interface SipsaParcialRepository
      * @param fechas distinct survey dates present in the batch
      * @return all rows for those dates (legacy and deterministic alike)
      */
-    List<SipsaParcial> findByEnmaFechaIn(Collection<Instant> fechas);
+    List<SipsaParcial> findByEnmaFechaIn(Collection<LocalDate> fechas);
 
     /**
      * Batch upsert with skip-first deduplication (ADR-001, Option A).
@@ -114,7 +115,7 @@ public interface SipsaParcialRepository
 
         /* 3. Legacy check: fetch same-date candidates once and match by the recomputed
          *    natural-key hash, so pre-fix UUID rows also deduplicate (no backfill needed). */
-        Set<Instant> fechas = new HashSet<>();
+        Set<LocalDate> fechas = new HashSet<>();
         for (SipsaParcial item : uniqueItems.values()) {
             if (!existingHashes.contains(item.getKeyHash())) {
                 fechas.add(item.getEnmaFecha());

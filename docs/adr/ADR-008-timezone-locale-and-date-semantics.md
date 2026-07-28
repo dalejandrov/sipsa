@@ -1,14 +1,15 @@
 # ADR-008 — Timezone, Locale, and Date Semantics Strategy
 
-**Status:** Accepted, scoped (items 1–6 implemented; item 7 deliberately deferred, not rejected)
-**Date:** 2026-07-13 (Proposed) → 2026-07-27 (Accepted, scoped)
+**Status:** Accepted, scoped (items 1–6 fully implemented; item 7 deliberately deferred, not rejected)
+**Date:** 2026-07-13 (Proposed) → 2026-07-27 (Accepted, scoped) → 2026-07-28 (items 3/TECH-104 and
+TECH-102/105 closed out)
 **Author:** Temporal/locale strategy review (branch `refactor/internal-models-and-api-filter`)
 **Backlog:** TECH-100 (**Done**), TECH-101 (**Superseded by [TECH-111](../backlog/technical-backlog.md#tech-111)**,
-fixed 2026-07-14, one day before this ADR's own backlog section formalized it), TECH-102 (Pending —
-real gap, see below), TECH-103 (**Done**), TECH-104 (**Done** — SPIKE only; migration itself
-deliberately not implemented), TECH-105 (Deferred, deliberately not prioritized), TECH-106 (**Done**).
-TECH-100/103/106 implemented 2026-07-27 on `fix/timezone-calendar-dates-and-invalid-header-400`
-(PR #36, merged to `main`). Full status detail in
+fixed 2026-07-14, one day before this ADR's own backlog section formalized it), TECH-102 (**Done**),
+TECH-103 (**Done**), TECH-104 (**Done** — migration implemented, not just spiked), TECH-105
+(**Evaluated, still deferred**), TECH-106 (**Done**). TECH-100/103/106: 2026-07-27, PR #36
+(`fix/timezone-calendar-dates-and-invalid-header-400`, merged to `main`). TECH-102/104/105:
+2026-07-28, branch `feat/tech-102-104-105-closeout`. Full status detail in
 [technical-backlog.md](../backlog/technical-backlog.md).
 **Related:** [Timezone/Locale Strategy Review](../architecture/timezone-locale-date-strategy-review.md),
 [ADR-007](ADR-007-package-boundaries-and-internal-models.md) (moved `TimezoneFilter` to `api/filter`,
@@ -35,6 +36,17 @@ time of this review. Its documented publication times (2:00 p.m. daily/weekly, d
 monthly for Mayoristas, day 10 monthly for Abastecimientos) are treated as a **starting
 hypothesis**, not a verified current fact. No decision in this ADR should be read as
 confirming those times are still accurate in production.
+
+**Partial, incidental evidence (2026-07-28, not a full re-verification):** validating
+TECH-104 required a real ingestion run against the live DANE SOAP endpoint
+(`promediosSipsaCiudad`, 374,523 records, 0 rejected). Every `fechaCreacion` observed in
+that run carried `14:00:01 America/Bogota` — consistent with the PDF's documented "2:00
+p.m." daily publication time. This is real evidence the daily/weekly schedule still holds
+for at least that one method, **not** a systematic re-check of the day-8/day-10 monthly
+patterns (those require triggering `promediosSipsaMesMadr`/`promedioAbasSipsaMesMadr` on
+their actual publication days, which this session did not do). The Acceptance Criteria
+item below remains "accepted as best-effort," now with one small corroborating data point
+rather than none.
 
 ---
 
@@ -86,9 +98,20 @@ Adopt a refined **Alternative B** (international API, business zone fixed intern
    instants. **No change.** ✅
 3. Retype the four calendar/period-start fields identified in F1 as `LocalDate` in the API
    response layer (minimum scope); evaluate — via a SPIKE, not directly — whether to also
-   retype the entity/DB column (see TECH-104). **✅ Done (response layer, TECH-100/106,
-   PR #36). SPIKE done (TECH-104) — migration itself deliberately not implemented; see
-   its recommendation in technical-backlog.md for the proposed follow-up story.**
+   retype the entity/DB column (see TECH-104). **✅ Done, fully.** Response layer:
+   TECH-100/106, PR #36, 2026-07-27. Entity/DB: TECH-104's SPIKE (2026-07-27) recommended
+   the migration; it was then implemented and validated 2026-07-28 (branch
+   `feat/tech-102-104-105-closeout`) — V5 Flyway migration (`TIMESTAMPTZ`→`DATE`, 5
+   columns/5 tables), 5 entities retyped, `SipsaIngestionMapper`/`ParcialIngestionHandler`
+   now resolve the business-zone calendar date once at ingestion time,
+   `SpecificationBuilder` simplified (no more timezone-conversion path), `ParcialKeyHash`
+   bumped v1→v2 (accepted, documented hash-compatibility break — no live production data
+   exists yet). Validated against the **real** DANE SOAP endpoint in Docker: 374,523
+   `promediosSipsaCiudad` records and 679,609 `promediosSipsaParcial` records ingested,
+   0 rejected; raw XML `fechaCaptura`/`enmaFecha` cross-checked byte-for-byte against the
+   stored `DATE` value and the API's JSON output for multiple records (including a
+   cross-day-boundary case); a second identical ingestion produced `Inserted: 0, Skipped:
+   679609` — v2 hash dedup confirmed stable.
 4. Fix `WindowPolicy` so the monthly-day rule is method-aware (F2) and the monthly
    `windowKey` matches its documented `YYYY-MM-M8`/`YYYY-MM-M10` contract (F3). Add an
    injectable `Clock` to make boundary conditions testable. **✅ Done — TECH-111,
@@ -100,18 +123,21 @@ Adopt a refined **Alternative B** (international API, business zone fixed intern
 6. Fix `GlobalExceptionHandler`'s three timestamp fields to use an explicit-zone type
    (F5). **✅ Done — TECH-106, PR #36.**
 7. **Do not implement i18n/locale-aware messages in this round** (F6) — no evidence of
-   urgency; explicitly deferred, not rejected. **Still deferred — TECH-105 not
-   scheduled.**
+   urgency; explicitly deferred, not rejected. **Evaluated, 2026-07-28 (TECH-105): still
+   deferred.** No `Accept-Language`/`MessageSource`/`Locale`-based i18n infrastructure
+   exists anywhere in the codebase (confirmed by search); no client requirement for a
+   non-Spanish/non-English audience has ever been documented. Not scheduled; revisit only
+   if a concrete requirement appears.
 
-Items 1, 2, 4, 5, 6 are fully closed. Item 3 is closed at the scope this ADR
-authorized (response layer); the entity/DB migration it evaluated (TECH-104) is
-recommended but intentionally left as a separate, not-yet-scheduled follow-up story —
-this ADR's acceptance does not itself authorize that migration. Item 7 remains
-deliberately deferred. **TECH-102** (multi-zone/DST mapper test coverage) also remains
-open — it was proposed alongside item 3 but not implemented by PR #36, which added
-targeted tests (`TimezoneUtilTest`, `SipsaCiudadMapperTest`) rather than the full
-`America/Bogota`/`America/New_York`/`America/Los_Angeles`/`UTC`/DST matrix TECH-102
-describes.
+All 6 implementation items (1–6) are now fully closed, including the entity/DB migration
+item 3 originally deferred to a SPIKE — TECH-104 evaluated it, then implemented and
+validated it (2026-07-28). Item 7 (i18n) remains deliberately deferred, now with an actual
+evaluation on record (TECH-105) rather than an unexamined assumption. **TECH-102**
+(multi-zone/DST test coverage) is also done (2026-07-28) — `TimezoneUtilTest` covers the
+genuine-instant fields across `America/Bogota`/`America/New_York`/`America/Los_Angeles`/
+`UTC` and the 2026 US DST transition instants; `SipsaIngestionMapperTest` covers the
+calendar-date resolver TECH-104 introduced, including confirming `America/Bogota` never
+observes DST.
 
 ---
 
@@ -130,37 +156,38 @@ See the full comparison table in the review document, section G. Summary:
 
 ## Consequences
 
-**Realized (items 1, 2, 4, 5, 6 — and item 3 at its authorized scope):**
+**Realized (all 6 implementation items):**
 - Calendar-date fields are impossible to accidentally date-shift by construction, not by
-  convention (response layer; entity/DB still `Instant`/`TIMESTAMPTZ`, see TECH-104).
+  convention — at **both** the API response layer and, since TECH-104's migration, the
+  entity/DB layer (`fecha_captura`/`fecha_mes_ini`/`fecha_ini`/`enma_fecha` are now `DATE`,
+  not `TIMESTAMPTZ`). Validated against real DANE production data, not just tests.
+- `SpecificationBuilder` no longer performs any timezone conversion for date filters —
+  simpler, and one less place a zone bug could hide.
+- `SipsaParcial` deduplication now hashes on an ISO date string (`ParcialKeyHash` v2), not
+  epoch millis — a deliberate, documented break from v1 hashes, accepted because no live
+  production data exists yet.
 - Manual/retried monthly ingestion triggers can no longer cross DANE's documented
   Mayoristas/Abastecimientos publication-day boundary.
 - The monthly `windowKey` idempotency guarantee actually holds across grace-day reruns.
 - Invalid `X-Timezone` is now a visible, stable 400 instead of a silent UTC fallback.
 - Error-response timestamps are now consistent (offset-aware) with the rest of the API.
-- No JSON field was renamed, no HTTP route changed, no database migration was required
-  (TECH-104 confirmed a migration is feasible and recommended, but deliberately left
-  unimplemented — a SPIKE conclusion, not a migration commitment).
+- No JSON field was renamed, no HTTP route changed.
 
 **Still open:**
-- TECH-102 (multi-zone/DST mapper test matrix) — not implemented; the fix's own tests
-  cover the specific bug, not the broader matrix this story describes.
-- TECH-105 (i18n) — deliberately deferred, no scheduled date.
-- The TIMESTAMPTZ→DATE entity/DB migration TECH-104 evaluated and recommended — proposed
-  as a future follow-up story, not scheduled by this ADR.
+- TECH-105 (i18n) — deliberately deferred, no scheduled date; now backed by an actual
+  evaluation (2026-07-28) rather than an unexamined assumption.
 - DANE's documented publication schedule (2:00 p.m., day 8, day 10) has still not been
-  re-verified against a current source (see Acceptance Criteria) — accepted as
-  best-effort per the ADR's own escape hatch, since TECH-111 already shipped against it.
+  **systematically** re-verified against a current source — one incidental data point
+  (2026-07-28, see Context) corroborates the 2:00 p.m. daily figure for
+  `promediosSipsaCiudad`; the day-8/day-10 monthly patterns remain unverified. Accepted as
+  best-effort per the ADR's own escape hatch.
 
 ---
 
 ## Explicitly Not Decided by This ADR
 
-- Whether to migrate the four calendar columns from `TIMESTAMPTZ` to `DATE` in the
-  database. TECH-104's SPIKE is done (see technical-backlog.md) and recommends
-  proceeding, but the migration itself is a separate, not-yet-scheduled follow-up story —
-  this ADR's acceptance does not authorize it.
-- Whether/when to implement i18n — deferred, not scheduled.
+- Whether/when to implement i18n — deferred, not scheduled (evaluated 2026-07-28,
+  TECH-105; no urgency found).
 - The exact wording of any future localized error message.
 - Whether `consultarInsumosSipsaMesMadr` will ever be implemented in this codebase (it
   currently is not, and is out of scope here).
@@ -168,19 +195,22 @@ See the full comparison table in the review document, section G. Summary:
 ## Acceptance Criteria for This ADR
 
 - [x] Reviewed by the team/owner and moved to `Accepted` (in full or scoped), or
-      `Rejected`, with rationale recorded here. **Accepted, scoped, 2026-07-27** — items
-      1, 2, 4, 5, 6 fully closed; item 3 closed at its authorized (response-layer) scope,
-      with TECH-104's SPIKE conclusion recorded rather than the migration itself; item 7
-      remains deliberately deferred, not rejected.
+      `Rejected`, with rationale recorded here. **Accepted, scoped, 2026-07-27; all 6
+      implementation items fully closed by 2026-07-28** — item 3's entity/DB migration
+      (TECH-104) went from SPIKE to implemented and validated against real DANE data;
+      item 7 (i18n, TECH-105) remains deliberately deferred, now backed by an actual
+      evaluation instead of an assumption.
 - [x] If accepted, TECH-100 through TECH-106 (or the accepted subset) added to
       `docs/backlog/technical-backlog.md` with real IDs and status `Ready`. **Done** — all
-      7 IDs now have real entries with their actual status (`Done`, `Superseded`,
-      `Pending`, or `Deferred` as applicable — not all `Ready`, since most were already
-      implemented by the time this checkbox was closed).
+      7 IDs now have real entries with their actual status (`Done`, `Superseded`, or
+      `Evaluated, still deferred` as applicable — not all `Ready`, since all but TECH-105
+      were implemented by the time this checkbox was closed).
 - [x] DANE's documented publication schedule (2:00 p.m., day 8, day 10) re-verified against
       a current source before TECH-101 is implemented, or explicitly accepted as
       unverified/best-effort if no current source is available. **Accepted as
-      unverified/best-effort** — no current source was available; TECH-111 (which
-      superseded TECH-101's scope) already shipped 2026-07-14 against the same 2020 PDF
-      hypothesis this ADR itself flags in its Context section. Re-verifying against a
-      live/current DANE source remains open, not blocking.
+      unverified/best-effort, with one incidental corroborating data point** — TECH-111
+      (which superseded TECH-101's scope) shipped 2026-07-14 against the 2020 PDF
+      hypothesis; TECH-104's 2026-07-28 validation run incidentally observed real
+      `fechaCreacion` timestamps at 14:00:01 America/Bogota for `promediosSipsaCiudad`,
+      consistent with the documented "2:00 p.m." daily schedule. The day-8/day-10 monthly
+      patterns remain unverified against a current source; not blocking.

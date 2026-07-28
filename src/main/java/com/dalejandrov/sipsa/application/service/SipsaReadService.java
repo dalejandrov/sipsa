@@ -12,7 +12,6 @@ import com.dalejandrov.sipsa.infrastructure.config.PaginationConfig;
 import com.dalejandrov.sipsa.infrastructure.persistence.repository.*;
 import com.dalejandrov.sipsa.infrastructure.specification.SpecificationBuilder;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -59,9 +58,6 @@ public class SipsaReadService {
     private final SipsaAbastecimientosMensualMapper abasMapper;
     private final PaginationConfig paginationConfig;
 
-    @Value("${sipsa.timezone:America/Bogota}")
-    private String timezone;
-
     /**
      * Retrieves city-level pricing data with optional filtering and pagination.
      * <p>
@@ -86,7 +82,7 @@ public class SipsaReadService {
                 ciudadMapper::toDto,
                 () -> {
                     paginationConfig.validateIds(request.artiId(), request.fuenId());
-                    return SpecificationBuilder.<SipsaCiudad>builder(timezone)
+                    return SpecificationBuilder.<SipsaCiudad>builder()
                             .withAttribute("ciudad", request.ciudad())
                             .withAttribute("producto", request.producto())
                             .withAttribute("codProducto", request.artiId())
@@ -112,7 +108,7 @@ public class SipsaReadService {
                 mensualMapper::toDto,
                 () -> {
                     paginationConfig.validateIds(request.artiId());
-                    return SpecificationBuilder.<SipsaMayoristasMensual>builder(timezone)
+                    return SpecificationBuilder.<SipsaMayoristasMensual>builder()
                             .withDateOrRange("fechaMesIni", request.fechaMes(), request.startDate(), request.endDate())
                             .withAttribute("artiId", request.artiId())
                             .withAttribute("artiNombre", request.artiNombre())
@@ -141,7 +137,7 @@ public class SipsaReadService {
                      * article filter targets the real entity attribute `idArtiSemana`
                      * (`artiId` is a validated compatibility alias, resolved in the DTO). */
                     paginationConfig.validateIds(request.fuenId(), request.idArtiSemana(), request.artiId());
-                    return SpecificationBuilder.<SipsaParcial>builder(timezone)
+                    return SpecificationBuilder.<SipsaParcial>builder()
                             .withDateOrRange("enmaFecha", request.fechaEncuesta(), request.startDate(), request.endDate())
                             .withAttribute("muniId", request.validatedMuniId())
                             .withAttribute("fuenId", request.fuenId())
@@ -172,7 +168,7 @@ public class SipsaReadService {
                 semanalMapper::toDto,
                 () -> {
                     paginationConfig.validateIds(request.artiId(), request.fuenId());
-                    return SpecificationBuilder.<SipsaMayoristasSemanal>builder(timezone)
+                    return SpecificationBuilder.<SipsaMayoristasSemanal>builder()
                             .withDateOrRange("fechaIni", request.fechaIni(), request.startDate(), request.endDate())
                             .withAttribute("artiId", request.artiId())
                             .withAttribute("fuenId", request.fuenId())
@@ -199,7 +195,7 @@ public class SipsaReadService {
                 abasMapper::toDto,
                 () -> {
                     paginationConfig.validateIds(request.artiId(), request.fuenId());
-                    return SpecificationBuilder.<SipsaAbastecimientosMensual>builder(timezone)
+                    return SpecificationBuilder.<SipsaAbastecimientosMensual>builder()
                             .withDateOrRange("fechaMesIni", request.fechaMes(), request.startDate(), request.endDate())
                             .withAttribute("artiId", request.artiId())
                             .withAttribute("fuenId", request.fuenId())

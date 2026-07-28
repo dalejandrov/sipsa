@@ -25,7 +25,6 @@ public interface SipsaMayoristasMensualMapper {
      * @param entity the source entity from database
      * @return mapped response DTO for API
      */
-    @Mapping(target = "fechaMesIni", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.toBusinessLocalDate(entity.getFechaMesIni()))")
     @Mapping(target = "fechaSincronizacion", expression = "java(com.dalejandrov.sipsa.api.util.TimezoneUtil.convertToOffsetDateTime(entity.getFechaSincronizacion(), true))")
     SipsaMayoristasMensualResponse toDto(SipsaMayoristasMensual entity);
 }

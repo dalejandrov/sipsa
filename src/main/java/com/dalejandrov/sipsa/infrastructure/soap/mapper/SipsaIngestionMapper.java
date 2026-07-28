@@ -7,6 +7,8 @@ import org.mapstruct.Mapping;
 import org.mapstruct.Named;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 /**
  * MapStruct mapper for converting SOAP DTOs to domain entities.
@@ -45,6 +47,13 @@ import java.time.Instant;
 public interface SipsaIngestionMapper {
 
     /**
+     * Fixed business zone (ADR-008/TECH-104) used to resolve the 4 DANE calendar-date
+     * fields from their raw epoch-millis wire representation. Never
+     * {@code ZoneId.systemDefault()} — these are Colombia dates by definition.
+     */
+    ZoneId BUSINESS_ZONE = ZoneId.of("America/Bogota");
+
+    /**
      * Converts a city pricing record to a JPA entity.
      * <p>
      * Maps SOAP DTO fields to entity fields, converting epoch milliseconds
@@ -58,7 +67,7 @@ public interface SipsaIngestionMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "ingestionRunId", source = "runId")
     @Mapping(target = "fechaSincronizacion", ignore = true)
-    @Mapping(target = "fechaCaptura", source = "record.fechaCaptura", qualifiedByName = "millisToInstant")
+    @Mapping(target = "fechaCaptura", source = "record.fechaCaptura", qualifiedByName = "millisToBusinessLocalDate")
     @Mapping(target = "fechaCreacion", source = "record.fechaCreacion", qualifiedByName = "millisToInstant")
     SipsaCiudad toEntity(SipsaCiudadRecord record, Long runId);
 
@@ -69,7 +78,8 @@ public interface SipsaIngestionMapper {
      * The hash is used for deduplication across ingestion runs.
      *
      * @param record the parsed partial market record from SOAP
-     * @param fechaEncuesta parsed survey date as Instant
+     * @param fechaEncuesta parsed survey calendar date (TECH-104 — resolved by the caller
+     *     in the fixed business zone, no longer an Instant)
      * @param runId the ingestion run identifier for tracking
      * @return mapped SipsaParcial entity ready for persistence
      */
@@ -81,7 +91,7 @@ public interface SipsaIngestionMapper {
     @Mapping(target = "artiNombre", source = "record.artiNombre")
     @Mapping(target = "fechaSincronizacion", ignore = true)
     @Mapping(target = "keyHash", expression = "java(computeKeyHash(record, fechaEncuesta))")
-    SipsaParcial toEntity(SipsaParcialRecord record, Instant fechaEncuesta, Long runId);
+    SipsaParcial toEntity(SipsaParcialRecord record, LocalDate fechaEncuesta, Long runId);
 
     /**
      * Converts a weekly wholesale market record to a JPA entity.
@@ -95,7 +105,7 @@ public interface SipsaIngestionMapper {
      */
     @Mapping(target = "ingestionRunId", source = "runId")
     @Mapping(target = "id", ignore = true)
-    @Mapping(target = "fechaIni", source = "record.fechaIni", qualifiedByName = "millisToInstant")
+    @Mapping(target = "fechaIni", source = "record.fechaIni", qualifiedByName = "millisToBusinessLocalDate")
     @Mapping(target = "fechaCreacion", source = "record.fechaCreacion", qualifiedByName = "millisToInstant")
     @Mapping(target = "fechaSincronizacion", ignore = true)
     SipsaMayoristasSemanal toEntity(SipsaSemanaRecord record, Long runId);
@@ -112,7 +122,7 @@ public interface SipsaIngestionMapper {
      */
     @Mapping(target = "ingestionRunId", source = "runId")
     @Mapping(target = "id", ignore = true)
-    @Mapping(target = "fechaMesIni", source = "record.fechaMesIni", qualifiedByName = "millisToInstant")
+    @Mapping(target = "fechaMesIni", source = "record.fechaMesIni", qualifiedByName = "millisToBusinessLocalDate")
     @Mapping(target = "fechaCreacion", source = "record.fechaCreacion", qualifiedByName = "millisToInstant")
     @Mapping(target = "fechaSincronizacion", ignore = true)
     SipsaMayoristasMensual toEntity(SipsaMayoristasMensualRecord record, Long runId);
@@ -131,7 +141,7 @@ public interface SipsaIngestionMapper {
     @Mapping(target = "ingestionRunId", source = "runId")
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "fechaSincronizacion", ignore = true)
-    @Mapping(target = "fechaMesIni", source = "record.fechaMes", qualifiedByName = "millisToInstant")
+    @Mapping(target = "fechaMesIni", source = "record.fechaMes", qualifiedByName = "millisToBusinessLocalDate")
     @Mapping(target = "fechaCreacion", source = "record.fechaCreacion", qualifiedByName = "millisToInstant")
     SipsaAbastecimientosMensual toEntity(SipsaAbasRecord record, Long runId);
 
@@ -152,17 +162,39 @@ public interface SipsaIngestionMapper {
     }
 
     /**
+     * Converts epoch milliseconds to the calendar date they represent in the fixed
+     * business zone (ADR-008/TECH-104), for the 4 DANE calendar-date fields
+     * ({@code fechaCaptura}, {@code fechaMesIni}, {@code fechaIni}) — never an
+     * {@link Instant}, and never converted in any other zone.
+     * <p>
+     * Handles null values gracefully, returning null for null input.
+     *
+     * @param millis epoch milliseconds from SOAP response (nullable)
+     * @return the calendar date in {@link #BUSINESS_ZONE}, or null if input is null
+     */
+    @Named("millisToBusinessLocalDate")
+    default LocalDate millisToBusinessLocalDate(Long millis) {
+        return millis != null ? Instant.ofEpochMilli(millis).atZone(BUSINESS_ZONE).toLocalDate() : null;
+    }
+
+    /**
      * Computes the deterministic business-key hash for a SipsaParcial record (ADR-001).
      * <p>
      * Same business inputs always produce the same hash, enabling the skip-first
      * deduplication in {@code SipsaParcialRepository.batchUpsert()}. The caller must
      * have rejected records with missing key fields or an unparseable survey date.
+     * <p>
+     * <b>TECH-104:</b> {@code fechaEncuesta} changed from {@code Instant} to
+     * {@code LocalDate}, which changed {@link ParcialKeyHash}'s hash payload (v1 → v2,
+     * see its Javadoc) — key hashes computed before this change do not match key hashes
+     * computed after it for the same logical record. Accepted, documented risk; see the
+     * V5 migration's header comment.
      *
      * @param record the parsed partial market record
      * @param fechaEncuesta the parsed survey date (never null at this point)
      * @return lowercase hex SHA-256 of the natural key, 64 characters
      */
-    default String computeKeyHash(SipsaParcialRecord record, Instant fechaEncuesta) {
+    default String computeKeyHash(SipsaParcialRecord record, LocalDate fechaEncuesta) {
         return ParcialKeyHash.compute(
                 record.muniId(), record.fuenId(), record.futiId(), record.idArtiSemana(), fechaEncuesta);
     }

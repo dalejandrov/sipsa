@@ -16,7 +16,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -142,7 +142,7 @@ class ParcialDecimalPrecisionTest {
 
     private SipsaParcial entity(BigDecimal price) {
         String muniId = String.format("%05d", ++keySeq);
-        Instant fecha = Instant.parse("2026-07-15T05:00:00Z");
+        LocalDate fecha = LocalDate.of(2026, 7, 15);
         return SipsaParcial.builder()
                 .keyHash(ParcialKeyHash.compute(muniId, 10L, 2L, 101L, fecha))
                 .muniId(muniId)

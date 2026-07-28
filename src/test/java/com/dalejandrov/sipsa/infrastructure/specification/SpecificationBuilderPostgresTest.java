@@ -17,9 +17,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -27,19 +25,23 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * TECH-041: {@link SpecificationBuilder} against real PostgreSQL — AND-composition across
- * multiple filters, real {@code TIMESTAMPTZ} date-boundary/timezone semantics, and
- * filter+pagination interaction. The pure predicate-selection logic (which builder method
- * fires) is covered without a database in {@code SpecificationBuilderTest}; what only a
- * real database can prove is exercised here: does the combined {@code Specification}
- * actually select the right rows, at exact timezone boundaries, through
- * {@code JpaSpecificationExecutor.findAll(Specification, Pageable)} — the real call site
- * used by every {@code SipsaReadService} query method.
+ * TECH-041/TECH-104: {@link SpecificationBuilder} against real PostgreSQL — AND-composition
+ * across multiple filters, real {@code DATE} filtering semantics, and filter+pagination
+ * interaction. The pure predicate-selection logic (which builder method fires) is covered
+ * without a database in {@code SpecificationBuilderTest}; what only a real database can
+ * prove is exercised here: does the combined {@code Specification} actually select the
+ * right rows through {@code JpaSpecificationExecutor.findAll(Specification, Pageable)} —
+ * the real call site used by every {@code SipsaReadService} query method.
+ * <p>
+ * TECH-104 retyped {@code fecha_ini} from {@code TIMESTAMPTZ} to {@code DATE} — there is no
+ * time component and no timezone conversion left to test here (that risk now lives at
+ * ingestion time, in {@code SipsaIngestionMapper}); a {@code DATE} filter is an exact
+ * calendar-day comparison with inclusive bounds on both ends.
  * <p>
  * Uses {@link SipsaMayoristasSemanalRepository} (real {@code JpaSpecificationExecutor},
  * already exercised for {@code SpecificationBuilder} by {@code SipsaReadService
  * .getMayoristasSemanal}) rather than a synthetic H2 entity — real column types
- * ({@code fecha_ini TIMESTAMPTZ}), real PostgreSQL date/time semantics.
+ * ({@code fecha_ini DATE}), real PostgreSQL date semantics.
  */
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(properties = {
@@ -54,9 +56,6 @@ class SpecificationBuilderPostgresTest {
     @Container
     @ServiceConnection
     static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18.0-alpine3.22");
-
-    private static final String ZONE = "America/Bogota";
-    private static final ZoneId BOGOTA = ZoneId.of(ZONE);
 
     @Autowired
     private SipsaMayoristasSemanalRepository repository;
@@ -75,7 +74,7 @@ class SpecificationBuilderPostgresTest {
                 RETURNING run_id""", Long.class, "spec-test-" + System.nanoTime());
     }
 
-    private SipsaMayoristasSemanal row(long artiId, long fuenId, Instant fechaIni) {
+    private SipsaMayoristasSemanal row(long artiId, long fuenId, LocalDate fechaIni) {
         return repository.save(SipsaMayoristasSemanal.builder()
                 .artiId(artiId)
                 .artiNombre("ARTICULO " + artiId)
@@ -91,11 +90,11 @@ class SpecificationBuilderPostgresTest {
     @Test
     @DisplayName("no filters: build() matches every row, unfiltered")
     void noFilters_returnsAllRows() {
-        row(1L, 10L, Instant.parse("2026-07-01T12:00:00Z"));
-        row(2L, 10L, Instant.parse("2026-07-05T12:00:00Z"));
-        row(3L, 20L, Instant.parse("2026-07-10T12:00:00Z"));
+        row(1L, 10L, LocalDate.of(2026, 7, 1));
+        row(2L, 10L, LocalDate.of(2026, 7, 5));
+        row(3L, 20L, LocalDate.of(2026, 7, 10));
 
-        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder(ZONE).build();
+        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder().build();
         List<SipsaMayoristasSemanal> results = repository.findAll(spec);
 
         assertThat(results).hasSize(3);
@@ -104,11 +103,11 @@ class SpecificationBuilderPostgresTest {
     @Test
     @DisplayName("equality filter: only matching rows are returned")
     void equalityFilter_onlyMatchingRows() {
-        row(1L, 10L, Instant.parse("2026-07-01T12:00:00Z"));
-        row(2L, 20L, Instant.parse("2026-07-05T12:00:00Z"));
-        row(3L, 20L, Instant.parse("2026-07-10T12:00:00Z"));
+        row(1L, 10L, LocalDate.of(2026, 7, 1));
+        row(2L, 20L, LocalDate.of(2026, 7, 5));
+        row(3L, 20L, LocalDate.of(2026, 7, 10));
 
-        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder(ZONE)
+        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder()
                 .withAttribute("fuenId", 20L)
                 .build();
         List<SipsaMayoristasSemanal> results = repository.findAll(spec);
@@ -117,60 +116,30 @@ class SpecificationBuilderPostgresTest {
     }
 
     @Test
-    @DisplayName("exact date filter: real TIMESTAMPTZ boundary at 23:59:59/00:00:00 America/Bogota")
-    void exactDateFilter_realTimezoneBoundary() {
+    @DisplayName("exact date filter: only the row on that exact calendar day matches, neighboring days excluded")
+    void exactDateFilter_onlyExactDayMatches() {
         LocalDate targetDay = LocalDate.of(2026, 7, 15);
-        // Just inside the target day in Bogota (UTC-5): 23:59:59 local = 04:59:59 next day UTC.
-        Instant lastSecondOfDay = targetDay.atTime(23, 59, 59).atZone(BOGOTA).toInstant();
-        // Just outside: one second into the NEXT Bogota day.
-        Instant secondSecondNextDay = targetDay.plusDays(1).atStartOfDay(BOGOTA).toInstant().plusSeconds(1);
-        // Just outside on the other end: the last second of the PREVIOUS Bogota day.
-        Instant lastSecondPreviousDay = targetDay.minusDays(1).atTime(23, 59, 59).atZone(BOGOTA).toInstant();
+        row(1L, 10L, targetDay);
+        row(2L, 10L, targetDay.plusDays(1));
+        row(3L, 10L, targetDay.minusDays(1));
 
-        row(1L, 10L, lastSecondOfDay);
-        row(2L, 10L, secondSecondNextDay);
-        row(3L, 10L, lastSecondPreviousDay);
-
-        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder(ZONE)
+        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder()
                 .withDateOrRange("fechaIni", targetDay, null, null)
                 .build();
         List<SipsaMayoristasSemanal> results = repository.findAll(spec);
 
-        assertThat(results).extracting(SipsaMayoristasSemanal::getArtiId)
-                .as("only the row inside the Bogota calendar day matches; neighboring-day rows are excluded")
-                .containsExactly(1L);
-    }
-
-    @Test
-    @DisplayName("exact date filter: the upper boundary instant itself (next day's exact midnight) is included - cb.between() is inclusive on both ends")
-    void exactDateFilter_upperBoundaryInstantIsInclusive() {
-        // A real, verified implementation detail, not an assumption: withDateOrRange builds
-        // an exact-date filter with cb.between(path, startOfDay, startOfNextDay), and SQL/JPA
-        // BETWEEN is inclusive on both bounds - so the exact next-day-midnight instant matches
-        // too, even though the Javadoc describes this as a "full day range". In practice a real
-        // ingested timestamp lands on this exact instant with negligible probability, but the
-        // behavior is real and worth pinning down rather than assuming exclusivity.
-        LocalDate targetDay = LocalDate.of(2026, 7, 15);
-        Instant exactNextDayMidnight = targetDay.plusDays(1).atStartOfDay(BOGOTA).toInstant();
-        row(1L, 10L, exactNextDayMidnight);
-
-        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder(ZONE)
-                .withDateOrRange("fechaIni", targetDay, null, null)
-                .build();
-        List<SipsaMayoristasSemanal> results = repository.findAll(spec);
-
-        assertThat(results).hasSize(1);
+        assertThat(results).extracting(SipsaMayoristasSemanal::getArtiId).containsExactly(1L);
     }
 
     @Test
     @DisplayName("start-only range: rows before the start are excluded, rows at/after are included")
     void startOnlyRange_boundaryInclusive() {
         LocalDate start = LocalDate.of(2026, 7, 10);
-        row(1L, 10L, start.minusDays(1).atTime(23, 59, 59).atZone(BOGOTA).toInstant()); // just before -> excluded
-        row(2L, 10L, start.atStartOfDay(BOGOTA).toInstant()); // exactly at start -> included
-        row(3L, 10L, start.plusDays(5).atStartOfDay(BOGOTA).toInstant()); // well after -> included
+        row(1L, 10L, start.minusDays(1)); // just before -> excluded
+        row(2L, 10L, start); // exactly at start -> included
+        row(3L, 10L, start.plusDays(5)); // well after -> included
 
-        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder(ZONE)
+        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder()
                 .withDateOrRange("fechaIni", null, start, null)
                 .build();
         List<SipsaMayoristasSemanal> results = repository.findAll(spec);
@@ -179,14 +148,14 @@ class SpecificationBuilderPostgresTest {
     }
 
     @Test
-    @DisplayName("end-only range: rows on/after end+1day are excluded (exclusive upper bound)")
-    void endOnlyRange_boundaryExclusive() {
+    @DisplayName("end-only range: rows on/before end are included, rows after end are excluded")
+    void endOnlyRange_boundaryInclusive() {
         LocalDate end = LocalDate.of(2026, 7, 10);
-        row(1L, 10L, end.atStartOfDay(BOGOTA).toInstant()); // start of `end` day -> included
-        row(2L, 10L, end.atTime(23, 59, 59).atZone(BOGOTA).toInstant()); // last second of `end` day -> included
-        row(3L, 10L, end.plusDays(1).atStartOfDay(BOGOTA).toInstant()); // start of the NEXT day -> excluded
+        row(1L, 10L, end.minusDays(1)); // before end -> included
+        row(2L, 10L, end); // exactly at end -> included
+        row(3L, 10L, end.plusDays(1)); // after end -> excluded
 
-        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder(ZONE)
+        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder()
                 .withDateOrRange("fechaIni", null, null, end)
                 .build();
         List<SipsaMayoristasSemanal> results = repository.findAll(spec);
@@ -198,14 +167,12 @@ class SpecificationBuilderPostgresTest {
     @DisplayName("combined attribute + date filters: AND composition - only rows matching BOTH survive")
     void combinedFilters_andComposition() {
         LocalDate targetDay = LocalDate.of(2026, 7, 15);
-        Instant insideDay = targetDay.atTime(12, 0, 0).atZone(BOGOTA).toInstant();
-        Instant outsideDay = targetDay.plusDays(10).atTime(12, 0, 0).atZone(BOGOTA).toInstant();
 
-        row(1L, 20L, insideDay);   // matches both -> included
-        row(2L, 20L, outsideDay);  // matches fuenId only -> excluded
-        row(3L, 30L, insideDay);   // matches date only -> excluded
+        row(1L, 20L, targetDay);              // matches both -> included
+        row(2L, 20L, targetDay.plusDays(10));  // matches fuenId only -> excluded
+        row(3L, 30L, targetDay);               // matches date only -> excluded
 
-        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder(ZONE)
+        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder()
                 .withAttribute("fuenId", 20L)
                 .withDateOrRange("fechaIni", targetDay, null, null)
                 .build();
@@ -217,16 +184,16 @@ class SpecificationBuilderPostgresTest {
     @Test
     @DisplayName("filter combined with pagination: no duplicate or omitted rows across pages, unmatched rows never appear")
     void filterWithPagination_noDuplicatesOrOmissions() {
-        Instant base = Instant.parse("2026-07-01T12:00:00Z");
+        LocalDate base = LocalDate.of(2026, 7, 1);
         Set<Long> matchingIds = new HashSet<>();
         for (int i = 0; i < 15; i++) {
-            matchingIds.add(row(i, 20L, base.plusSeconds(i)).getId());
+            matchingIds.add(row(i, 20L, base.plusDays(i)).getId());
         }
         for (int i = 100; i < 105; i++) {
-            row(i, 30L, base.plusSeconds(i)); // non-matching fuenId, must never appear
+            row(i, 30L, base.plusDays(i)); // non-matching fuenId, must never appear
         }
 
-        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder(ZONE)
+        Specification<SipsaMayoristasSemanal> spec = SpecificationBuilder.<SipsaMayoristasSemanal>builder()
                 .withAttribute("fuenId", 20L)
                 .build();
 

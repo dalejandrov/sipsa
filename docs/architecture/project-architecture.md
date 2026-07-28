@@ -318,21 +318,23 @@ What is approved and in effect today:
   `X-Timezone` header (via `TimezoneFilter`) controls how *system-generated* timestamps are
   presented — defaulting to UTC when absent, but rejected with `400
   SIPSA_INVALID_TIMEZONE` when present and invalid (ADR-008 F4, TECH-103).
-- **Calendar/period-start fields are `LocalDate`, not `OffsetDateTime`.** `fechaCaptura`,
-  `fechaMesIni`, `fechaIni`, and `enmaFecha` represent DANE calendar dates, not instants;
-  they're resolved via `TimezoneUtil.toBusinessLocalDate` in a fixed `America/Bogota` zone,
-  ignoring `X-Timezone` entirely (ADR-008 F1, TECH-100/106). The underlying entity/DB
-  column is still `Instant`/`TIMESTAMPTZ` — retyping those was evaluated (TECH-104, a
-  SPIKE) and recommended, but deliberately left as a separate, not-yet-scheduled
-  follow-up story.
+- **Calendar/period-start fields are `LocalDate`, both in the API response and in the
+  entity/DB column.** `fechaCaptura`, `fechaMesIni`, `fechaIni`, and `enmaFecha` represent
+  DANE calendar dates, not instants; the underlying columns are `DATE` (TECH-104, V5
+  migration), resolved once at ingestion time in the fixed `America/Bogota` zone by
+  `SipsaIngestionMapper.millisToBusinessLocalDate`/`ParcialIngestionHandler` — never
+  converted again afterward, and never influenced by `X-Timezone` (ADR-008 F1,
+  TECH-100/104/106). `SpecificationBuilder`'s date filters compare `LocalDate` directly,
+  with no timezone conversion. `SipsaParcial`'s deduplication hash (`ParcialKeyHash`)
+  moved from an epoch-millis payload (v1) to an ISO-date payload (v2) as a consequence —
+  a deliberate, documented hash-compatibility break, accepted because no live production
+  data exists yet.
 
-**Still open:** multi-zone/DST test coverage for the mapper conversions (TECH-102);
-locale/message internationalization (TECH-105, deliberately deferred, not scheduled); the
-TIMESTAMPTZ→DATE entity/DB migration TECH-104 recommended. These remain open items in
-[ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md), which is now
-**`Accepted`, scoped** (items 1, 2, 4, 5, 6 done; item 3 done at its authorized
-response-layer scope; item 7 deliberately deferred, not rejected) — see the ADR's own
-per-item status for exactly what is and isn't decided.
+All 6 implementation items of [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md)
+are now closed (**`Accepted`, scoped**, 2026-07-27–28) — item 3's entity/DB migration
+(TECH-104) went from SPIKE to implemented and validated against real DANE production data;
+item 7 (i18n, TECH-105) remains deliberately deferred, now backed by an actual evaluation.
+See the ADR's own per-item status for detail.
 
 ---
 
@@ -479,7 +481,7 @@ Items marked **Pending Decision** require an ADR or SPIKE to resolve before impl
 | Initiative | State | Reference |
 |---|---|---|
 | Fix `WindowPolicy` monthly day-to-method binding, grace days, and stable window keys | **Implemented** (2026-07-14, merged via PR #15) | TECH-111, [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) |
-| Timezone, locale, and date-semantics strategy | **Decided and implemented, scoped** — ADR-008 `Accepted` (2026-07-27); items 1,2,4,5,6 done, item 3 done at response-layer scope (TECH-104 migration recommended but deferred), item 7 (i18n) deliberately deferred | [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md), TECH-100/103/106 (PR #36), TECH-111 |
+| Timezone, locale, and date-semantics strategy | **Decided and fully implemented** — ADR-008 `Accepted` (2026-07-27); all 6 implementation items done, including the entity/DB migration (TECH-104, 2026-07-28, validated against real DANE data); item 7 (i18n) deliberately deferred after evaluation (TECH-105) | [ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md), TECH-100/102/103/104/106 (PR #36 + `feat/tech-102-104-105-closeout`), TECH-111 |
 | ArchUnit package-boundary rules | Pending — dependencies (TECH-090/091/095) are merged; story not started | TECH-093 |
 | Separate CXF-generated SOAP sources from hand-written code | **Pending Decision** — blocked on a SPIKE | TECH-092 (blocked by TECH-094) |
 | `isMonthly()` as an explicit `IngestionHandler` contract method | **Pending Decision** — ADR-006 is `Proposed` | ADR-006, TECH-055 (SPIKE) |

@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 /**
  * JPA entity representing partial market data by municipality.
@@ -85,9 +86,9 @@ public class SipsaParcial {
     @Column(name = "grup_nombre")
     private String grupNombre;
 
-    /** Survey/data collection date */
+    /** Survey/data collection calendar date (DANE date, Colombia — not an instant; TECH-104) */
     @Column(name = "enma_fecha")
-    private Instant enmaFecha;
+    private LocalDate enmaFecha;
 
 
     /* Price columns: precision/scale mirror the versioned DDL (V1: NUMERIC(19,2)),

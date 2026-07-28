@@ -1,6 +1,5 @@
 package com.dalejandrov.sipsa.infrastructure.specification;
 
-import com.dalejandrov.sipsa.domain.exception.SipsaConfigurationException;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Path;
@@ -11,13 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.jpa.domain.Specification;
 
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -26,16 +21,22 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * TECH-041: {@link SpecificationBuilder} — pure construction-logic unit tests, no database.
+ * TECH-041/TECH-104: {@link SpecificationBuilder} — pure construction-logic unit tests, no
+ * database.
  * <p>
  * {@code SpecificationBuilder} is entity-type-agnostic ({@code <T>}), so a mocked JPA
  * Criteria API (`Root`/`CriteriaBuilder`/`Path`/`Predicate`) is enough to verify which
  * builder method fires with which arguments — the real, stable contract this class
  * actually implements, not an internal/private detail. AND-composition across multiple
- * filters and real date-boundary/timezone semantics are verified separately, against real
- * PostgreSQL, in {@code SpecificationBuilderPostgresTest} (mocking Spring Data's own
+ * filters is verified separately, against real PostgreSQL, in
+ * {@code SpecificationBuilderPostgresTest} (mocking Spring Data's own
  * {@code Specification.and()} internals here would be fragile and would not prove
  * anything about actual database semantics).
+ * <p>
+ * TECH-104: {@code withDateOrRange} used to build an {@code Instant} range from a
+ * timezone-converted {@code LocalDate} — the builder no longer takes a {@code timezone}
+ * constructor argument, and date predicates compare {@code LocalDate} directly (no
+ * conversion, inclusive bounds on both ends).
  * <p>
  * Scope note: {@code SpecificationBuilder} has no LIKE/partial-match, no OR composition,
  * no join support, no field-name allowlist, and no type-conversion logic — confirmed by
@@ -54,32 +55,6 @@ class SpecificationBuilderTest {
     private final CriteriaQuery<?> query = mock(CriteriaQuery.class);
     private final CriteriaBuilder cb = mock(CriteriaBuilder.class);
 
-    private static final String ZONE = "America/Bogota";
-
-    // -----------------------------------------------------------------------
-    // builder() factory
-    // -----------------------------------------------------------------------
-
-    @Test
-    @DisplayName("null timezone: throws SipsaConfigurationException")
-    void builder_nullTimezone_throws() {
-        assertThatExceptionOfType(SipsaConfigurationException.class)
-                .isThrownBy(() -> SpecificationBuilder.builder(null));
-    }
-
-    @Test
-    @DisplayName("blank timezone: throws SipsaConfigurationException")
-    void builder_blankTimezone_throws() {
-        assertThatExceptionOfType(SipsaConfigurationException.class)
-                .isThrownBy(() -> SpecificationBuilder.builder("   "));
-    }
-
-    @Test
-    @DisplayName("valid timezone: builder is created without error")
-    void builder_validTimezone_succeeds() {
-        assertThatCode(() -> SpecificationBuilder.builder(ZONE)).doesNotThrowAnyException();
-    }
-
     // -----------------------------------------------------------------------
     // withAttribute
     // -----------------------------------------------------------------------
@@ -90,7 +65,7 @@ class SpecificationBuilderTest {
         Predicate conjunction = mock(Predicate.class);
         when(cb.conjunction()).thenReturn(conjunction);
 
-        Specification<Dummy> spec = SpecificationBuilder.<Dummy>builder(ZONE)
+        Specification<Dummy> spec = SpecificationBuilder.<Dummy>builder()
                 .withAttribute("ciudad", null)
                 .build();
         Predicate result = spec.toPredicate(root, query, cb);
@@ -107,7 +82,7 @@ class SpecificationBuilderTest {
         when(root.<Object>get("ciudad")).thenReturn(path);
         when(cb.equal(path, "Bogota")).thenReturn(equalPredicate);
 
-        Specification<Dummy> spec = SpecificationBuilder.<Dummy>builder(ZONE)
+        Specification<Dummy> spec = SpecificationBuilder.<Dummy>builder()
                 .withAttribute("ciudad", "Bogota")
                 .build();
         Predicate result = spec.toPredicate(root, query, cb);
@@ -118,118 +93,113 @@ class SpecificationBuilderTest {
     }
 
     // -----------------------------------------------------------------------
-    // withDateOrRange - precedence and boundary math
+    // withDateOrRange - precedence and predicate selection
     // -----------------------------------------------------------------------
 
     @Test
-    @DisplayName("exact date: a full-day range [startOfDay, startOfNextDay) in the builder's timezone")
-    void withDateOrRange_exactDate_singleDayRange() {
-        Path<Instant> path = mock(Path.class);
+    @DisplayName("exact date: a between(date, date) predicate — inclusive single-day match")
+    void withDateOrRange_exactDate_betweenSameDayTwice() {
+        Path<LocalDate> path = mock(Path.class);
         Predicate betweenPredicate = mock(Predicate.class);
-        when(root.<Instant>get("fecha")).thenReturn(path);
-        ArgumentCaptor<Instant> start = ArgumentCaptor.forClass(Instant.class);
-        ArgumentCaptor<Instant> end = ArgumentCaptor.forClass(Instant.class);
+        when(root.<LocalDate>get("fecha")).thenReturn(path);
+        ArgumentCaptor<LocalDate> start = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> end = ArgumentCaptor.forClass(LocalDate.class);
         when(cb.between(eq(path), start.capture(), end.capture())).thenReturn(betweenPredicate);
 
         LocalDate exact = LocalDate.of(2026, 7, 20);
-        Specification<Dummy> spec = SpecificationBuilder.<Dummy>builder(ZONE)
+        Specification<Dummy> spec = SpecificationBuilder.<Dummy>builder()
                 .withDateOrRange("fecha", exact, null, null)
                 .build();
         Predicate result = spec.toPredicate(root, query, cb);
 
         assertThat(result).isSameAs(betweenPredicate);
-        ZoneId zone = ZoneId.of(ZONE);
-        assertThat(start.getValue()).isEqualTo(exact.atStartOfDay(zone).toInstant());
-        assertThat(end.getValue()).isEqualTo(exact.plusDays(1).atStartOfDay(zone).toInstant());
+        assertThat(start.getValue()).isEqualTo(exact);
+        assertThat(end.getValue()).isEqualTo(exact);
     }
 
     @Test
     @DisplayName("exact date takes precedence over an accompanying start/end range")
     void withDateOrRange_exactDateTakesPrecedenceOverRange() {
-        Path<Instant> path = mock(Path.class);
+        Path<LocalDate> path = mock(Path.class);
         Predicate betweenPredicate = mock(Predicate.class);
-        when(root.<Instant>get("fecha")).thenReturn(path);
-        ArgumentCaptor<Instant> start = ArgumentCaptor.forClass(Instant.class);
-        ArgumentCaptor<Instant> end = ArgumentCaptor.forClass(Instant.class);
+        when(root.<LocalDate>get("fecha")).thenReturn(path);
+        ArgumentCaptor<LocalDate> start = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> end = ArgumentCaptor.forClass(LocalDate.class);
         when(cb.between(eq(path), start.capture(), end.capture())).thenReturn(betweenPredicate);
 
         LocalDate exact = LocalDate.of(2026, 7, 20);
         LocalDate ignoredStart = LocalDate.of(2020, 1, 1);
         LocalDate ignoredEnd = LocalDate.of(2020, 12, 31);
-        SpecificationBuilder.<Dummy>builder(ZONE)
+        SpecificationBuilder.<Dummy>builder()
                 .withDateOrRange("fecha", exact, ignoredStart, ignoredEnd)
                 .build()
                 .toPredicate(root, query, cb);
 
-        ZoneId zone = ZoneId.of(ZONE);
-        assertThat(start.getValue()).as("the exact date's own boundary is used, not ignoredStart")
-                .isEqualTo(exact.atStartOfDay(zone).toInstant());
-        assertThat(end.getValue()).isEqualTo(exact.plusDays(1).atStartOfDay(zone).toInstant());
+        assertThat(start.getValue()).as("the exact date is used, not ignoredStart").isEqualTo(exact);
+        assertThat(end.getValue()).as("the exact date is used, not ignoredEnd").isEqualTo(exact);
     }
 
     @Test
-    @DisplayName("start and end both set (no exact date): a [start, end+1day) between predicate")
+    @DisplayName("start and end both set (no exact date): a [start, end] between predicate, both bounds inclusive")
     void withDateOrRange_startAndEnd_range() {
-        Path<Instant> path = mock(Path.class);
+        Path<LocalDate> path = mock(Path.class);
         Predicate betweenPredicate = mock(Predicate.class);
-        when(root.<Instant>get("fecha")).thenReturn(path);
-        ArgumentCaptor<Instant> start = ArgumentCaptor.forClass(Instant.class);
-        ArgumentCaptor<Instant> end = ArgumentCaptor.forClass(Instant.class);
+        when(root.<LocalDate>get("fecha")).thenReturn(path);
+        ArgumentCaptor<LocalDate> start = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> end = ArgumentCaptor.forClass(LocalDate.class);
         when(cb.between(eq(path), start.capture(), end.capture())).thenReturn(betweenPredicate);
 
         LocalDate from = LocalDate.of(2026, 7, 1);
         LocalDate to = LocalDate.of(2026, 7, 20);
-        Predicate result = SpecificationBuilder.<Dummy>builder(ZONE)
+        Predicate result = SpecificationBuilder.<Dummy>builder()
                 .withDateOrRange("fecha", null, from, to)
                 .build()
                 .toPredicate(root, query, cb);
 
         assertThat(result).isSameAs(betweenPredicate);
-        ZoneId zone = ZoneId.of(ZONE);
-        assertThat(start.getValue()).isEqualTo(from.atStartOfDay(zone).toInstant());
-        assertThat(end.getValue()).as("end boundary is exclusive: start of the day AFTER `to`")
-                .isEqualTo(to.plusDays(1).atStartOfDay(zone).toInstant());
+        assertThat(start.getValue()).isEqualTo(from);
+        assertThat(end.getValue()).as("end boundary is inclusive: `to` itself, no +1 day").isEqualTo(to);
     }
 
     @Test
-    @DisplayName("only start set: a >= predicate at start-of-day")
+    @DisplayName("only start set: a >= predicate")
     void withDateOrRange_onlyStart_greaterThanOrEqual() {
-        Path<Instant> path = mock(Path.class);
+        Path<LocalDate> path = mock(Path.class);
         Predicate gtePredicate = mock(Predicate.class);
-        when(root.<Instant>get("fecha")).thenReturn(path);
-        ArgumentCaptor<Instant> startArg = ArgumentCaptor.forClass(Instant.class);
+        when(root.<LocalDate>get("fecha")).thenReturn(path);
+        ArgumentCaptor<LocalDate> startArg = ArgumentCaptor.forClass(LocalDate.class);
         when(cb.greaterThanOrEqualTo(eq(path), startArg.capture())).thenReturn(gtePredicate);
 
         LocalDate from = LocalDate.of(2026, 7, 10);
-        Predicate result = SpecificationBuilder.<Dummy>builder(ZONE)
+        Predicate result = SpecificationBuilder.<Dummy>builder()
                 .withDateOrRange("fecha", null, from, null)
                 .build()
                 .toPredicate(root, query, cb);
 
         assertThat(result).isSameAs(gtePredicate);
-        assertThat(startArg.getValue()).isEqualTo(from.atStartOfDay(ZoneId.of(ZONE)).toInstant());
-        verify(cb, never()).between(org.mockito.ArgumentMatchers.<Path<Instant>>any(),
-                org.mockito.ArgumentMatchers.any(Instant.class), org.mockito.ArgumentMatchers.any(Instant.class));
-        verify(cb, never()).lessThan(org.mockito.ArgumentMatchers.<Path<Instant>>any(), org.mockito.ArgumentMatchers.any(Instant.class));
+        assertThat(startArg.getValue()).isEqualTo(from);
+        verify(cb, never()).between(org.mockito.ArgumentMatchers.<Path<LocalDate>>any(),
+                org.mockito.ArgumentMatchers.any(LocalDate.class), org.mockito.ArgumentMatchers.any(LocalDate.class));
+        verify(cb, never()).lessThanOrEqualTo(org.mockito.ArgumentMatchers.<Path<LocalDate>>any(), org.mockito.ArgumentMatchers.any(LocalDate.class));
     }
 
     @Test
-    @DisplayName("only end set: a < predicate at start-of-the-following-day (exclusive)")
-    void withDateOrRange_onlyEnd_lessThan() {
-        Path<Instant> path = mock(Path.class);
-        Predicate ltPredicate = mock(Predicate.class);
-        when(root.<Instant>get("fecha")).thenReturn(path);
-        ArgumentCaptor<Instant> endArg = ArgumentCaptor.forClass(Instant.class);
-        when(cb.lessThan(eq(path), endArg.capture())).thenReturn(ltPredicate);
+    @DisplayName("only end set: a <= predicate — inclusive of the end date itself")
+    void withDateOrRange_onlyEnd_lessThanOrEqual() {
+        Path<LocalDate> path = mock(Path.class);
+        Predicate ltePredicate = mock(Predicate.class);
+        when(root.<LocalDate>get("fecha")).thenReturn(path);
+        ArgumentCaptor<LocalDate> endArg = ArgumentCaptor.forClass(LocalDate.class);
+        when(cb.lessThanOrEqualTo(eq(path), endArg.capture())).thenReturn(ltePredicate);
 
         LocalDate to = LocalDate.of(2026, 7, 15);
-        Predicate result = SpecificationBuilder.<Dummy>builder(ZONE)
+        Predicate result = SpecificationBuilder.<Dummy>builder()
                 .withDateOrRange("fecha", null, null, to)
                 .build()
                 .toPredicate(root, query, cb);
 
-        assertThat(result).isSameAs(ltPredicate);
-        assertThat(endArg.getValue()).isEqualTo(to.plusDays(1).atStartOfDay(ZoneId.of(ZONE)).toInstant());
+        assertThat(result).isSameAs(ltePredicate);
+        assertThat(endArg.getValue()).isEqualTo(to);
     }
 
     @Test
@@ -238,7 +208,7 @@ class SpecificationBuilderTest {
         Predicate conjunction = mock(Predicate.class);
         when(cb.conjunction()).thenReturn(conjunction);
 
-        Predicate result = SpecificationBuilder.<Dummy>builder(ZONE)
+        Predicate result = SpecificationBuilder.<Dummy>builder()
                 .withDateOrRange("fecha", null, null, null)
                 .build()
                 .toPredicate(root, query, cb);
@@ -257,7 +227,7 @@ class SpecificationBuilderTest {
         Predicate conjunction = mock(Predicate.class);
         when(cb.conjunction()).thenReturn(conjunction);
 
-        Predicate result = SpecificationBuilder.<Dummy>builder(ZONE).build().toPredicate(root, query, cb);
+        Predicate result = SpecificationBuilder.<Dummy>builder().build().toPredicate(root, query, cb);
 
         assertThat(result).isSameAs(conjunction);
         verifyNoInteractions(root);
@@ -271,7 +241,7 @@ class SpecificationBuilderTest {
         when(root.<Object>get("ciudad")).thenReturn(path);
         when(cb.equal(path, "Bogota")).thenReturn(equalPredicate);
 
-        Predicate result = SpecificationBuilder.<Dummy>builder(ZONE)
+        Predicate result = SpecificationBuilder.<Dummy>builder()
                 .withAttribute("ciudad", "Bogota")
                 .build()
                 .toPredicate(root, query, cb);

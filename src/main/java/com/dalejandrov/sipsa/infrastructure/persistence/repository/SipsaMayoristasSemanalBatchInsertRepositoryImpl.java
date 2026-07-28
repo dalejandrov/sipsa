@@ -5,11 +5,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -77,7 +79,7 @@ public class SipsaMayoristasSemanalBatchInsertRepositoryImpl implements SipsaMay
         setNullableLong(ps, 4, row.getFuenId());
         ps.setString(5, row.getFuenNombre());
         setNullableLong(ps, 6, row.getFutiId());
-        ps.setTimestamp(7, toTimestamp(row.getFechaIni()));
+        ps.setDate(7, toSqlDate(row.getFechaIni()));
         ps.setTimestamp(8, toTimestamp(row.getFechaCreacion()));
         ps.setBigDecimal(9, row.getMinimoKg());
         ps.setBigDecimal(10, row.getMaximoKg());
@@ -97,5 +99,9 @@ public class SipsaMayoristasSemanalBatchInsertRepositoryImpl implements SipsaMay
 
     private static Timestamp toTimestamp(Instant instant) {
         return instant == null ? null : Timestamp.from(instant);
+    }
+
+    private static Date toSqlDate(LocalDate localDate) {
+        return localDate == null ? null : Date.valueOf(localDate);
     }
 }
