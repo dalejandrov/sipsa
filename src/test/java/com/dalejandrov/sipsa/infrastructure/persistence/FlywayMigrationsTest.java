@@ -58,21 +58,17 @@ class FlywayMigrationsTest {
     private JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("Flyway auto-configuration is active and applied the full migration chain")
+    @DisplayName("Flyway auto-configuration is active and applied the migration chain")
     void flywayAppliedMigrations() {
         MigrationInfo[] applied = flyway.info().applied();
 
-        assertThat(applied).hasSizeGreaterThanOrEqualTo(5);
+        assertThat(applied).hasSizeGreaterThanOrEqualTo(1);
         assertThat(applied[0].getVersion().getVersion()).isEqualTo("1");
-        assertThat(applied[1].getVersion().getVersion()).isEqualTo("2");
-        assertThat(applied[2].getVersion().getVersion()).isEqualTo("3");
-        assertThat(applied[3].getVersion().getVersion()).isEqualTo("4");
-        assertThat(applied[4].getVersion().getVersion()).isEqualTo("5");
     }
 
     @Test
-    @DisplayName("V5: the 4 DANE calendar-date columns (5 columns across 5 tables) are DATE, not TIMESTAMPTZ (TECH-104)")
-    void calendarDateColumnsRetypedToDate() {
+    @DisplayName("The 4 DANE calendar-date columns (5 columns across 5 tables) are DATE, not TIMESTAMPTZ (TECH-104)")
+    void calendarDateColumnsAreDate() {
         record ColumnRef(String table, String column) {}
         List<ColumnRef> calendarColumns = List.of(
                 new ColumnRef("sipsa_ciudad", "fecha_captura"),
@@ -89,7 +85,7 @@ class FlywayMigrationsTest {
             assertThat(dataType).as("%s.%s", ref.table(), ref.column()).isEqualTo("date");
         }
 
-        // fecha_creacion (a genuine instant, untouched by V5) must still be timestamptz.
+        // fecha_creacion is a genuine instant, not a calendar date, and must stay timestamptz.
         String untouched = jdbc.queryForObject(
                 "SELECT data_type FROM information_schema.columns "
                         + "WHERE table_name = 'sipsa_ciudad' AND column_name = 'fecha_creacion'",
@@ -98,7 +94,7 @@ class FlywayMigrationsTest {
     }
 
     @Test
-    @DisplayName("V4: sipsa_parcial article-filter covering index exists with the expected shape (TECH-124)")
+    @DisplayName("sipsa_parcial article-filter covering index exists with the expected shape (TECH-124)")
     void parcialArticleQueryIndexExists() {
         String indexdef = jdbc.queryForObject(
                 "SELECT indexdef FROM pg_indexes WHERE tablename = 'sipsa_parcial' "
@@ -112,8 +108,8 @@ class FlywayMigrationsTest {
     }
 
     @Test
-    @DisplayName("V3: redundant key_hash index is gone; the UNIQUE constraint index remains (TECH-119)")
-    void redundantKeyHashIndexRemovedAndConstraintPreserved() {
+    @DisplayName("sipsa_parcial has no redundant key_hash index; the UNIQUE constraint index remains (TECH-119)")
+    void redundantKeyHashIndexAbsentAndConstraintPreserved() {
         Integer redundant = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pg_indexes WHERE tablename = 'sipsa_parcial' "
                         + "AND indexname = 'idx_sipsa_parcial_key_hash'",
@@ -128,13 +124,13 @@ class FlywayMigrationsTest {
                         + "AND con.conname = 'sipsa_parcial_key_hash_key'",
                 Integer.class);
 
-        assertThat(redundant).as("explicit duplicate index dropped by V3").isZero();
+        assertThat(redundant).as("no explicit duplicate index over key_hash").isZero();
         assertThat(constraintBacking).as("UNIQUE constraint backing index preserved").isEqualTo(1);
         assertThat(uniqueConstraint).as("UNIQUE (key_hash) constraint still active").isEqualTo(1);
     }
 
     @Test
-    @DisplayName("V2: sipsa_parcial natural-key support index exists (TECH-011 expand phase)")
+    @DisplayName("sipsa_parcial natural-key support index exists (TECH-011)")
     void parcialNaturalKeyIndexExists() {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pg_indexes WHERE tablename = 'sipsa_parcial' "
