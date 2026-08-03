@@ -91,7 +91,7 @@ When a story is implemented:
 | TECH-150 | Integration-test scaffolding: Failsafe `integration-tests` profile, `*IT` convention, shared WireMock SOAP fixture support | High | 6 | **Done** (2026-08-03, branch `spike/tech-044-comprehensive-testing-strategy` — found and fixed a real WireMock/Jetty 12 dependency conflict along the way, see story) |
 | TECH-151 | `CiudadIngestionHandlerIT` (WireMock + Testcontainers PG) | High | 6 | **Done** (2026-08-03, branch `test/ciudad-ingestion-handler-it`) |
 | TECH-152 | `SemanaIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | **Done** (2026-08-03, branch `test/semana-ingestion-handler-it`) |
-| TECH-153 | `MesIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
+| TECH-153 | `MesIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | **Done** (2026-08-03, branch `test/mes-ingestion-handler-it`) |
 | TECH-154 | `AbasIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
 | TECH-155 | `ParcialIngestionHandlerIT` (WireMock + Testcontainers PG); existing `ParcialIngestionHandlerTest` kept as-is | High | 6 | Pending — depends on TECH-150 |
 | TECH-156 | `SoapStreamingClientTest`: retry/backoff/GZIP decompression unit coverage | Medium | 3 | Pending — carried over from `testing-strategy.md` "Recommended" |
@@ -5466,19 +5466,28 @@ new integration tests green.
 **Type:** Test
 **Priority:** Medium
 **Phase:** 6
-**Status:** Pending
-**Complexity:** S (pattern already established by TECH-151)
-**Branch (suggested):** `test/mes-ingestion-handler-it`
-**Dependencies:** TECH-150, pattern from TECH-151.
+**Status:** **Done**
+**Complexity:** S (pattern already established by TECH-151/152)
+**Branch:** `test/mes-ingestion-handler-it`
+**Dependencies:** TECH-150, pattern from TECH-151/152.
 
 **Objective:** Same shape as TECH-151, for `MesIngestionHandler` /
 `promediosSipsaMesMadr` (the day-8 monthly window), asserting rows land in
 `sipsa_mayoristas_mensual`.
 
-**Acceptance Criteria:**
-- [ ] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure.
+**Same dual-path shape as TECH-152:** `sipsa_mayoristas_mensual` has the identical
+`upsertTmpBatch`/`upsertFallbackBatch` split (`ux_mes_tmp`/`ux_mes_fallback` unique
+constraints, `tmp_mayo_mes_id` vs. `(arti_id, fuen_id, fecha_mes_ini)`), so the fixture
+(`fixtures/soap/MesIngestionHandler/four-records.xml`) again has 2 records of each
+shape.
 
-**Completed:** —
+**Acceptance Criteria:**
+- [x] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure —
+      golden-path and idempotency additionally assert both upsert paths independently.
+
+**Completed:** 2026-08-03, branch `test/mes-ingestion-handler-it`.
+`./mvnw clean verify -P integration-tests`: 465 unit tests green (0 regressions), 3/3
+new integration tests green.
 
 ---
 
