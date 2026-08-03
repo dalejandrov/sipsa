@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TECH-152/ADR-011 example fixture: a realistically-shaped promediosSipsaSemanaMadr
+  SOAP 1.2 response with 4 records - 2 with tmpMayoSemId (route to
+  SipsaMayoristasSemanalRepository.upsertTmpBatch) and 2 without it (route to
+  upsertFallbackBatch, TECH-060's ON CONFLICT (arti_id, fuen_id, fecha_ini) DO NOTHING
+  path). See CiudadIngestionHandler's fixture for why only "return" and its children
+  matter to AbstractStaxParser - the envelope/response wrapper names here are for
+  realism only.
+-->
+<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
+    <soap12:Body>
+        <promediosSipsaSemanaMadrResponse xmlns="http://servicios.sipsa.co.gov.dane/">
+            <promediosSipsaSemanaMadrResult>
+                <return>
+                    <tmpMayoSemId>500001</tmpMayoSemId>
+                    <artiId>201</artiId>
+                    <artiNombre>PLATANO HARTON VERDE</artiNombre>
+                    <fuenId>10</fuenId>
+                    <fuenNombre>CORABASTOS</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaIni>2026-08-01T00:00:00-05:00</fechaIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <minimoKg>900.00</minimoKg>
+                    <maximoKg>1500.00</maximoKg>
+                    <promedioKg>1200.00</promedioKg>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <tmpMayoSemId>500002</tmpMayoSemId>
+                    <artiId>202</artiId>
+                    <artiNombre>CEBOLLA CABEZONA BLANCA</artiNombre>
+                    <fuenId>11</fuenId>
+                    <fuenNombre>SANTA HELENA</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaIni>2026-08-01T00:00:00-05:00</fechaIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <minimoKg>1800.00</minimoKg>
+                    <maximoKg>2600.00</maximoKg>
+                    <promedioKg>2200.00</promedioKg>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <artiId>203</artiId>
+                    <artiNombre>TOMATE CHONTO</artiNombre>
+                    <fuenId>12</fuenId>
+                    <fuenNombre>BAZURTO</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaIni>2026-08-01T00:00:00-05:00</fechaIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <minimoKg>1400.00</minimoKg>
+                    <maximoKg>2100.00</maximoKg>
+                    <promedioKg>1750.00</promedioKg>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <artiId>204</artiId>
+                    <artiNombre>PAPA CRIOLLA LIMPIA</artiNombre>
+                    <fuenId>13</fuenId>
+                    <fuenNombre>CENABASTOS</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaIni>2026-08-01T00:00:00-05:00</fechaIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <minimoKg>2200.00</minimoKg>
+                    <maximoKg>3100.00</maximoKg>
+                    <promedioKg>2650.00</promedioKg>
+                    <enviado>1</enviado>
+                </return>
+            </promediosSipsaSemanaMadrResult>
+        </promediosSipsaSemanaMadrResponse>
+    </soap12:Body>
+</soap12:Envelope>
