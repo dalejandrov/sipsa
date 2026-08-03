@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TECH-154/ADR-011 example fixture: a realistically-shaped promedioAbasSipsaMesMadr
+  SOAP 1.2 response with 4 records - 2 with tmpAbasMesId (route to
+  SipsaAbastecimientosMensualRepository.upsertTmpBatch) and 2 without it (route to
+  upsertFallbackBatch, ON CONFLICT (arti_id, fuen_id, fecha_mes_ini) DO NOTHING - same
+  dual-path shape as Mes/Semana). Note: AbasStaxParser reads the same <fechaMesIni> tag
+  Mes uses (XmlFieldNames.FECHA_MES_INI), just into a differently-named record field
+  (fechaMes) - see AbasStaxParser.HANDLERS.
+-->
+<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
+    <soap12:Body>
+        <promedioAbasSipsaMesMadrResponse xmlns="http://servicios.sipsa.co.gov.dane/">
+            <promedioAbasSipsaMesMadrResult>
+                <return>
+                    <tmpAbasMesId>700001</tmpAbasMesId>
+                    <artiId>401</artiId>
+                    <artiNombre>ARROZ CLASE PRIMERA</artiNombre>
+                    <fuenId>30</fuenId>
+                    <fuenNombre>CORABASTOS</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaMesIni>2026-08-01T00:00:00-05:00</fechaMesIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <cantidadTon>1250.50</cantidadTon>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <tmpAbasMesId>700002</tmpAbasMesId>
+                    <artiId>402</artiId>
+                    <artiNombre>PAPA CRIOLLA LIMPIA</artiNombre>
+                    <fuenId>31</fuenId>
+                    <fuenNombre>SANTA HELENA</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaMesIni>2026-08-01T00:00:00-05:00</fechaMesIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <cantidadTon>860.00</cantidadTon>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <artiId>403</artiId>
+                    <artiNombre>PLATANO HARTON VERDE</artiNombre>
+                    <fuenId>32</fuenId>
+                    <fuenNombre>BAZURTO</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaMesIni>2026-08-01T00:00:00-05:00</fechaMesIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <cantidadTon>430.25</cantidadTon>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <artiId>404</artiId>
+                    <artiNombre>TOMATE CHONTO</artiNombre>
+                    <fuenId>33</fuenId>
+                    <fuenNombre>CENABASTOS</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaMesIni>2026-08-01T00:00:00-05:00</fechaMesIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <cantidadTon>610.75</cantidadTon>
+                    <enviado>1</enviado>
+                </return>
+            </promedioAbasSipsaMesMadrResult>
+        </promedioAbasSipsaMesMadrResponse>
+    </soap12:Body>
+</soap12:Envelope>
