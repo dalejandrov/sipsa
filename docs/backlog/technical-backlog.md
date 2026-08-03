@@ -88,7 +88,7 @@ When a story is implemented:
 | TECH-134 | Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`) | Low | — | **Done** (2026-07-19, branch `fix/align-remaining-sipsa-decimal-precision` — all SIPSA price models now declare `19,2`, no migration) |
 | TECH-135 | Centralize ingestion rejection-threshold configuration (C-04) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-ingestion-rejection-thresholds` — thresholds bind once in `IngestionProperties`, effective 0.01/5000 unchanged) |
 | TECH-136 | Centralize async executor configuration and pin the audit executor (C-05) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-async-executor-config` — `AsyncExecutorProperties` + `@Async("ingestionTaskExecutor")` for audit; geometry 2/10/25/60s unchanged) |
-| TECH-150 | Integration-test scaffolding: Failsafe `integration-tests` profile, `*IT` convention, shared WireMock SOAP fixture support | High | 6 | Pending — [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
+| TECH-150 | Integration-test scaffolding: Failsafe `integration-tests` profile, `*IT` convention, shared WireMock SOAP fixture support | High | 6 | **Done** (2026-08-03, branch `spike/tech-044-comprehensive-testing-strategy` — found and fixed a real WireMock/Jetty 12 dependency conflict along the way, see story) |
 | TECH-151 | `CiudadIngestionHandlerIT` (WireMock + Testcontainers PG) | High | 6 | Pending — depends on TECH-150 |
 | TECH-152 | `SemanaIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
 | TECH-153 | `MesIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
@@ -5281,9 +5281,10 @@ remains a business decision to validate separately.
 **Type:** Infrastructure (test)
 **Priority:** High
 **Phase:** 6
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** M
-**Branch (suggested):** `test/integration-test-scaffolding`
+**Branch:** `spike/tech-044-comprehensive-testing-strategy` (continued directly from the
+ADR-011 documentation work, not a separate branch — the two are one coherent change)
 **Dependencies:** None. Unblocks TECH-151..155, TECH-160, TECH-161.
 **Decision reference:** [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
 
@@ -5294,16 +5295,72 @@ shared WireMock support base class that serves SOAP XML fixtures from
 story — it is scaffolding only, proven with one throwaway smoke `*IT` that gets deleted
 once TECH-151 lands.
 
+**Real finding, not assumed going in (2026-08-03): WireMock did not actually work on
+this classpath.** ADR-011 stated WireMock was "already on the classpath, already
+proven" based on its presence in `pom.xml` since the very first commit. That was wrong
+— confirmed empirically with a throwaway spike test before writing any real code:
+`new WireMockServer(0).start()` threw `FatalStartupException: Jetty 11 is not present
+and no suitable HttpServerFactory extension was found`. Both existing tests that needed
+an HTTP mock (`SoapStreamingClientMetricsTest`, TECH-032, and
+`CognitoJwtDecoderContractTest`, TECH-142) had independently worked around this by using
+a plain JDK `HttpServer` instead — `CognitoJwtDecoderContractTest`'s own Javadoc says so
+explicitly ("this repository does not have a working WireMock HTTP-server extension on
+its classpath yet"). Root cause and fix, in order:
+1. The bare `org.wiremock:wiremock` core artifact ships no embedded HTTP server — added
+   `org.wiremock:wiremock-jetty12` (Jetty 11's equivalent extension exists too, but this
+   project already targets a current Jetty-12-based extension).
+2. `org.wiremock:wiremock` itself transitively pulls a set of legacy Jetty
+   9/10/11-artifact-named modules (`jetty-servlet`, `jetty-servlets`, `jetty-webapp`,
+   `http2-server`/`-common`/`-hpack`) that don't exist in Jetty 12's module layout and
+   conflicted with the Jetty 12 modules `wiremock-jetty12` needs
+   (`NoClassDefFoundError: org/eclipse/jetty/io/WriteFlusher$Listener`) — excluded via
+   `<exclusions>` on the `wiremock` dependency.
+3. `wiremock-jetty12:3.13.2`'s own POM declares its `jetty-ee10-*` modules at `12.0.30`
+   while Spring Boot 4.1.0 manages the rest of the Jetty 12 tree at `12.1.10` — a version
+   split that threw `NoSuchMethodError: Environment.ensure(String)` at `WireMockServer`
+   startup. Pinned `jetty-ee10-servlet`/`jetty-ee10-servlets`/`jetty-ee10-webapp`/
+   `jetty-ee` to `12.1.10` in `dependencyManagement` to match.
+
+All three fixes are in `pom.xml`, each with an inline comment explaining why. This is a
+real, reusable fact for TECH-151..155/160: WireMock now genuinely works on this
+classpath; no future story needs to re-derive this.
+
+**Delivered:**
+- `pom.xml`: the 3 fixes above, plus the `integration-tests` Maven profile
+  (`maven-failsafe-plugin:3.5.4`, bound to `integration-test`/`verify`, active only under
+  `-P integration-tests`).
+- `com.dalejandrov.sipsa.support.soap.SoapWireMockSupport` — a JUnit 5
+  `BeforeEachCallback`/`AfterEachCallback` extension: starts a fresh `WireMockServer` per
+  test method on a dynamic port, exposes `endpoint()`, `stubFixture(handlerName,
+  fixtureFileName)` (reads `fixtures/soap/<handlerName>/<file>` from the test classpath,
+  stubs a `200` SOAP response), and `stubHttpStatus(status)` (for failure-path tests).
+- `src/test/resources/fixtures/soap/CiudadIngestionHandler/two-records.xml` — the example
+  fixture: a realistically-shaped `promediosSipsaCiudad` SOAP 1.2 response with 2
+  `<return>` records, field names/values verified against `CiudadStaxParser`'s real
+  handler map (`XmlFieldNames`) before writing it, not guessed.
+- `WireMockScaffoldingSmokeIT` — the throwaway smoke test: stubs the fixture, drives it
+  through the real `SoapGatewayImpl` → `SoapStreamingClient` → `CiudadStaxParser` chain
+  (no Spring context, no database — deliberately the minimum needed to prove the
+  wiring), asserts the 2 parsed records match the fixture; a second case stubs an HTTP
+  500 and asserts it surfaces as `SipsaExternalException`, not a silent empty result.
+
 **Acceptance Criteria:**
-- [ ] `./mvnw test` behavior is unchanged (still Docker-optional, still excludes `*IT`).
-- [ ] `./mvnw verify -P integration-tests` runs `*IT` classes via Failsafe.
-- [ ] A shared WireMock support base class exists and is documented (Javadoc + a short
-      section in `testing-strategy.md`) well enough that TECH-151..155 can each be
-      implemented by copying its usage pattern.
-- [ ] Fixture directory convention (`fixtures/soap/<HandlerName>/`) documented with at
+- [x] `./mvnw test` behavior is unchanged (confirmed: full suite, 465 tests via the
+      `<testsuite tests="...">` XML reports, 0 failures/errors after `./mvnw clean test`;
+      `WireMockScaffoldingSmokeIT` does not appear in any `surefire-reports` file —
+      Surefire's default include patterns never match `*IT.java`).
+- [x] `./mvnw verify -P integration-tests` runs `*IT` classes via Failsafe (confirmed:
+      `target/failsafe-reports/...WireMockScaffoldingSmokeIT.txt` — "Tests run: 2,
+      Failures: 0, Errors: 0").
+- [x] A shared WireMock support base class exists and is documented (Javadoc on the class
+      itself, plus this story) well enough that TECH-151..155 can each be implemented by
+      copying its usage pattern.
+- [x] Fixture directory convention (`fixtures/soap/<HandlerName>/`) documented with at
       least one real fixture file committed as an example.
 
-**Completed:** —
+**Completed:** 2026-08-03, branch `spike/tech-044-comprehensive-testing-strategy`.
+`./mvnw clean test`: 465 tests green. `./mvnw verify -P integration-tests`: the new IT
+green (2/2).
 
 ---
 

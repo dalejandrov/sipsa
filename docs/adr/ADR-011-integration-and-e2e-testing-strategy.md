@@ -174,6 +174,22 @@ profile.
 
 ---
 
+## Update (2026-08-03, TECH-150 implementation)
+
+This ADR's Context section states WireMock was "already on the test classpath" as
+evidence it was a low-risk, already-proven choice. That was **only half true**: the
+`org.wiremock:wiremock` dependency was declared, but constructing a `WireMockServer`
+with it alone threw `FatalStartupException` — it ships no embedded HTTP server by
+default in 3.x. Two existing tests (`SoapStreamingClientMetricsTest`,
+`CognitoJwtDecoderContractTest`) had already independently discovered this and worked
+around it with a plain JDK `HttpServer`; this ADR's author did not check that history
+closely enough before writing the "already proven" claim above. TECH-150 found and fixed
+the real cause (a missing Jetty-12 extension dependency plus two Jetty version
+conflicts — full detail in [TECH-150](../backlog/technical-backlog.md#tech-150)) and
+confirmed WireMock now genuinely starts and serves on this classpath. The decision
+itself (WireMock + Testcontainers, Option A) is unaffected — it was the right tooling
+choice regardless; it just required more work to make functional than assumed here.
+
 ## Reconsider if
 
 - WireMock or Testcontainers stop being viable in CI (e.g., the CI runner loses Docker

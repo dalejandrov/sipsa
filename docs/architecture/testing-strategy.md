@@ -9,11 +9,12 @@
 
 | Metric | Value |
 |---|---|
-| Test files | 62 (as of 2026-08-03; grown from the 10 recorded on 2026-07-13 — see the full list under `src/test/java/`) |
-| Test methods | 457 `@Test` methods (0 failures, 0 skips) |
+| Test files (Surefire, unit) | 64 (as of 2026-08-03; grown from the 10 recorded on 2026-07-13 — see the full list under `src/test/java/`) |
+| Test methods (Surefire, unit) | 459 `@Test` methods (`./mvnw clean test`: 465 executions per the XML reports — a few methods are parameterized into multiple cases; 0 failures, 0 skips) |
 | Business logic coverage | Every unit-test target listed as **Done** in "Unit Tests — Mandatory" below, plus the ADR-002 security chain, the ADR-009 Flyway migration gate, and package-boundary ArchUnit rules (TECH-093). No JaCoCo configured yet — line-coverage % still not measured (tracked as [TECH-159](../backlog/technical-backlog.md#tech-159)) |
 | Database dependency for tests | H2 in-memory for context/unit tests; several tests (`FlywayMigrationsTest`, `SpecificationBuilderPostgresTest`, and others) provision real PostgreSQL 18 via Testcontainers (self-skip without Docker locally; CI fails if they skip — TECH-120) |
-| Integration tests (handler-level, real SOAP transport + real DB) | **None yet.** Only `ParcialIngestionHandlerTest` exists among the 5 handlers, and it deliberately bypasses both the real transport and the real database — see [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md). Tracked as [TECH-150..155](../backlog/technical-backlog.md#tech-150) |
+| Integration-test scaffolding (Failsafe profile, WireMock support, fixture convention) | **Done** ([TECH-150](../backlog/technical-backlog.md#tech-150), 2026-08-03) |
+| Integration tests (handler-level, real SOAP transport + real DB) | **None yet.** Only `ParcialIngestionHandlerTest` exists among the 5 handlers, and it deliberately bypasses both the real transport and the real database — see [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md). Scaffolding is ready (TECH-150, above); the 5 real handler ITs are tracked as [TECH-151..155](../backlog/technical-backlog.md#tech-151) |
 | E2E tests | **None yet.** Previously "not planned"; reversed by ADR-011 (narrow scope). Tracked as [TECH-160](../backlog/technical-backlog.md#tech-160) |
 | Intentional skips | 0 |
 
@@ -342,10 +343,12 @@ reasoning.
   `ParcialIngestionHandlerTest` (TECH-011) uses a Mockito-faked repository for this and
   is kept as-is, not replaced.
 
-**Build mechanics** (tracked as [TECH-150](../backlog/technical-backlog.md#tech-150)):
-a new Maven `integration-tests` profile, `maven-failsafe-plugin`, `*IT.java` naming,
-bound to `verify` and kept out of the default `./mvnw test` run — see [CI
-Considerations](#ci-considerations) below.
+**Build mechanics** — **done** ([TECH-150](../backlog/technical-backlog.md#tech-150),
+2026-08-03): a Maven `integration-tests` profile, `maven-failsafe-plugin`, `*IT.java`
+naming, bound to `verify` and kept out of the default `./mvnw test` run — see [CI
+Considerations](#ci-considerations) below. Getting WireMock itself to actually start
+took more than declaring the dependency (it already was declared, but non-functional —
+see TECH-150 for the 3 Jetty-related `pom.xml` fixes required).
 
 ---
 
@@ -429,9 +432,11 @@ by [TECH-150](../backlog/technical-backlog.md#tech-150).
 
 **Status (2026-08-03):** the `ci.yml` workflow currently has a single job (`verify`,
 running `./mvnw test`-equivalent plus the Testcontainers-backed tests that happen to run
-inline with it). None of the below is implemented yet — tracked as
-[TECH-150](../backlog/technical-backlog.md#tech-150) (the profile itself) and
-[TECH-161](../backlog/technical-backlog.md#tech-161) (the CI job).
+inline with it). The `integration-tests` Maven profile itself is **done**
+([TECH-150](../backlog/technical-backlog.md#tech-150)) and locally verified
+(`./mvnw verify -P integration-tests` runs and passes `*IT` classes via Failsafe); wiring
+it into `ci.yml` as its own parallel job is not — tracked as
+[TECH-161](../backlog/technical-backlog.md#tech-161).
 
 - **Unit tests:** run on every commit (`./mvnw test`) — unchanged by this plan.
 - **Integration + E2E tests:** a new dedicated Maven profile (`./mvnw verify -P
