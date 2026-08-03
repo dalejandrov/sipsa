@@ -99,7 +99,7 @@ When a story is implemented:
 | TECH-158 | Unit coverage for `GenericIngestionJob`/`IngestionService` dispatch (currently covered only transitively) | Low | 3 | **Done** (2026-08-03, branch `test/unit-coverage-gaps-tech156-158`) |
 | TECH-159 | Introduce JaCoCo (report-only, no build-breaking `check` goal yet) | Medium | 3 | Pending — [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
 | TECH-160 | E2E suite: golden-path (`Ciudad`) + failure-path (SOAP 500) black-box test via `RANDOM_PORT` + WireMock + Testcontainers + mock OIDC | High | 6 | Pending — depends on TECH-150; [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
-| TECH-161 | CI: new `integration-verify` job (`./mvnw verify -P integration-tests`), parallel to `verify` | Medium | 6 | Pending — depends on TECH-150 |
+| TECH-161 | CI: new `integration-verify` job (`./mvnw verify -P integration-tests`), parallel to `verify` | Medium | 6 | **Done** (2026-08-03, branch `ci/integration-verify-job`) |
 
 ---
 
@@ -5777,9 +5777,9 @@ ITs.
 **Type:** Infrastructure (CI)
 **Priority:** Medium
 **Phase:** 6
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** S
-**Branch (suggested):** `ci/integration-verify-job`
+**Branch:** `ci/integration-verify-job`
 **Dependencies:** TECH-150.
 **Decision reference:** [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
 
@@ -5788,12 +5788,27 @@ ITs.
 (not chained after it), reusing the same JDK 25/Maven-cache setup already proven for
 Testcontainers in that workflow (TECH-120).
 
-**Acceptance Criteria:**
-- [ ] New job runs on the same triggers as `verify`.
-- [ ] Confirmed to run in parallel, not sequentially after `verify` (matching the
-      rationale in ADR-011: a slow/flaky Testcontainers pull must never block the fast
-      unit-test signal).
-- [ ] Failure of `integration-verify` blocks merge exactly like `verify` does today (no
-      quieter failure mode introduced).
+**Implemented as** the `integration-verify` job: same trigger (`pull_request`, push to
+`main`), same `runs-on`/JDK 25 setup/Maven cache as `verify`, no `needs:` between the two
+jobs (GitHub Actions runs jobs without a `needs:` dependency in parallel by default).
+Adds one extra safety step beyond the bare `mvn verify` call, mirroring `verify`'s own
+existing "assert the Flyway migration gate ran" step: every one of the 5 per-handler
+ITs is `@Testcontainers(disabledWithoutDocker = true)`, the same silent-skip risk
+`FlywayMigrationsTest` already guards against — so this job asserts, per handler, that
+its Failsafe XML report exists and shows `tests > 0` and `skipped = 0`, failing the
+build loudly instead of letting a Docker-unavailable runner silently skip the whole IT
+suite. Verified locally against real report output before committing (not assumed): the
+loop's `sed` parsing was run against the 5 real `target/failsafe-reports/TEST-*.xml`
+files from a real `./mvnw verify -P integration-tests` run, confirming
+`tests=3 skipped=0` for each. YAML syntax validated (`YAML.load_file`).
 
-**Completed:** —
+**Acceptance Criteria:**
+- [x] New job runs on the same triggers as `verify`.
+- [x] Confirmed to run in parallel, not sequentially after `verify` (no `needs:` field
+      between them — matching the rationale in ADR-011: a slow/flaky
+      Testcontainers/WireMock startup must never block the fast unit-test signal).
+- [x] Failure of `integration-verify` blocks merge exactly like `verify` does today (no
+      quieter failure mode introduced — same job-level pass/fail GitHub Actions
+      semantics, no `continue-on-error`).
+
+**Completed:** 2026-08-03, branch `ci/integration-verify-job`.
