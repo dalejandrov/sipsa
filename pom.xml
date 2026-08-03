@@ -61,6 +61,38 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+
+            <!-- wiremock-jetty12:3.13.2 (TECH-150) declares its jetty-ee10-* modules at
+                 12.0.30 while Spring Boot 4.1.0 manages the rest of the Jetty 12 tree
+                 (jetty-server, jetty-util, jetty-security, ...) at 12.1.10. Left
+                 unpinned, that split causes a NoSuchMethodError at WireMockServer
+                 startup (Environment.ensure, added between those two Jetty minor
+                 versions). Pinned to the same 12.1.10 the rest of the tree already
+                 resolves to, so the whole Jetty 12 tree is internally consistent. -->
+            <dependency>
+                <groupId>org.eclipse.jetty.ee10</groupId>
+                <artifactId>jetty-ee10-servlet</artifactId>
+                <version>12.1.10</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.ee10</groupId>
+                <artifactId>jetty-ee10-servlets</artifactId>
+                <version>12.1.10</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.ee10</groupId>
+                <artifactId>jetty-ee10-webapp</artifactId>
+                <version>12.1.10</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-ee</artifactId>
+                <version>12.1.10</version>
+                <scope>test</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -178,9 +210,44 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- WireMock 3.x's "wiremock" core artifact ships no embedded HTTP server; it
+             requires an explicit HttpServerFactory extension (TECH-150 finding — the
+             bare "wiremock" artifact alone throws FatalStartupException at
+             WireMockServer construction time). It also transitively pulls a set of
+             legacy Jetty 9/10/11-style modules (jetty-servlet, jetty-servlets,
+             jetty-webapp, http2-server/-common/-hpack under old artifact names that
+             don't even exist in Jetty 12's module layout) that conflict with the
+             Jetty 12 modules wiremock-jetty12 needs (NoClassDefFoundError:
+             org/eclipse/jetty/io/WriteFlusher$Listener without these exclusions) -
+             excluded here since wiremock-jetty12 supplies the Jetty-12-shaped
+             equivalents itself. -->
         <dependency>
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock</artifactId>
+            <version>${wiremock.version}</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.eclipse.jetty</groupId>
+                    <artifactId>jetty-servlet</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.eclipse.jetty</groupId>
+                    <artifactId>jetty-servlets</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.eclipse.jetty</groupId>
+                    <artifactId>jetty-webapp</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.eclipse.jetty.http2</groupId>
+                    <artifactId>http2-server</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-jetty12</artifactId>
             <version>${wiremock.version}</version>
             <scope>test</scope>
         </dependency>
@@ -339,5 +406,33 @@
 
         </plugins>
     </build>
+
+    <!-- TECH-150 / ADR-011: integration + E2E tests (*IT.java, *E2ETest.java) are kept
+         out of the default build. `./mvnw test` and plain `./mvnw verify` never run
+         them - only `./mvnw verify -P integration-tests` does, and that requires
+         Docker (WireMock + Testcontainers), matching FlywayMigrationsTest's existing
+         self-skip behavior for anyone who runs the default build without it. -->
+    <profiles>
+        <profile>
+            <id>integration-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>3.5.4</version>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

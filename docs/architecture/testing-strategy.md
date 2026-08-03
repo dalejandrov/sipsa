@@ -1,7 +1,7 @@
 # Testing Strategy — SIPSA Integration Service
 
-**Version:** 1.0  
-**Date:** 2026-07-13
+**Version:** 1.1
+**Date:** 2026-07-13 (updated 2026-08-03 — see [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md))
 
 ---
 
@@ -9,20 +9,28 @@
 
 | Metric | Value |
 |---|---|
-| Test files | 10 (`SipsaApplicationTests`, `WindowPolicyTest`, `SipsaSchedulingCronTest`, `SipsaIngestionSchedulerTest`, `SipsaSchedulingContextTest`, `SipsaSchedulingDisabledByDefaultTest`, `InternalIngestionCommandsTest`, `InternalEndpointSecurityTest`, `SipsaJwtValidatorsTest`, `FlywayMigrationsTest`) |
-| Test methods | 104 (0 failures, 0 skips as of 2026-07-15) |
-| Business logic coverage | `WindowPolicy`, `SipsaIngestionScheduler`, the `application/command` static factories, the ADR-002 security chain (authentication, scopes, client allowlist), and the ADR-009 Flyway migration gate (no JaCoCo configured yet — line-coverage % not measured) |
-| Database dependency for tests | H2 in-memory for context tests; `FlywayMigrationsTest` provisions real PostgreSQL 18 via Testcontainers (self-skips without Docker locally; CI fails if it skips — TECH-120) |
-| Intentional skips | 0 — the 2 `@Disabled` tests documenting TECH-111's desired behavior were re-enabled when TECH-111 fixed the defect (2026-07-14) |
+| Test files (Surefire, unit) | 64 (as of 2026-08-03; grown from the 10 recorded on 2026-07-13 — see the full list under `src/test/java/`) |
+| Test methods (Surefire, unit) | 459 `@Test` methods (`./mvnw clean test`: 465 executions per the XML reports — a few methods are parameterized into multiple cases; 0 failures, 0 skips) |
+| Business logic coverage | Every unit-test target listed as **Done** in "Unit Tests — Mandatory" below, plus the ADR-002 security chain, the ADR-009 Flyway migration gate, and package-boundary ArchUnit rules (TECH-093). No JaCoCo configured yet — line-coverage % still not measured (tracked as [TECH-159](../backlog/technical-backlog.md#tech-159)) |
+| Database dependency for tests | H2 in-memory for context/unit tests; several tests (`FlywayMigrationsTest`, `SpecificationBuilderPostgresTest`, and others) provision real PostgreSQL 18 via Testcontainers (self-skip without Docker locally; CI fails if they skip — TECH-120) |
+| Integration-test scaffolding (Failsafe profile, WireMock support, fixture convention) | **Done** ([TECH-150](../backlog/technical-backlog.md#tech-150), 2026-08-03) |
+| Integration tests (handler-level, real SOAP transport + real DB) | **None yet.** Only `ParcialIngestionHandlerTest` exists among the 5 handlers, and it deliberately bypasses both the real transport and the real database — see [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md). Scaffolding is ready (TECH-150, above); the 5 real handler ITs are tracked as [TECH-151..155](../backlog/technical-backlog.md#tech-151) |
+| E2E tests | **None yet.** Previously "not planned"; reversed by ADR-011 (narrow scope). Tracked as [TECH-160](../backlog/technical-backlog.md#tech-160) |
+| Intentional skips | 0 |
 
-Updated by TECH-110 (`test/scheduled-ingestion-jobs`), TECH-090
-(`InternalIngestionCommandsTest`), TECH-111 (re-enabled and extended `WindowPolicyTest`,
-now 34 cases), ADR-009 (`FlywayMigrationsTest`, 4 cases against real PostgreSQL 18), and
-TECH-001/TECH-002 (`InternalEndpointSecurityTest`, 15 cases; `SipsaJwtValidatorsTest`,
-11 cases) — see [Scheduled Ingestion Validation](scheduled-ingestion-validation.md) for
-the scheduling report. Everything else in this document (`SpecificationBuilderTest`,
-`IngestionJobTest`, `GlobalExceptionHandlerTest`, and the recommended/optional/integration
-sections below) remains as originally planned and **not yet implemented**.
+Updated by TECH-110, TECH-090, TECH-111, ADR-009, TECH-001/002 (as recorded in the
+original version of this document — see git history for that detail), and since then by
+every unit-test story through TECH-043 (all of "Unit Tests — Mandatory" below is now
+**Done**). The **2026-08-03 update** ([ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md))
+resolves [TECH-044](../backlog/technical-backlog.md#tech-044) (the integration-test
+tooling SPIKE) and reverses this document's original "E2E not planned" call — see the
+Integration Tests and End-to-End Tests sections below, both rewritten by that ADR. The
+three "Recommended" unit tests below (`SipsaReadServiceTest`, `PaginationConfigTest`,
+`SoapStreamingClientTest`) are **still not implemented** — now tracked as
+[TECH-157](../backlog/technical-backlog.md#tech-157) and
+[TECH-156](../backlog/technical-backlog.md#tech-156) respectively, plus a new gap found
+during the ADR-011 review, `GenericIngestionJob`/`IngestionService` dispatch coverage
+([TECH-158](../backlog/technical-backlog.md#tech-158)).
 
 ---
 
@@ -30,14 +38,15 @@ sections below) remains as originally planned and **not yet implemented**.
 
 ```
           ┌───────────────────────┐
-          │   E2E / Contract      │  ← Not planned (system boundary)
-          │   (WireMock + PG)     │
+          │   E2E                 │  ← Narrow scope: 1 golden path + 1 failure path
+          │   (WireMock + PG +    │     (TECH-160). Not a second copy of the IT layer —
+          │    mock OIDC)         │     see ADR-011.
           ├───────────────────────┤
-          │   Integration Tests   │  ← Phase 5+ (Testcontainers/WireMock)
-          │   (Spring context)    │
+          │   Integration Tests   │  ← Per-handler, WireMock + Testcontainers
+          │   (Spring context)    │     (TECH-150..155, resolves TECH-044/ADR-011)
           ├───────────────────────┤
-          │   Unit Tests          │  ← Phase 3 (immediate priority)
-          │   (pure Java)         │
+          │   Unit Tests          │  ← Mandatory tier: Done. Recommended tier: pending
+          │   (pure Java)         │     (TECH-156..158)
           └───────────────────────┘
 ```
 
@@ -278,74 +287,110 @@ the generic-exception catch-all.
 
 ## Unit Tests — Recommended (Phase 3+)
 
-These add value but are not blockers.
+These add value but are not blockers. Still not implemented as of 2026-08-03 — each now
+has a tracked story (added during the [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
+review).
 
-### `SipsaReadServiceTest`
+### `SipsaReadServiceTest` / `PaginationConfigTest` — [TECH-157](../backlog/technical-backlog.md#tech-157)
 
 Verify: pagination parameters are validated; invalid IDs throw `SipsaValidationException`;
-`SpecificationBuilder` is called with the correct field names.
+`SpecificationBuilder` is called with the correct field names. `buildPageable()` converts
+1-based API pages to 0-based Spring pages; `validatePageable()` enforces max page size.
 
-### `PaginationConfigTest`
-
-Verify: `buildPageable()` converts 1-based API pages to 0-based Spring pages;
-`validatePageable()` enforces max page size.
-
-### `SoapStreamingClientTest`
+### `SoapStreamingClientTest` — [TECH-156](../backlog/technical-backlog.md#tech-156)
 
 Verify: retry logic on 5xx; immediate failure on 4xx; exponential backoff timing (use mock HTTP server);
-GZIP decompression applied when `Content-Encoding: gzip`.
+GZIP decompression applied when `Content-Encoding: gzip`. Complements
+`SoapStreamingClientMetricsTest` (TECH-032), which already proves the metrics emitted
+per attempt/retry against the same kind of local `HttpServer` fixture, but not this
+behavioral contract.
+
+### `GenericIngestionJob` / `IngestionService` dispatch — [TECH-158](../backlog/technical-backlog.md#tech-158)
+
+Found during the ADR-011 review: neither class has a dedicated unit test today. Both are
+covered only *transitively*, through `ScheduledIngestionDispatcherTest` and
+`ParcialConcurrentIngestionAppTest`, which happen to use a real `GenericIngestionJob` for
+other reasons. Verify directly: `IngestionService.execute` dispatches to the correct
+handler by method name and throws `SipsaBusinessException` for an unregistered one;
+`GenericIngestionJob.runIngestion` delegates to `IngestionService.execute` unmodified.
 
 ---
 
-## Integration Tests — Phase 5+ (after TECH-044 SPIKE)
+## Integration Tests — Resolved by ADR-011 (closes TECH-044)
 
-These require a decision on the tooling strategy.
+**This section previously posed an open Option A/B choice pending the TECH-044 SPIKE.**
+[ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) (2026-08-03) closes
+that SPIKE. Decision: **combined WireMock (SOAP) + Testcontainers (PostgreSQL), one
+integration test per handler** — the original "Option A" below, not "Option B" (H2),
+which this document once recommended as a faster starting point. That recommendation is
+now explicitly rejected: H2 cannot exercise the real `ON CONFLICT (key_hash) DO NOTHING`
+upsert ([TECH-117](../backlog/technical-backlog.md#tech-117)) or the `TIMESTAMPTZ`/`DATE`
+semantics ([ADR-008](../adr/ADR-008-timezone-locale-and-date-semantics.md)) the
+persistence layer actually depends on — see ADR-011's "Options considered" for the full
+reasoning.
 
-### Option A: WireMock for SOAP + Testcontainers for PostgreSQL
+**Scope, one class per handler** (tracked as
+[TECH-151 through TECH-155](../backlog/technical-backlog.md#tech-151)):
 
-- `CiudadIngestionHandlerIT`: runs full handler flow with WireMock returning a real SOAP XML fixture.
-- Validates that records are inserted to the DB.
-- Validates metrics in `IngestionContext`.
-- Validates idempotency (second run produces `skipped > 0`).
+- `CiudadIngestionHandlerIT`, `SemanaIngestionHandlerIT`, `MesIngestionHandlerIT`,
+  `AbasIngestionHandlerIT`, `ParcialIngestionHandlerIT`.
+- Each: runs the full handler flow with WireMock serving a real SOAP XML fixture,
+  through the real `SoapGateway`/`SoapStreamingClient`, against a real PostgreSQL 18
+  Testcontainer. Validates records are inserted, `IngestionContext` metrics match the
+  fixture, and a second run against the same fixture is idempotent (`skipped > 0`).
+- `ParcialIngestionHandlerIT` specifically also exercises the real
+  `ON CONFLICT (key_hash) DO NOTHING` path against a real unique index — the existing
+  `ParcialIngestionHandlerTest` (TECH-011) uses a Mockito-faked repository for this and
+  is kept as-is, not replaced.
 
-### Option B: WireMock only (H2 for DB)
-
-- Faster, no container startup.
-- H2 compatibility with PostgreSQL-specific SQL may require query adjustments.
-- Suitable for CI environments without Docker.
-
-### Recommendation (pending TECH-044 SPIKE)
-
-Start with Option B (WireMock + H2) to unblock integration testing quickly.
-Migrate to Testcontainers when PostgreSQL-specific features (JSONB, `citext`, upsert)
-become relevant to the test assertions.
+**Build mechanics** — **done** ([TECH-150](../backlog/technical-backlog.md#tech-150),
+2026-08-03): a Maven `integration-tests` profile, `maven-failsafe-plugin`, `*IT.java`
+naming, bound to `verify` and kept out of the default `./mvnw test` run — see [CI
+Considerations](#ci-considerations) below. Getting WireMock itself to actually start
+took more than declaring the dependency (it already was declared, but non-functional —
+see TECH-150 for the 3 Jetty-related `pom.xml` fixes required).
 
 ---
 
-## ArchUnit — Optional (Phase 4+)
+## End-to-End Tests — New, added by ADR-011 (reverses the original "not planned" call)
 
-ArchUnit can enforce architectural rules at compile time. Recommended rules for this project:
+The original version of this document marked E2E "Not planned (system boundary)" — a
+reasonable call while AWS deployment (TECH-132/TECH-143) was still theoretical.
+[ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) reverses it: the app is
+now close to real production traffic and has never had a single test proving the HTTP
+trigger → async dispatch → ingestion pipeline → audit trail → query-back chain works
+together in one running Spring context.
 
-```java
-// Rule 1: Controllers must not access repositories directly
-noClasses().that().resideInAPackage("..api.controller..")
-    .should().accessClassesThat().resideInAPackage("..persistence.repository..")
-    .check(classes);
+**Deliberately narrow scope** — this is not a second copy of the per-handler integration
+tests above (those verify each handler's parsing/persistence contract; this suite
+verifies the *wiring* between layers, once):
 
-// Rule 2: Domain must not depend on infrastructure
-noClasses().that().resideInAPackage("..domain..")
-    .should().accessClassesThat().resideInAPackage("..infrastructure..")
-    .check(classes);
+- **Golden path:** `POST /api/internal/ingestion/run?method=promediosSipsaCiudad` → `202
+  Accepted` → poll `GET /api/internal/ingestion/runs/{id}` until `SUCCEEDED` → `GET
+  /api/sipsa/ciudad` returns the persisted rows → `GET /api/internal/audit/run/{id}`
+  shows the complete `REQUEST_RECEIVED → REQUEST_ACCEPTED → INGESTION_STARTED →
+  INGESTION_RUNNING → INGESTION_SUCCEEDED → METRICS_UPDATED` sequence.
+- **Failure path:** same trigger, WireMock returns a SOAP 500 → run ends `FAILED`, audit
+  trail intact.
 
-// Rule 3: Generated SOAP classes must stay in soap.client package
-classes().that().resideInAPackage("..soap.client..")
-    .should().notAccessClassesThat().resideOutsideOfPackage("..soap..")
-    .check(classes);
-```
+**Mechanics:** `@SpringBootTest(webEnvironment = RANDOM_PORT)`, a real HTTP client,
+WireMock SOAP, Testcontainers PostgreSQL, reusing the mock-OIDC-issuer pattern already
+proven by the security work (PR #17) to drive the real Spring context under
+authentication. Lives under `src/test/java/.../e2e/`, named `*E2ETest`, run through the
+same `integration-tests` Failsafe profile as the per-handler ITs — no third tool or
+phase. Tracked as [TECH-160](../backlog/technical-backlog.md#tech-160).
 
-**Precondition:** ArchUnit is most valuable when the team has agreed on architectural rules
-and the codebase is clean enough to enforce them without exceeding the exception list.
-Implement after Phase 3 unit tests are stable.
+---
+
+## ArchUnit — **Done** (TECH-093)
+
+Implemented ahead of this document's original "Optional (Phase 4+)" plan.
+`PackageBoundaryArchitectureTest` (plus a dedicated regression-proof fixture package,
+`archunitregression`) enforces package-boundary rules — see
+[ADR-007](../adr/ADR-007-package-boundaries-and-internal-models.md) §F5 for the accepted
+scope. No further ArchUnit work is planned by this document; new rules (e.g. "application
+must not depend on the messaging framework") are only relevant if a story that needs them
+is actually adopted.
 
 ---
 
@@ -359,8 +404,11 @@ Implement after Phase 3 unit tests are stable.
 | Infrastructure (parsers, mappers) | 50% line coverage | JaCoCo |
 | Controllers | Tested via `@WebMvcTest` | — |
 
-**JaCoCo configuration:** Add to `pom.xml` under `<build><plugins>` when implementing Phase 3.
-Configure the `check` goal to fail the build if coverage drops below the minimum.
+**Status (2026-08-03):** still not measured — no JaCoCo configuration exists in
+`pom.xml`. [TECH-159](../backlog/technical-backlog.md#tech-159) adds JaCoCo **report-only**
+first (no build-breaking `check` goal), so these targets can be validated against real
+numbers before anything is enforced. The `check` goal (build fails below threshold) is
+deliberately deferred until then.
 
 ---
 
@@ -370,20 +418,37 @@ Configure the `check` goal to fail the build if coverage drops below the minimum
 |---|---|
 | Unit tests | Constructed in-memory; no fixtures |
 | Context load test | H2 in-memory with `create-drop` (current setup) |
-| SOAP integration tests | WireMock returning real XML fixtures from `src/test/resources/soap-responses/` |
+| SOAP integration tests | WireMock returning real XML fixtures from `src/test/resources/fixtures/soap/<HandlerName>/` |
 | Full integration tests | Testcontainers with PostgreSQL 18 + WireMock |
+| E2E tests | Testcontainers with PostgreSQL 18 + WireMock (SOAP) + mock OIDC issuer |
 
 **Fixture files:** Store representative SOAP XML responses (sanitized if necessary) in
-`src/test/resources/fixtures/soap/` organized by method name.
+`src/test/resources/fixtures/soap/<HandlerName>/`, one directory per handler — established
+by [TECH-150](../backlog/technical-backlog.md#tech-150).
 
 ---
 
 ## CI Considerations
 
-- **Unit tests:** Run on every commit (`./mvnw test`).
-- **Integration tests:** Run with a dedicated Maven profile (`./mvnw verify -P integration-tests`). Requires Docker in CI.
-- **ArchUnit tests:** Compile-time; run on every commit with unit tests.
-- **Coverage report:** Generated by JaCoCo after unit tests; enforced in CI.
+**Status (2026-08-03):** the `ci.yml` workflow currently has a single job (`verify`,
+running `./mvnw test`-equivalent plus the Testcontainers-backed tests that happen to run
+inline with it). The `integration-tests` Maven profile itself is **done**
+([TECH-150](../backlog/technical-backlog.md#tech-150)) and locally verified
+(`./mvnw verify -P integration-tests` runs and passes `*IT` classes via Failsafe); wiring
+it into `ci.yml` as its own parallel job is not — tracked as
+[TECH-161](../backlog/technical-backlog.md#tech-161).
+
+- **Unit tests:** run on every commit (`./mvnw test`) — unchanged by this plan.
+- **Integration + E2E tests:** a new dedicated Maven profile (`./mvnw verify -P
+  integration-tests`), `maven-failsafe-plugin`, `*IT`/`*E2ETest` naming. Requires Docker
+  in CI (already true today for the existing inline Testcontainers tests). Runs in a
+  **separate CI job, in parallel with `verify`**, not chained after it — see
+  [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) for why: a slow or
+  flaky Testcontainers/WireMock startup must never block the fast unit-test signal.
+- **ArchUnit tests:** compile-time; already run on every commit with unit tests (TECH-093,
+  no change needed).
+- **Coverage report:** JaCoCo, **report-only** to start (TECH-159) — generated, not
+  enforced, until real numbers exist to validate the targets above against.
 
 ### Asserting on asynchronous side effects (audit trail)
 

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TECH-150/ADR-011 example fixture: a realistically-shaped promediosSipsaCiudad
+  SOAP 1.2 response with 2 records. AbstractStaxParser only cares about elements
+  literally named "return" (case-insensitive) and their children (matched
+  case-insensitively against XmlFieldNames) - the surrounding envelope/response
+  wrapper names below are for realism, not required by the parser itself.
+-->
+<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
+    <soap12:Body>
+        <promediosSipsaCiudadResponse xmlns="http://servicios.sipsa.co.gov.dane/">
+            <promediosSipsaCiudadResult>
+                <return>
+                    <regId>100001</regId>
+                    <ciudad>BOGOTA, D.C.</ciudad>
+                    <codProducto>101</codProducto>
+                    <producto>ARROZ</producto>
+                    <fechaCaptura>2026-08-01T00:00:00-05:00</fechaCaptura>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <precioPromedio>2500.00</precioPromedio>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <regId>100002</regId>
+                    <ciudad>MEDELLIN</ciudad>
+                    <codProducto>102</codProducto>
+                    <producto>PAPA</producto>
+                    <fechaCaptura>2026-08-01T00:00:00-05:00</fechaCaptura>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <precioPromedio>1800.50</precioPromedio>
+                    <enviado>1</enviado>
+                </return>
+            </promediosSipsaCiudadResult>
+        </promediosSipsaCiudadResponse>
+    </soap12:Body>
+</soap12:Envelope>
