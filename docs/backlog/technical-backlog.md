@@ -56,7 +56,7 @@ When a story is implemented:
 | TECH-101 | Fix `WindowPolicy.validateMonthly` method binding and monthly `windowKey` contract | High | 3 | **Superseded by [TECH-111](#tech-111)** — same defects (F-WP-01/02/03), fixed 2026-07-14, one day before this story was formalized |
 | TECH-102 | Add timezone-conversion tests (instants vs. calendar dates) across `America/Bogota`, `America/New_York`, `America/Los_Angeles`, `UTC`, including DST transitions | Medium | — | **Done** (2026-07-28, `feat/tech-102-104-105-closeout` — `TimezoneUtilTest` 13 cases for genuine-instant fields across zones/seasons/2026 US DST transitions; `SipsaIngestionMapperTest` 9 cases for the calendar-date resolver, including confirming `America/Bogota` never observes DST) |
 | TECH-103 | `TimezoneFilter` responds `400 SIPSA_INVALID_TIMEZONE` on an invalid `X-Timezone` header instead of silently degrading to UTC | Medium | — | **Done** (2026-07-27, `fix/timezone-calendar-dates-and-invalid-header-400`, PR #36) |
-| TECH-104 | Migrate `fecha_captura`/`fecha_mes_ini`/`fecha_ini`/`enma_fecha` from `TIMESTAMPTZ` to `DATE` (SPIKE done 2026-07-27; migration itself implemented 2026-07-28) | Low | — | **Done** (2026-07-28, `feat/tech-102-104-105-closeout` — V5 migration, 5 entities, `SipsaIngestionMapper`/`ParcialIngestionHandler`, `ParcialKeyHash` v2, `SpecificationBuilder` simplified; validated against real DANE SOAP data in Docker — see write-up below) |
+| TECH-104 | Migrate `fecha_captura`/`fecha_mes_ini`/`fecha_ini`/`enma_fecha` from `TIMESTAMPTZ` to `DATE` (SPIKE done 2026-07-27; migration itself implemented 2026-07-28) | Low | — | **Done** (2026-07-28, `feat/tech-102-104-105-closeout` — schema migration, 5 entities, `SipsaIngestionMapper`/`ParcialIngestionHandler`, `ParcialKeyHash` v2, `SpecificationBuilder` simplified; validated against real DANE SOAP data in Docker — see write-up below) |
 | TECH-105 | Evaluate the real need for i18n (`Accept-Language` + `MessageSource`) before implementing it | Low | — | **Evaluated, still deferred** (2026-07-28) — no `Accept-Language`/`MessageSource`/`Locale`-based i18n infrastructure exists anywhere in the codebase (confirmed by search, not assumed); no client requirement for a non-Spanish/non-English audience has ever been documented; error codes are already stable strings, a correct precondition if this is prioritized later. Conclusion: no action needed now; not re-evaluate until a concrete client requirement appears |
 | TECH-106 | Fix `GlobalExceptionHandler`'s 3 `LocalDateTime` timestamps to an explicit-zone type | Low | — | **Done** (2026-07-27, `fix/timezone-calendar-dates-and-invalid-header-400`, PR #36) |
 | TECH-110 | Validate scheduled ingestion jobs and add scheduling tests | High | 3 | **Done** |
@@ -79,9 +79,9 @@ When a story is implemented:
 | TECH-116 | Disable `baseline-on-migrate` after per-environment Flyway history inventory | Low | — | **Done** (2026-08-03, branch `chore/disable-flyway-baseline-on-migrate`) |
 | TECH-117 | Handle concurrent `SipsaParcial` duplicate insertion safely | Medium | — | **Done** (2026-07-19, branch `fix/sipsa-parcial-concurrent-dedup` — atomic `ON CONFLICT (key_hash) DO NOTHING`, collisions counted as skipped) |
 | TECH-118 | Align `SipsaParcial` decimal precision (JPA 15,2 vs DDL 19,2) | Low | — | **Done** (2026-07-19, branch `fix/align-sipsa-parcial-decimal-precision` — annotation aligned to `19,2`, no migration) |
-| TECH-119 | Remove redundant `idx_sipsa_parcial_key_hash` index | Low | — | **Done** (2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`, migration V3) |
+| TECH-119 | Remove redundant `idx_sipsa_parcial_key_hash` index | Low | — | **Done** (2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`, dedicated migration) |
 | TECH-122 | Harden `SipsaParcial` natural-key constraints (NOT NULL / natural unique) | Low | — | Pending (contract phase; gated on TECH-012 external half) |
-| TECH-124 | Optimize `SipsaParcial` article-filter queries | Low | — | **Done** (2026-07-18, branch `perf/sipsa-parcial-article-filter-index`, migration V4 — covering index; count 18 ms → ~2 ms) |
+| TECH-124 | Optimize `SipsaParcial` article-filter queries | Low | — | **Done** (2026-07-18, branch `perf/sipsa-parcial-article-filter-index`, dedicated migration — covering index; count 18 ms → ~2 ms) |
 | TECH-133 | Centralize and validate monthly ingestion window configuration | Low | — | **Done** (2026-07-17 — typed `monthlyWindowStart`, divergent `06:00` fallback removed, effective 14:00 unchanged) |
 | TECH-134 | Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`) | Low | — | **Done** (2026-07-19, branch `fix/align-remaining-sipsa-decimal-precision` — all SIPSA price models now declare `19,2`, no migration) |
 | TECH-135 | Centralize ingestion rejection-threshold configuration (C-04) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-ingestion-rejection-thresholds` — thresholds bind once in `IngestionProperties`, effective 0.01/5000 unchanged) |
@@ -267,7 +267,7 @@ deterministic `ParcialKeyHash`, skip-first `batchUpsert` (intra-batch dedupe + o
 hash lookup + one bulk date lookup that recomputes natural-key hashes to deduplicate
 legacy UUID rows without backfill — no N+1), strict `enmaFecha` parsing with explicit
 rejection (no implicit zone), `skipped` propagated to `IngestionContext` and logs,
-migration `V2__add_parcial_natural_key_index.sql` (expand-only), and suites
+a dedicated expand-only migration, and suites
 `ParcialKeyHashTest`, `ParcialIngestionHandlerTest`, `ParcialMigrationUpgradeTest`
 plus extended `FlywayMigrationsTest`.
 
@@ -349,8 +349,8 @@ independent of HTTP status) alongside the pre-existing `InternalEndpointSecurity
 (15 test cases across both endpoint groups: 401 without token, 403 with wrong scope,
 2xx with correct scope — all still green, confirming security and status codes are
 unchanged). Docker smoke: clean `down -v && up --build`, both endpoint groups exercised
-with the local mock-OIDC token flow, Flyway V1→V4 unaffected (no migration in this
-story). No DTOs, security config, scopes, or business logic touched.
+with the local mock-OIDC token flow (no Flyway migration in this story). No DTOs,
+security config, scopes, or business logic touched.
 
 ---
 
@@ -471,7 +471,7 @@ not-active split), updated `IngestionRunQueryServiceGetRunStatusTest` (now asser
 run → 404, existing run → 200 unchanged, inactive-run cancel → 422 unchanged, active-run
 cancel → 200 unchanged, and a regression check that a downstream `SipsaParseException`
 through this same controller still returns 502 — TECH-021 untouched). No Flyway
-migration; V1–V4 unchanged. **Follow-up (separate story, not this one):** apply the same
+migration. **Follow-up (separate story, not this one):** apply the same
 not-found split to `AuditTrailService`'s two lookup methods.
 
 ---
@@ -546,7 +546,7 @@ preserved; a generic exception with new fields and no stack trace leaked; an inc
 `X-Request-Id` header echoed verbatim in both body and response header; the fallback
 case generating a non-blank ID consistent between header and body (no fragile exact-UUID
 assertion, presence/consistency only); and a blank incoming header not being trusted
-verbatim. No Flyway migration; V1–V4 unchanged; no `V5`.
+verbatim. No Flyway migration.
 
 ---
 
@@ -633,7 +633,7 @@ goes `DOWN`, a configured override changes the effective threshold, no-runs-yet 
 `UNKNOWN`). Verified in Docker: default thresholds logged (`36h`/`840h`), valid override
 (`12h`/`10d` → `PT12H`/`PT240H`), invalid value (`0h`) → `APPLICATION FAILED TO START`
 naming the property, defaults restored, `/actuator/health` and the `sipsa` indicator's
-detail contract unaffected. No Flyway migration; V1–V4 unchanged.
+detail contract unaffected. No Flyway migration.
 
 **Completed:** —
 
@@ -756,7 +756,7 @@ bug), all 10 `sipsa.*` metrics present with exactly the designed tags after a ru
 `/actuator/prometheus` returns the same series in Prometheus text format, no sensitive
 data (no `requestId`, no raw payloads) in any tag or metric name. No status codes,
 `ErrorResponse`, DTOs, security, retries, thresholds, scheduler, or database logic
-changed. No Flyway migration; V1–V4 unchanged; no `V5`.
+changed. No Flyway migration.
 
 ---
 
@@ -859,7 +859,7 @@ multiple pages produces no duplicates, no omissions, and never surfaces a non-ma
 row. No production code changed — test-only story, confirmed by diff (only 2 new test
 files). No endpoints, HTTP contract, TECH-054 pagination, scheduler, metrics, audit,
 ingestion repositories, TECH-060, SOAP, general security, database schema, or AWS
-infrastructure change. No Flyway migration; V1–V4 unchanged.
+infrastructure change. No Flyway migration.
 
 ---
 
@@ -929,7 +929,7 @@ transitions — the CANCELED case explicitly asserts `updateStatus` is never cal
 code changed — this is a test-only story. No scheduler, dispatcher, executor,
 `CallerRunsPolicy`, metric names/tags, `IngestionMetrics`, production audit logic,
 business/threshold logic, repository, or API change — confirmed by diff (only the one new
-test file). No Flyway migration; V1–V4 unchanged.
+test file). No Flyway migration.
 
 ---
 
@@ -1005,8 +1005,7 @@ gap the table above documents — this is the first test in the repository to ex
 every `@ExceptionHandler` method in `GlobalExceptionHandler` through real MVC dispatch
 with the full field contract (including TECH-023's `requestId`/`instance`) asserted on
 each. No status code, error code, message, `ErrorResponse` shape, or `RequestIdFilter`
-behavior was changed — this story is test-and-documentation only. No Flyway migration;
-V1–V4 unchanged; no `V5`.
+behavior was changed — this story is test-and-documentation only. No Flyway migration.
 
 ---
 
@@ -1082,7 +1081,7 @@ cleaned during TECH-011) — confirming exactly 4, not 5.
 **Completed:** 2026-07-19, branch `refactor/remove-existing-code-comments`. Pure
 comment deletion — one line removed per file, zero logic/signature/import/test
 changes (`git diff --word-diff` shows exactly the four `// ...existing code...`
-lines removed). No Flyway migration; V1–V4 unchanged.
+lines removed). No Flyway migration.
 
 ---
 
@@ -1125,7 +1124,7 @@ unchanged and now covered by `IngestionAuditMapperTest` (previously zero coverag
 written and first run against the pre-rename method name to pin the contract before
 renaming: all fields map correctly, `requestSource` converts to its enum name
 (null-safely), `occurredAt` converts to `OffsetDateTime` via `TimezoneUtil`. No Flyway
-migration; V1–V4 unchanged.
+migration.
 
 ---
 
@@ -1169,7 +1168,7 @@ Previously zero test coverage of either service (both are always mocked in exist
 controller/security tests) — `IngestionControlServiceGetRunTest` (present/absent) and
 `IngestionRunQueryServiceGetRunStatusTest` (mapped response / exception with
 `verifyNoInteractions(mapper)` on absence) now cover the explicit contract. No Flyway
-migration; V1–V4 unchanged.
+migration.
 
 ---
 
@@ -1275,8 +1274,7 @@ duplicates); audit events (`INGESTION_STARTED`/`RUNNING`/`FAILED`/`METRICS_UPDAT
 present exactly once per run; `sipsa.ingestion.runs` metric shows `COUNT: 3.0`
 (`source=scheduled`, no duplication); `/actuator/health` unaffected throughout. No
 cron expression, window logic, HTTP contract, pagination, repository, deduplication,
-metric semantics, audit event shape, database, or Flyway change. No Flyway migration;
-V1–V4 unchanged; no `V5`.
+metric semantics, audit event shape, database, or Flyway change.
 
 ---
 
@@ -1373,8 +1371,7 @@ regardless of table size, order is stable and repeatable, total count is correct
 union of every page across a full pagination walk equals the full inserted set with no
 duplicates, equal-`startTime` rows still tie-break deterministically by `runId`, and a
 Hibernate-statistics assertion proves a paginated fetch issues exactly 2 SQL statements
-whether the table has 5 or 40 rows). Verified in Docker: clean startup, Flyway still at
-v4 (no `V5`); 25 runs seeded directly via SQL (a pure read endpoint needs no real DANE
+whether the table has 5 or 40 rows). Verified in Docker: clean startup; 25 runs seeded directly via SQL (a pure read endpoint needs no real DANE
 SOAP call to verify); `page=1&size=10`, `page=2`, and `page=3` (partial last page)
 each returned correct, non-overlapping, `startTime DESC`-ordered slices with correct
 `next`/`prev` links and `count=25`, `pages=3`; the no-params call defaulted to
@@ -1384,8 +1381,7 @@ and `InternalEndpointSecurityTest` updated only for the new constructor
 signature/return type (`PaginationConfig` dependency; `Page.empty()` stub for
 Mockito's default answer, which doesn't cover `Page`) — no behavior change in either.
 No scheduler, TECH-053, metrics, audit, run-execution, cancellation, TECH-060, SIPSA
-data repository, SOAP, general security, or database schema change. No Flyway
-migration; V1–V4 unchanged; no `V5`.
+data repository, SOAP, general security, or database schema change.
 
 ---
 
@@ -1465,8 +1461,7 @@ existing-test coverage matrix (one real gap identified: no test today asserts
 `WindowPolicy` and `SipsaHealthIndicator` can't drift), and the scoped follow-up story
 definition. `IngestionHandler` and all 5 handler implementations are completely
 untouched — this story changed no production code. No scheduler, window, metrics,
-audit, repository, API, security, SOAP, database, or AWS infrastructure change. No
-Flyway migration; V1–V4 unchanged.
+audit, repository, API, security, SOAP, database, or AWS infrastructure change.
 
 ---
 
@@ -1493,13 +1488,13 @@ versa.
 
 **Diagnosis:**
 
-| Método | Clasificación en `WindowPolicy` (antes y ahora) | Clasificación en `HealthIndicator` (antes) | Resultado esperado (y logrado) |
+| Method | Classification in `WindowPolicy` (before and now) | Classification in `HealthIndicator` (before) | Expected (and achieved) result |
 |---|---|---|---|
-| `promediosSipsaCiudad` | no monthly | en `DAILY_METHODS` → daily threshold | not monthly → daily |
-| `promediosSipsaParcial` | no monthly | en `DAILY_METHODS` → daily threshold | not monthly → daily |
-| `promediosSipsaSemanaMadr` | no monthly (weekly *data*, daily *scheduling cadence*) | en `DAILY_METHODS` → daily threshold | not monthly → daily |
-| `promediosSipsaMesMadr` | monthly (`MES_MADR_RULE`, day 8/9, key `M8`) | NOT en `DAILY_METHODS` → monthly threshold | monthly → monthly |
-| `promedioAbasSipsaMesMadr` | monthly (`ABAS_RULE`, day 10/11, key `M10`) | NOT en `DAILY_METHODS` → monthly threshold | monthly → monthly |
+| `promediosSipsaCiudad` | no monthly | in `DAILY_METHODS` → daily threshold | not monthly → daily |
+| `promediosSipsaParcial` | no monthly | in `DAILY_METHODS` → daily threshold | not monthly → daily |
+| `promediosSipsaSemanaMadr` | no monthly (weekly *data*, daily *scheduling cadence*) | in `DAILY_METHODS` → daily threshold | not monthly → daily |
+| `promediosSipsaMesMadr` | monthly (`MES_MADR_RULE`, day 8/9, key `M8`) | NOT in `DAILY_METHODS` → monthly threshold | monthly → monthly |
+| `promedioAbasSipsaMesMadr` | monthly (`ABAS_RULE`, day 10/11, key `M10`) | NOT in `DAILY_METHODS` → monthly threshold | monthly → monthly |
 
 Methods are identified by exact `String` name (no alias, no enum, no wrapper type) — the
 same convention every other part of this codebase uses (`IngestionHandler.getMethodName()`
@@ -1535,9 +1530,9 @@ and since (a) no existing test locked in the old fallback as an intentional cont
 (b) all 5 real, registered methods classify identically before and after — this is
 treated as a deliberate, narrow, fully-tested refinement, not a hidden behavior change.
 
-> **Cambio funcional intencional para métodos no registrados. No afecta los cinco
-> métodos actualmente soportados. El nuevo comportamiento coincide con la convención
-> explícita de `WindowPolicy`.**
+> **Intentional functional change for unregistered methods. Does not affect the five
+> currently supported methods. The new behavior matches `WindowPolicy`'s explicit
+> convention.**
 
 **Acceptance Criteria:**
 - [x] `WindowPolicy.isMonthlyMethod(String)` is public, delegates to the existing rule
@@ -1581,8 +1576,8 @@ startup, no wiring/context errors; two rows seeded directly via SQL
 proving the consolidated classification is applied correctly, differently, per method, in
 the real running application; `/actuator/metrics` and the scheduler startup log
 unaffected. No scheduler, window-validation, cron, metrics, audit, endpoint, HTTP
-contract, SOAP, security, or persistence change. No Flyway migration; V1–V4 unchanged; no
-`V5`; no remote database access.
+contract, SOAP, security, or persistence change. No Flyway migration; no remote
+database access.
 
 ---
 
@@ -1717,7 +1712,7 @@ Hibernate-tracked query executions at batch sizes 1, 10, and 100 (the old
 the N+1 — the new path never touches Hibernate for this operation at all); two
 concurrency tests — a real two-transaction race (loser reports `skipped`, never throws,
 exactly one row survives) and a direct proof that `ux_semana_fallback` is real and backs
-the conflict target. Verified in Docker: clean startup, V1–V4 only, no `V5`; a real
+the conflict target. Verified in Docker: clean startup; a real
 `promediosSipsaSemanaMadr` ingestion run (229,369 records seen, 229,369 inserted, 0
 rejected, 0 SQL errors, `sipsa.ingestion.runs` metric incremented,
 `/actuator/health` UP); an immediate identical re-run (`force=true`, reusing the same
@@ -1726,8 +1721,7 @@ story) inserted 0 and correctly reported 0 rows changed, with the stored row cou
 unchanged at 229,369 and zero duplicate `(arti_id, fuen_id, fecha_ini)` combinations —
 direct, real-data proof the atomic skip-existing path works correctly at production
 scale. No scheduler, TECH-053, TECH-054, API, pagination, metrics, audit, SOAP, security,
-threshold, `SipsaParcial` deduplication, or AWS infrastructure change. No Flyway
-migration; V1–V4 unchanged; no `V5`.
+threshold, `SipsaParcial` deduplication, or AWS infrastructure change.
 
 ---
 
@@ -1801,7 +1795,7 @@ empty override as unset and falls back to the default, the same behavior every o
 env var in this file already has — so the blank-string constraint is proven at the
 Spring-binding unit level (`SoapPropertiesTest.blankEndpointFails`) instead. Presented
 as early configuration validation only — no functional change to the SOAP client
-itself. No Flyway migration; V1–V4 unchanged.
+itself. No Flyway migration.
 
 **Completed:** —
 
@@ -2095,8 +2089,7 @@ package — not a new problem introduced by the move. Verified in Docker: clean 
 `SipsaSoapClientConfig` logs "SOAP client successfully configured" with no
 `ClassNotFoundException` or JAXB context error anywhere in the startup log,
 `/actuator/health` reports `UP`. No SOAP timeout/retry/metrics behavior, ingestion logic,
-scheduler, security, database, or AWS infrastructure change. No Flyway migration; V1–V4
-unchanged.
+scheduler, security, database, or AWS infrastructure change.
 
 ---
 
@@ -2191,7 +2184,7 @@ TECH-095 (merged) — all landed first, so these rules assert the *post*-move st
 detection capability). No production code changed: only `pom.xml` (one test-scope
 dependency + one version property) and new test files. No endpoints, HTTP contract,
 scheduler, metrics, persistence, TECH-054 pagination, security, database, Flyway, or AWS
-infrastructure change. No Flyway migration; V1–V4 unchanged.
+infrastructure change. No Flyway migration.
 
 ---
 
@@ -2333,7 +2326,8 @@ logical fields; `fecha_mes_ini` exists in 2 tables), all currently `TIMESTAMPTZ`
    PostgreSQL rewrites the 5 single-column indexes (`idx_sipsa_ciudad_fecha`,
    `idx_sipsa_parcial_fecha`, `idx_sipsa_semana_fecha`, `idx_sipsa_mes_fecha`,
    `idx_sipsa_abas_fecha`) and the 2 composite indexes that include `enma_fecha`
-   (`V2`'s natural-key index, `V4`'s covering index) automatically as part of the
+   (TECH-011's natural-key index, TECH-124's `idx_sipsa_parcial_article_date` covering
+   index) automatically as part of the
    `ALTER COLUMN TYPE` — no separate `DROP`/`CREATE INDEX` needed. The 3 `UNIQUE`
    constraints that include one of these columns (`ux_semana_fallback`,
    `ux_mes_fallback`, `ux_abas_fallback`) are unaffected in behavior: every stored value
@@ -2970,226 +2964,224 @@ step confirmed the suite ran).
 **Branch:** `infra/cognito-authentication-foundation`
 
 **Origin:** [ADR-002](../adr/ADR-002-internal-endpoint-security.md) (Accepted, Option E),
-layer 2, y [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) — provisiona
-el identity provider real para el Resource Server ya implementado y validado en TECH-001
-(e2e contra un mock OIDC issuer, 9/9 verde, 2026-07-15). Alcance acotado explícitamente:
-sin API Gateway, VPC Link, WAF, Route 53, ACM, dominio custom, frontend, URLs de callback
-inventadas, secretos distribuidos reales, integración AWS real, ni cambio a Spring
-Security sin un defecto real demostrado.
+layer 2, and [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) —
+provisions the real identity provider for the Resource Server already implemented and
+validated in TECH-001 (e2e against a mock OIDC issuer, 9/9 green, 2026-07-15). Scope
+explicitly bounded: no API Gateway, VPC Link, WAF, Route 53, ACM, custom domain,
+frontend, invented callback URLs, real distributed secrets, real AWS integration, or
+change to Spring Security without a real, demonstrated defect.
 
-**Inventario de scopes reales** (`grep -RIn --exclude-dir=.git -e 'SCOPE_' -e
-'hasAuthority' -e 'hasAnyAuthority' -e 'scope' src/main src/test docs`, no inventado):
+**Real scope inventory** (`grep -RIn --exclude-dir=.git -e 'SCOPE_' -e
+'hasAuthority' -e 'hasAnyAuthority' -e 'scope' src/main src/test docs`, not invented):
 
-| Scope | Endpoint / operación | M2M | Humano |
+| Scope | Endpoint / operation | M2M | Human |
 |---|---|---:|---:|
-| `sipsa/ingestion.execute` | `POST /api/internal/ingestion/run` | Sí | Sí |
-| `sipsa/ingestion.cancel` | `POST /api/internal/ingestion/cancel/{runId}` | Sí | Sí |
-| `sipsa/ingestion.read` | `GET /api/internal/ingestion/**` | Sí | Sí |
-| `sipsa/audit.read` | `GET /api/internal/audit/**` | Sí | Sí |
+| `sipsa/ingestion.execute` | `POST /api/internal/ingestion/run` | Yes | Yes |
+| `sipsa/ingestion.cancel` | `POST /api/internal/ingestion/cancel/{runId}` | Yes | Yes |
+| `sipsa/ingestion.read` | `GET /api/internal/ingestion/**` | Yes | Yes |
+| `sipsa/audit.read` | `GET /api/internal/audit/**` | Yes | Yes |
 
-Las cuatro son las únicas autoridades `hasAuthority("SCOPE_sipsa/...")` que
-`SecurityConfig` valida hoy — confirmado leyendo el código, no asumido. Ningún scope fue
-creado sin un consumidor/endpoint real.
+These four are the only `hasAuthority("SCOPE_sipsa/...")` authorities `SecurityConfig`
+validates today — confirmed by reading the code, not assumed. No scope was created
+without a real consumer/endpoint.
 
-**Dos contratos de app client, nunca compartidos:**
-- **M2M** (`aws_cognito_user_pool_client.m2m`): grant `client_credentials` únicamente,
-  confidencial (`generate_secret = true`). Nunca `authorization_code`, `implicit`, ni
-  password grant. Un cliente parametrizable en esta historia — el módulo ya soporta "un
-  cliente por integración futura" instanciándose de nuevo con otros inputs; no se inventa
-  un segundo consumidor puramente especulativo.
-- **Humano** (`aws_cognito_user_pool_client.human`): grant `authorization_code`
-  únicamente, público (`generate_secret = false`). Cognito exige PKCE automáticamente
-  para cualquier cliente público en este grant — no existe un argumento Terraform
-  separado para "requerir PKCE"; `generate_secret = false` es lo que define un cliente
-  público, y el propio endpoint de token de Cognito exige entonces el intercambio
-  `code_challenge`/`code_verifier`. Sin `implicit`, sin password grant.
+**Two app client contracts, never shared:**
+- **M2M** (`aws_cognito_user_pool_client.m2m`): `client_credentials` grant only,
+  confidential (`generate_secret = true`). Never `authorization_code`, `implicit`, or
+  password grant. A parameterizable client in this story — the module already supports
+  "one client per future integration" by instantiating it again with different inputs;
+  no second, purely speculative consumer is invented.
+- **Human** (`aws_cognito_user_pool_client.human`): `authorization_code` grant only,
+  public (`generate_secret = false`). Cognito automatically requires PKCE for any public
+  client on this grant — there is no separate Terraform argument to "require PKCE";
+  `generate_secret = false` is what defines a public client, and Cognito's own token
+  endpoint then requires the `code_challenge`/`code_verifier` exchange. No `implicit`,
+  no password grant.
 
-**User pool — configuración segura por defecto:** identificador de sign-in `email`
-(`username_attributes = ["email"]`, sin concepto de "username" separado en el resto del
-sistema); política de contraseña con longitud mínima 12 (parametrizable) y
-mayúscula/minúscula/número/símbolo requeridos; `mfa_configuration = "OPTIONAL"` por
-defecto (parametrizable) — no existe todavía un flujo operativo de
-inscripción/recuperación de MFA (sin frontend, sin proceso de soporte documentado para un
-usuario bloqueado), forzar MFA ahora crearía un callejón sin salida operativo; documentado
-como endurecimiento futuro, no adoptado preventivamente. `advanced_security_mode =
-"AUDIT"` por defecto (parametrizable) — visibilidad basada en riesgo sin bloquear ni
-desafiar ningún inicio de sesión; tanto `AUDIT` como `ENFORCED` tienen un costo real por
-MAU que `OFF` no tiene, `AUDIT` es el punto intermedio deliberado. `deletion_protection =
-"ACTIVE"` (nota: es un string, `"ACTIVE"`/`"INACTIVE"`, no un bool — confirmado contra el
-tipo real del argumento del provider), consistente con la postura de RDS/ALB de este
-repositorio. `allow_admin_create_user_only = true` por defecto — SIPSA es una herramienta
-operativa interna, no un producto de registro público. `prevent_user_existence_errors =
-"ENABLED"` y revocación de tokens habilitados en ambos clientes. Recuperación de cuenta
-solo por email verificado (`recovery_mechanism { name = "verified_email", priority = 1 }`)
-— el único atributo verificado de este pool.
+**User pool — secure-by-default configuration:** sign-in identifier `email`
+(`username_attributes = ["email"]`, no separate "username" concept elsewhere in the
+system); password policy with minimum length 12 (parameterizable) and required
+uppercase/lowercase/number/symbol; `mfa_configuration = "OPTIONAL"` by default
+(parameterizable) — there is not yet an operational MFA enrollment/recovery flow (no
+frontend, no documented support process for a locked-out user), forcing MFA now would
+create an operational dead end; documented as future hardening, not adopted
+preventively. `advanced_security_mode = "AUDIT"` by default (parameterizable) —
+risk-based visibility without blocking or challenging any sign-in; both `AUDIT` and
+`ENFORCED` carry a real per-MAU cost that `OFF` does not, `AUDIT` is the deliberate
+middle ground. `deletion_protection = "ACTIVE"` (note: it's a string,
+`"ACTIVE"`/`"INACTIVE"`, not a bool — confirmed against the provider argument's real
+type), consistent with this repository's RDS/ALB posture. `allow_admin_create_user_only
+= true` by default — SIPSA is an internal operational tool, not a public sign-up
+product. `prevent_user_existence_errors = "ENABLED"` and token revocation enabled on
+both clients. Account recovery only via verified email
+(`recovery_mechanism { name = "verified_email", priority = 1 }`) — the only verified
+attribute of this pool.
 
-**Dominio Hosted UI — deliberadamente opcional:** `create_hosted_ui_domain` por defecto
-`false`. No existe frontend ni callback URL aprobada aún, así que un dominio Hosted UI no
-tendría a dónde redirigir. El cliente humano con Authorization Code + PKCE se crea
-igualmente cuando esto es `false` — simplemente no tiene un endpoint `/oauth2/authorize`
-alcanzable hasta que exista un dominio. Habilitarlo después es un cambio de una sola
-variable más `cognito_domain_prefix` (requerido, globalmente único, sin default
-inventado — misma clase de unicidad que un nombre de bucket S3), no una reestructuración.
-Sin dominio custom, sin certificado ACM, sin registro Route 53 — solo un dominio prefijo
-gestionado por Cognito.
+**Hosted UI domain — deliberately optional:** `create_hosted_ui_domain` defaults to
+`false`. There is no frontend or approved callback URL yet, so a Hosted UI domain would
+have nowhere to redirect to. The human client with Authorization Code + PKCE is still
+created when this is `false` — it simply has no reachable `/oauth2/authorize` endpoint
+until a domain exists. Enabling it later is a single-variable change plus
+`cognito_domain_prefix` (required, globally unique, no invented default — the same class
+of uniqueness as an S3 bucket name), not a restructuring. No custom domain, no ACM
+certificate, no Route 53 record — only a Cognito-managed prefix domain.
 
-**Callback/logout URLs — sin placeholders inventados:** `human_callback_urls`/
-`human_logout_urls` son variables requeridas sin default. No existe frontend real, por lo
-tanto no existe una URL real tampoco — un `terraform plan`/`apply` real no debe proceder
-con valores inventados. Ambas variables rechazan cualquier URL que contenga `localhost` o
-`example.com` vía `validation`, específicamente para que nunca puedan confundirse con
-valores de producción aprobados; permanecen utilizables solo dentro de los tests offline
-de este módulo, que usan un hostname `*.invalid` (RFC 2606, garantizado a no resolver
-nunca) para dejar inequívoco su carácter de placeholder incluso ahí.
+**Callback/logout URLs — no invented placeholders:** `human_callback_urls`/
+`human_logout_urls` are required variables with no default. There is no real frontend,
+so there is no real URL either — a real `terraform plan`/`apply` must not proceed with
+invented values. Both variables reject any URL containing `localhost` or `example.com`
+via `validation`, specifically so they can never be confused with approved production
+values; they remain usable only within this module's offline tests, which use a
+`*.invalid` hostname (RFC 2606, guaranteed never to resolve) to keep their placeholder
+nature unambiguous even there.
 
-**Validez de tokens:** `access_token_validity_minutes = 60`, `id_token_validity_minutes =
-60` (solo cliente humano — un token `client_credentials` no lleva ID token),
-`refresh_token_validity_days = 30` (solo cliente humano — `client_credentials` no es un
-grant basado en refresh token). Las tres son variables Terraform, propuestas iniciales sin
-medir contra un patrón operativo real.
+**Token validity:** `access_token_validity_minutes = 60`, `id_token_validity_minutes =
+60` (human client only — a `client_credentials` token carries no ID token),
+`refresh_token_validity_days = 30` (human client only — `client_credentials` is not a
+refresh-token-based grant). All three are Terraform variables, initial proposals not
+measured against a real operational pattern.
 
-**Compatibilidad con la validación JWT existente de la aplicación:** confirmado leyendo
-`SecurityConfig`/`SipsaJwtProperties`/`TokenUseValidator`/`AllowedClientIdsValidator` (ya
-implementados, ya validados e2e contra un mock OIDC issuer, TECH-001/ADR-002) — **ningún
-defecto encontrado, ningún cambio a Spring Security hecho por esta historia**: `iss` se
-valida contra `SIPSA_JWT_ISSUER_URI` (el output `issuer_url` de este módulo, construido
-desde el atributo `endpoint` del user pool, es el valor a usar en un despliegue real);
-`exp` vía el validador estándar de Spring; `token_use = access` vía `TokenUseValidator`;
-`client_id` vía el `AllowedClientIdsValidator` opcional; `scope` por operación vía los
-matchers `hasAuthority` contra las autoridades `SCOPE_sipsa/...` que Spring deriva del
-claim `scope`. `aud` se ignora deliberadamente (ya documentado en
-`aws-production-readiness.md`) — un token `client_credentials` de Cognito no lleva `aud`,
-consistente, no un vacío que este módulo deba resolver.
+**Compatibility with the application's existing JWT validation:** confirmed by reading
+`SecurityConfig`/`SipsaJwtProperties`/`TokenUseValidator`/`AllowedClientIdsValidator`
+(already implemented, already validated e2e against a mock OIDC issuer,
+TECH-001/ADR-002) — **no defect found, no change to Spring Security made by this
+story**: `iss` is validated against `SIPSA_JWT_ISSUER_URI` (this module's `issuer_url`
+output, built from the user pool's `endpoint` attribute, is the value to use in a real
+deployment); `exp` via Spring's standard validator; `token_use = access` via
+`TokenUseValidator`; `client_id` via the optional `AllowedClientIdsValidator`; `scope`
+per operation via the `hasAuthority` matchers against the `SCOPE_sipsa/...` authorities
+Spring derives from the `scope` claim. `aud` is deliberately ignored (already documented
+in `aws-production-readiness.md`) — a Cognito `client_credentials` token carries no
+`aud`, consistent, not a gap this module needs to resolve.
 
-**Allowlist de client IDs hacia ECS — diseño, no conectado aún:**
-`publish_client_ids_to_ssm` (default `true`) publica ambos client IDs como un CSV en un
-parámetro SSM Parameter Store tipo `String` (`/  <project>-<environment>/sipsa/jwt-allowed-client-ids`)
-— son identificadores, no secretos, según el propio Javadoc de
-`AllowedClientIdsValidator`. Este módulo **no** conecta ese parámetro a la task definition
-de `modules/ecs-task` — hacerlo modificaría un módulo ya fusionado, fuera del alcance de
-esta historia; queda como seguimiento documentado para quien conecte
-`SIPSA_JWT_ALLOWED_CLIENT_IDS`/`SIPSA_JWT_ISSUER_URI` en el entorno de ECS.
+**Client ID allowlist to ECS — designed, not wired yet:**
+`publish_client_ids_to_ssm` (default `true`) publishes both client IDs as a CSV in a
+`String`-type SSM Parameter Store parameter
+(`/  <project>-<environment>/sipsa/jwt-allowed-client-ids`) — they are identifiers, not
+secrets, per `AllowedClientIdsValidator`'s own Javadoc. This module does **not** wire
+that parameter into `modules/ecs-task`'s task definition — doing so would modify an
+already-merged module, out of this story's scope; it remains a documented follow-up for
+whoever wires `SIPSA_JWT_ALLOWED_CLIENT_IDS`/`SIPSA_JWT_ISSUER_URI` into the ECS
+environment.
 
-**Secreto del cliente M2M — semántica corregida (2026-07-22):** Cognito genera el
-secreto; el provider de Terraform lo lee como atributo computado
-(`aws_cognito_user_pool_client.m2m.client_secret`, `sensitive = true` en el schema del
-provider, confirmado vía `terraform providers schema`) durante la creación, para poder
-copiarlo al siguiente recurso. **Terraform por lo tanto recibe el valor sensible y lo
-conserva en el state remoto** — tanto en el state de este módulo como en el de
-`environments/production` que lo consume. Esto no se elimina por escribir el valor en
-Secrets Manager después: el state siempre almacena el valor completo del atributo,
-independientemente de la marca `sensitive` del provider (esa marca solo suprime el valor
-en la salida de CLI/logs de `plan`/`apply` y en `terraform output` sin `-json` — no afecta
-lo que el state contiene). **No se debe afirmar que "Terraform nunca conoce el client
-secret" ni que guardarlo en Secrets Manager lo elimina del state — ambas son falsas para
-este recurso** (a diferencia del secreto maestro de RDS en `modules/database`, donde
-`manage_master_user_password = true` hace que RDS gestione el secreto internamente sin
-que Terraform lo lea nunca como atributo). Lo que Secrets Manager sí aporta es una vía de
-distribución operativa separada, acotada por IAM (`secretsmanager:GetSecretValue` sobre
-el ARN exacto), para que el consumo diario del secreto no requiera leer el state
-directamente — nunca expuesto como output (solo su ARN, `m2m_client_secret_arn`). También
-verificado contra el provider, no asumido: a diferencia de una IAM access key
-(verdaderamente irrecuperable), el secreto de un app client de Cognito permanece
-recuperable en cualquier momento vía `DescribeUserPoolClient`, independientemente de este
-diseño. **El control real es el backend de state**: el bucket S3 de
-`infra/terraform/bootstrap/main.tf` tiene cifrado (`AES256`), bloqueo público completo
-(`aws_s3_bucket_public_access_block`, las cuatro banderas en `true`), versionado, y
-locking nativo S3 (`use_lockfile = true`); los roles `terraform-plan`/`terraform-apply`/
-`application-deploy` están separados por mínimo privilegio (ADR-010), y ningún workflow de
-este repositorio ejecuta `terraform output` contra este stack. El state de este stack debe
-tratarse como material sensible, cifrado y accesible únicamente por roles de
-infraestructura de mínimo privilegio — esa es la protección real, no la ausencia del valor
-en el state. Distribución al consumidor: no automatizada por esta historia — quien posea
-la integración M2M real recibe acceso de lectura a ese ARN específico, explícitamente,
-cuando ese consumidor exista. Sin rotación automática implementada — evaluar cuando exista
-un mecanismo real de distribución de un secreto rotado.
+**M2M client secret — corrected semantics (2026-07-22):** Cognito generates the secret;
+the Terraform provider reads it as a computed attribute
+(`aws_cognito_user_pool_client.m2m.client_secret`, `sensitive = true` in the provider's
+schema, confirmed via `terraform providers schema`) during creation, so it can be copied
+to the next resource. **Terraform therefore receives the sensitive value and retains it
+in the remote state** — both in this module's state and in the state of
+`environments/production`, which consumes it. Writing the value to Secrets Manager
+afterward does not remove this: the state always stores the attribute's full value,
+regardless of the provider's `sensitive` mark (that mark only suppresses the value in
+`plan`/`apply` CLI/log output and in `terraform output` without `-json` — it does not
+affect what the state contains). **It must not be claimed that "Terraform never knows
+the client secret" or that storing it in Secrets Manager removes it from the state —
+both are false for this resource** (unlike RDS's master secret in `modules/database`,
+where `manage_master_user_password = true` makes RDS manage the secret internally
+without Terraform ever reading it as an attribute). What Secrets Manager does provide is
+a separate operational distribution path, scoped by IAM
+(`secretsmanager:GetSecretValue` on the exact ARN), so daily consumption of the secret
+does not require reading the state directly — never exposed as an output (only its ARN,
+`m2m_client_secret_arn`). Also verified against the provider, not assumed: unlike an IAM
+access key (truly unrecoverable), a Cognito app client's secret remains recoverable at
+any time via `DescribeUserPoolClient`, regardless of this design. **The real control is
+the state backend**: the S3 bucket in `infra/terraform/bootstrap/main.tf` has encryption
+(`AES256`), full public-access block (`aws_s3_bucket_public_access_block`, all four
+flags `true`), versioning, and native S3 locking (`use_lockfile = true`); the
+`terraform-plan`/`terraform-apply`/`application-deploy` roles are separated by least
+privilege (ADR-010), and no workflow in this repository runs `terraform output` against
+this stack. This stack's state must be treated as sensitive material, encrypted and
+accessible only by least-privilege infrastructure roles — that is the real protection,
+not the value's absence from the state. Distribution to the consumer: not automated by
+this story — whoever owns the real M2M integration receives explicit read access to that
+specific ARN once that consumer exists. No automatic rotation implemented — evaluate
+once a real rotated-secret distribution mechanism exists.
 
 **Trivy exceptions:**
 
 | Finding | Resource | Risk | Justification | Exception |
 |---|---|---|---|---|
-| AWS-0098 (LOW — Secret usa la clave por defecto) | `aws_secretsmanager_secret.m2m_client_secret` | Bajo — secreto de un solo dueño, sin acceso cross-account, sin requisito de compliance que exija hoy una CMK | Misma postura ya aplicada al bucket S3 de bootstrap, los grupos de logs de CloudWatch de database, el repositorio de ecr, y el grupo de Flow Logs de network | `# trivy:ignore:AVD-AWS-0098`, revisitar con una KMS key administrada por el cliente si surge un límite de acceso real (p. ej. un equipo externo que necesite decrypt acotado) |
+| AWS-0098 (LOW — Secret uses the default key) | `aws_secretsmanager_secret.m2m_client_secret` | Low — single-owner secret, no cross-account access, no compliance requirement demanding a CMK today | Same posture already applied to the bootstrap S3 bucket, database's CloudWatch log groups, the ecr repository, and network's Flow Logs group | `# trivy:ignore:AVD-AWS-0098`, revisit with a customer-managed KMS key if a real access boundary arises (e.g. an external team needing scoped decrypt) |
 
-**Módulo:** `infra/terraform/modules/cognito/` (`main.tf`, `variables.tf`, `outputs.tf`,
-`versions.tf`, `README.md`, `tests/`). Sin módulos públicos de terceros.
-`environments/production/main.tf` consume el módulo — sin dependencia de `module.network`,
-`module.ecs_task`, ni `module.ecs_service` (Cognito no está anclado a la VPC).
+**Module:** `infra/terraform/modules/cognito/` (`main.tf`, `variables.tf`, `outputs.tf`,
+`versions.tf`, `README.md`, `tests/`). No third-party public modules.
+`environments/production/main.tf` consumes the module — no dependency on
+`module.network`, `module.ecs_task`, or `module.ecs_service` (Cognito is not anchored to
+the VPC).
 
 **Outputs:** `user_pool_id`, `user_pool_arn`, `issuer_url`, `resource_server_identifier`,
-`m2m_client_id`, `human_client_id`, `cognito_domain` (nullable), más
-`m2m_client_secret_arn` y `allowed_client_ids_parameter_name` (ambos no sensibles — ARN y
-nombre de parámetro, nunca el secreto ni su valor).
+`m2m_client_id`, `human_client_id`, `cognito_domain` (nullable), plus
+`m2m_client_secret_arn` and `allowed_client_ids_parameter_name` (both non-sensitive — ARN
+and parameter name, never the secret or its value).
 
-**Tests:** `infra/terraform/modules/cognito/tests/cognito.tftest.hcl` — 21 casos, todos
-verdes, `terraform test` con proveedor AWS completamente mockeado, cero cuenta AWS real
-contactada. Cobertura: user pool creado; `prevent_user_existence_errors` y revocación de
-token en ambos clientes; política de contraseña (longitud 12, los cuatro requisitos);
-verificación de email; resource server con exactamente los cuatro scopes reales
-(comparación por `toset`); cliente M2M con secreto y solo `client_credentials`; cliente
-humano sin secreto y solo `code`; flujo `implicit` ausente en ambos; callback/logout URLs
-reflejan la variable exactamente; rechazo de `localhost`/`example.com` (`expect_failures`);
-validez de tokens (60/60/30); IDs de cliente distintos; tags comunes en el user pool; sin
-dominio Hosted UI por defecto (`cognito_domain` output `null`); dominio creado solo bajo
-solicitud explícita con prefijo; rechazo de dominio sin prefijo (`expect_failures`);
-secreto M2M escrito en `aws_secretsmanager_secret_version`; parámetro SSM de allowlist
-publicado por defecto como `String` (nunca `SecureString`) y desactivable por variable.
-Ausencia de API Gateway, VPC Link, dominio custom, ACM/Route53, y de secreto en outputs
-confirmada por inspección del código fuente del módulo, no como aserción en tiempo de
-ejecución.
+**Tests:** `infra/terraform/modules/cognito/tests/cognito.tftest.hcl` — 21 cases, all
+green, `terraform test` with a fully mocked AWS provider, zero real AWS account
+contacted. Coverage: user pool created; `prevent_user_existence_errors` and token
+revocation on both clients; password policy (length 12, all four requirements); email
+verification; resource server with exactly the four real scopes (`toset` comparison);
+M2M client with a secret and `client_credentials` only; human client with no secret and
+`code` only; `implicit` flow absent on both; callback/logout URLs reflect the variable
+exactly; rejection of `localhost`/`example.com` (`expect_failures`); token validity
+(60/60/30); distinct client IDs; common tags on the user pool; no Hosted UI domain by
+default (`cognito_domain` output `null`); domain created only on explicit request with a
+prefix; rejection of a domain without a prefix (`expect_failures`); M2M secret written to
+`aws_secretsmanager_secret_version`; allowlist SSM parameter published by default as
+`String` (never `SecureString`) and disableable via a variable. Absence of API Gateway,
+VPC Link, custom domain, ACM/Route53, and of a secret in outputs confirmed by inspecting
+the module's source code, not as a runtime assertion.
 
 **Acceptance Criteria:**
-- [x] Cognito user pool con configuración segura por defecto (MFA opcional, advanced
-      security AUDIT, deletion protection, prevent-user-existence-errors, revocación de
-      token, recuperación por email verificado).
-- [x] Resource server `sipsa` con exactamente los cuatro scopes reales, confirmados por
-      grep contra el código, no inventados.
-- [x] Cliente M2M `client_credentials`-únicamente, con secreto, nunca expuesto como
-      output — solo su ARN en Secrets Manager.
-- [x] Cliente humano `authorization_code`+PKCE-únicamente, sin secreto, sin `implicit`,
-      callback/logout URLs parametrizadas sin placeholders inventados.
-- [x] Los dos clientes son recursos distintos, nunca comparten configuración de
-      scopes-vs-grant ni secreto.
-- [x] Sin dominio Hosted UI creado por defecto; creable explícitamente sin dominio
-      custom/ACM/Route53.
-- [x] Diseño de allowlist de client IDs hacia ECS documentado (SSM `String`), sin
-      conectar a `modules/ecs-task` en esta historia.
-- [x] Compatibilidad JWT confirmada sin cambios a Spring Security — ningún defecto real
-      encontrado.
-- [x] `terraform test` pasa (21/21) contra un proveedor mockeado.
-- [x] `terraform fmt -check -recursive`, `terraform validate` (los ocho Terraform roots),
-      TFLint, y `trivy config` están todos limpios (1 excepción LOW, individualmente
-      justificada).
-- [x] `./mvnw -q -DskipTests compile` pasa; cero cambio en `src`/`pom.xml`.
-- [x] Sin `terraform apply`, `terraform import`, AWS CLI, solicitud real de token, Hosted
-      UI real, ni creación de usuario Cognito real.
-- [x] TECH-132 permanece `In progress` (no `Done`); TECH-131 permanece `Pending`.
+- [x] Cognito user pool with secure-by-default configuration (optional MFA, advanced
+      security AUDIT, deletion protection, prevent-user-existence-errors, token
+      revocation, recovery via verified email).
+- [x] `sipsa` resource server with exactly the four real scopes, confirmed by grepping
+      the code, not invented.
+- [x] M2M client `client_credentials`-only, with a secret, never exposed as an output —
+      only its ARN in Secrets Manager.
+- [x] Human client `authorization_code`+PKCE-only, no secret, no `implicit`,
+      callback/logout URLs parameterized with no invented placeholders.
+- [x] The two clients are distinct resources, never sharing scopes-vs-grant
+      configuration or a secret.
+- [x] No Hosted UI domain created by default; explicitly creatable without a custom
+      domain/ACM/Route53.
+- [x] Client ID allowlist design toward ECS documented (SSM `String`), not wired into
+      `modules/ecs-task` in this story.
+- [x] JWT compatibility confirmed with no changes to Spring Security — no real defect
+      found.
+- [x] `terraform test` passes (21/21) against a mocked provider.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (all eight Terraform
+      roots), TFLint, and `trivy config` are all clean (1 individually justified LOW
+      exception).
+- [x] `./mvnw -q -DskipTests compile` passes; zero change in `src`/`pom.xml`.
+- [x] No `terraform apply`, `terraform import`, AWS CLI, real token request, real Hosted
+      UI, or real Cognito user creation.
+- [x] TECH-132 remains `In progress` (not `Done`); TECH-131 remains `Pending`.
 
-**Completed:** `infra/terraform/modules/cognito/` creado (6 archivos incl. tests) y
-conectado a `environments/production` (sin dependencia de red/ECS). Verificado localmente
-vía las imágenes Docker oficiales `hashicorp/terraform:1.15.7`,
-`terraform-linters/tflint:v0.64.0`, y `aquasec/trivy` (ninguna instalada en esta máquina):
-`fmt -check -recursive` limpio; `terraform init -backend=false && terraform validate`
-limpio para los ocho Terraform roots (`bootstrap/`, `environments/production`,
+**Completed:** `infra/terraform/modules/cognito/` created (6 files incl. tests) and wired
+into `environments/production` (no network/ECS dependency). Verified locally via the
+official Docker images `hashicorp/terraform:1.15.7`,
+`terraform-linters/tflint:v0.64.0`, and `aquasec/trivy` (none installed on this machine):
+`fmt -check -recursive` clean; `terraform init -backend=false && terraform validate`
+clean for all eight Terraform roots (`bootstrap/`, `environments/production`,
 `modules/network/`, `modules/database/`, `modules/ecr/`, `modules/ecs-task/`,
-`modules/ecs-service/`, `modules/cognito/`); `terraform test` 21/21 pasando para el módulo
-nuevo; TFLint 0 issues; `trivy config` 0 hallazgos sin resolver en todo el árbol (1
-excepción nueva LOW, justificada individualmente). `.github/workflows/infra-plan.yml`
-ganó un paso `terraform test — modules/cognito`. `./mvnw -q -DskipTests compile` pasó;
-cero cambio en `src`/`pom.xml`. Ningún `terraform apply`, `terraform import`, comando AWS
-CLI, solicitud real de token, Hosted UI real, ni creación de usuario Cognito en ningún
-momento; ningún recurso AWS de ningún tipo existe; ninguna credencial AWS fue agregada.
+`modules/ecs-service/`, `modules/cognito/`); `terraform test` 21/21 passing for the new
+module; TFLint 0 issues; `trivy config` 0 unresolved findings across the whole tree (1
+new LOW exception, individually justified). `.github/workflows/infra-plan.yml` gained a
+`terraform test — modules/cognito` step. `./mvnw -q -DskipTests compile` passed; zero
+change in `src`/`pom.xml`. No `terraform apply`, `terraform import`, AWS CLI command,
+real token request, real Hosted UI, or Cognito user creation at any point; no AWS
+resource of any kind exists; no AWS credential was added.
 
-**Gaps documentados, previos a cualquier despliegue real** (ninguno resuelto por esta
-historia):
-- Dominio Hosted UI no creado — requiere una callback/logout URL real aprobada primero.
-- Allowlist SSM publicada pero no conectada a `modules/ecs-task` — seguimiento pendiente.
-- Distribución real del secreto M2M al consumidor no automatizada — acceso IAM explícito
-  pendiente de un consumidor real.
-- Sin rotación automática del secreto M2M.
-- MFA `OPTIONAL`, no forzado — pendiente de un flujo operativo de
-  inscripción/recuperación antes de considerar `ON`.
-- API Gateway y VPC Link (TECH-131) pendientes — siguen bloqueados también en TECH-132.
-- Ningún `terraform apply` ejecutado en ningún momento de esta secuencia de historias.
+**Documented gaps, prior to any real deployment** (none resolved by this story):
+- Hosted UI domain not created — requires a real approved callback/logout URL first.
+- SSM allowlist published but not wired to `modules/ecs-task` — follow-up pending.
+- Real M2M secret distribution to the consumer not automated — explicit IAM access
+  pending a real consumer.
+- No automatic rotation of the M2M secret.
+- MFA `OPTIONAL`, not enforced — pending an operational enrollment/recovery flow before
+  considering `ON`.
+- API Gateway and VPC Link (TECH-131) pending — also still blocked in TECH-132.
+- No `terraform apply` executed at any point in this sequence of stories.
 
 ---
 
@@ -3204,220 +3196,212 @@ historia):
 **Branch:** `infra/api-gateway-private-integration`
 
 **Origin:** ADR-002 (Accepted, Option E), layer 1. [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
-Fase 4.
+Phase 4.
 
-**Corrección de arquitectura — REST API VPC Links solo aceptan NLB, no ALB
-directamente:** el diagrama original de ADR-010 ("API Gateway → VPC Link → ALB
-interno") simplificaba de más una restricción real de AWS, confirmada contra la
-documentación del propio recurso del provider, no asumida: `aws_api_gateway_vpc_link`
-(el VPC Link clásico de REST API, distinto de `aws_apigatewayv2_vpc_link` para HTTP API)
-solo acepta un ARN de Network Load Balancer en `target_arns` — nunca un Application
-Load Balancer directamente, y solo un NLB por VPC Link. Esta historia crea un NLB
-pequeño (`aws_lb`, `load_balancer_type = "network"`) exclusivamente para el VPC Link, y
-registra el ALB interno ya existente (TECH-141) como el único target de ese NLB, usando
-el patrón documentado por AWS "Application Load Balancer as a target of a Network Load
-Balancer" (`aws_lb_target_group` con `target_type = "alb"` +
-`aws_lb_target_group_attachment`). Topología real:
+**Architecture correction — REST API VPC Links only accept an NLB, not an ALB
+directly:** ADR-010's original diagram ("API Gateway → VPC Link → internal ALB")
+over-simplified a real AWS constraint, confirmed against the provider resource's own
+documentation, not assumed: `aws_api_gateway_vpc_link` (the classic REST API VPC Link,
+distinct from `aws_apigatewayv2_vpc_link` for HTTP API) only accepts a Network Load
+Balancer ARN in `target_arns` — never an Application Load Balancer directly, and only
+one NLB per VPC Link. This story creates a small NLB (`aws_lb`,
+`load_balancer_type = "network"`) exclusively for the VPC Link, and registers the
+already-existing internal ALB (TECH-141) as that NLB's sole target, using the
+AWS-documented "Application Load Balancer as a target of a Network Load Balancer"
+pattern (`aws_lb_target_group` with `target_type = "alb"` +
+`aws_lb_target_group_attachment`). Real topology:
 
 ```
-Cliente → API Gateway REST API → VPC Link → NLB → (target_type=alb) → ALB interno → ECS Service
+Client → API Gateway REST API → VPC Link → NLB → (target_type=alb) → internal ALB → ECS Service
 ```
 
-Restricciones respetadas, todas documentadas por AWS: exactamente un ALB por target
-group tipo `alb`; el puerto del target group debe coincidir exactamente con el puerto
-del listener del ALB (ambos `80`); los health checks se reenvían al ALB y luego a su
-propio target group, usando el mismo path `/actuator/health` ya usado en la capa
-ALB→ECS. **Sin security group en el NLB**: la documentación de AWS no confirma si un
-target group de NLB tipo `alb` preserva la IP de origen del llamador real, así que este
-módulo no intenta acotar el ingress a nivel de NLB por IP/SG. El límite de control de
-acceso real sigue siendo el propio security group del ALB (`modules/ecs-service`) — el
-root conecta `alb_allowed_ingress_cidr_blocks` con las CIDR de las subredes
-privadas-app (el fallback documentado que TECH-141 ya construyó para exactamente este
-caso), nunca `alb_allowed_ingress_security_group_ids`, y nunca `0.0.0.0/0` (rechazado
-por la validación de esa variable desde TECH-141).
+Constraints honored, all AWS-documented: exactly one ALB per `alb`-type target group;
+the target group's port must exactly match the ALB listener's port (both `80`); health
+checks are forwarded to the ALB and then to its own target group, using the same
+`/actuator/health` path already used at the ALB→ECS layer. **No security group on the
+NLB**: AWS documentation does not confirm whether an `alb`-type NLB target group
+preserves the real caller's source IP, so this module does not attempt to scope ingress
+at the NLB level by IP/SG. The real access-control boundary remains the ALB's own
+security group (`modules/ecs-service`) — the root wires
+`alb_allowed_ingress_cidr_blocks` to the private-app subnets' CIDRs (the documented
+fallback TECH-141 already built for exactly this case), never
+`alb_allowed_ingress_security_group_ids`, and never `0.0.0.0/0` (rejected by that
+variable's validation since TECH-141).
 
-**Separación de responsabilidades (sin cambios respecto a ADR-002 §3):** Cognito
-(identidad y autorización) — API key (identificación operativa de un consumidor de
-`/api/sipsa/**`, solo para medición) — usage plan (throttling y cuota, nunca
-autenticación) — Spring Security (validación final, defensa en profundidad, del access
-token y sus scopes). El authorizer de Cognito en el gateway **no reemplaza** la
-revalidación de Spring Security — ambas capas corren, independientemente, en cada
-request a `/api/internal/**` (ADR-002: un bypass del gateway sigue llegando a un backend
-que revalida el token).
+**Separation of responsibilities (unchanged from ADR-002 §3):** Cognito (identity and
+authorization) — API key (operational identification of an `/api/sipsa/**` consumer,
+for metering only) — usage plan (throttling and quota, never authentication) — Spring
+Security (final validation, defense in depth, of the access token and its scopes). The
+Cognito authorizer at the gateway **does not replace** Spring Security's revalidation —
+both layers run, independently, on every request to `/api/internal/**` (ADR-002: a
+gateway bypass still reaches a backend that revalidates the token).
 
-**Inventario de endpoints** (grep contra `src/main/java`, cruzado con los matchers de
-`SecurityConfig` — ver tabla completa en `modules/api-gateway/README.md`): `GET
-/api/sipsa` y `GET /api/sipsa/{proxy+}` (ciudad, mayoristas/mensual, parcial,
-mayoristas/semanal, abastecimientos/mensual) — públicos, requieren API key, tier
-general. `POST /api/internal/ingestion/run` y `POST
-/api/internal/ingestion/cancel/{runId}` — Cognito, scopes `sipsa/ingestion.execute` y
-`sipsa/ingestion.cancel` respectivamente, tier estricto de ingestión (1/2). Los 8 GET
-restantes de `/api/internal/ingestion/**` y `/api/internal/audit/**` — Cognito, scope
-exacto por ruta (`sipsa/ingestion.read` o `sipsa/audit.read`), tier general.
-`/actuator/health` — **nunca ruteado por el gateway** (ADR-002 §5), confirmado
-estructuralmente (ningún recurso de este módulo referencia `/actuator`).
-`/api/sipsa/**` usa un único recurso `{proxy+}` (Spring ya posee el ruteo real); cada
-ruta de `/api/internal/**` tiene su propio recurso explícito porque cada una necesita un
-`authorization_scopes` exacto y distinto — un catch-all aquí sobre-otorgaría permisos o
-requeriría asumir la semántica AND/OR de scopes múltiples de Cognito, que este módulo no
-asume.
+**Endpoint inventory** (grep against `src/main/java`, cross-checked against
+`SecurityConfig`'s matchers — see the full table in `modules/api-gateway/README.md`):
+`GET /api/sipsa` and `GET /api/sipsa/{proxy+}` (ciudad, mayoristas/mensual, parcial,
+mayoristas/semanal, abastecimientos/mensual) — public, require an API key, general tier.
+`POST /api/internal/ingestion/run` and `POST /api/internal/ingestion/cancel/{runId}` —
+Cognito, `sipsa/ingestion.execute` and `sipsa/ingestion.cancel` scopes respectively,
+strict ingestion tier (1/2). The remaining 8 GETs under `/api/internal/ingestion/**` and
+`/api/internal/audit/**` — Cognito, exact scope per route (`sipsa/ingestion.read` or
+`sipsa/audit.read`), general tier. `/actuator/health` — **never routed through the
+gateway** (ADR-002 §5), confirmed structurally (no resource in this module references
+`/actuator`). `/api/sipsa/**` uses a single `{proxy+}` resource (Spring already owns the
+real routing); each `/api/internal/**` route has its own explicit resource because each
+needs an exact, distinct `authorization_scopes` — a catch-all here would over-grant
+permissions or would require assuming Cognito's AND/OR semantics for multiple scopes,
+which this module does not assume.
 
-**Throttling y cuota (valores aprobados por ADR-010):** general 10 req/s / burst 20,
-aplicado stage-wide vía `aws_api_gateway_method_settings` (`method_path = "*/*"`);
-ingestión (`run`, `cancel/{runId}` únicamente) 1 req/s / burst 2, vía override por ruta;
-cuota mensual 100,000 requests, solo sobre el usage plan general (`/api/sipsa/**`) —
-`/api/internal/**` no requiere API key (ADR-010), así que su throttling es
-exclusivamente vía `method_settings`, sin concepto de cuota mensual. Best-effort,
-explícitamente no una barrera absoluta de costo. **Gap no verificado empíricamente**
-(ningún `apply` se ejecuta jamás): el formato exacto de `method_path` para el override
-de ingestión (`"{resource_path}/{HTTP_METHOD}"`, sin slash inicial, según la
-documentación de AWS) debe confirmarse contra una API real desplegada antes de tráfico
-real.
+**Throttling and quota (values approved by ADR-010):** general 10 req/s / burst 20,
+applied stage-wide via `aws_api_gateway_method_settings` (`method_path = "*/*"`);
+ingestion (`run`, `cancel/{runId}` only) 1 req/s / burst 2, via a per-route override;
+monthly quota 100,000 requests, only on the general usage plan (`/api/sipsa/**`) —
+`/api/internal/**` does not require an API key (ADR-010), so its throttling is
+exclusively via `method_settings`, with no monthly-quota concept. Best-effort,
+explicitly not an absolute cost barrier. **Gap not empirically verified** (no `apply` is
+ever run): the exact `method_path` format for the ingestion override
+(`"{resource_path}/{HTTP_METHOD}"`, no leading slash, per AWS documentation) must be
+confirmed against a real deployed API before real traffic.
 
-**API keys:** un recurso `aws_api_gateway_api_key` parametrizable
-(`var.api_gateway_api_key_name`, default `"sipsa-primary-consumer"`) — mismo precedente
-"un cliente ahora, extensible después" que `modules/cognito` ya estableció para el
-cliente M2M. Sin `value` fijo: AWS lo genera. El atributo `value` generado está marcado
-`sensitive = true` en el schema del provider (confirmado contra el código fuente Go del
-provider, no asumido) — nunca se lee ni se expone como output (`outputs.tf` solo expone
-`api_key_ids`). Recuperación cuando exista un consumidor real: `aws apigateway
-get-api-key --include-value`, acotado por IAM, nunca vía `terraform output` o
-inspección de state.
+**API keys:** a parameterizable `aws_api_gateway_api_key` resource
+(`var.api_gateway_api_key_name`, default `"sipsa-primary-consumer"`) — the same "one
+client now, extensible later" precedent `modules/cognito` already established for the
+M2M client. No fixed `value`: AWS generates it. The generated `value` attribute is
+marked `sensitive = true` in the provider's schema (confirmed against the provider's Go
+source, not assumed) — never read or exposed as an output (`outputs.tf` only exposes
+`api_key_ids`). Retrieval once a real consumer exists: `aws apigateway
+get-api-key --include-value`, scoped by IAM, never via `terraform output` or state
+inspection.
 
-**Access logs:** JSON estructurado, retención 30 días por defecto. Campos: `requestId`
-propio de API Gateway (**no** el mismo `requestId` de `ErrorResponse` de la aplicación,
-TECH-023 — nunca coinciden, ya que solo los errores originados en la app llegan a su
-propia generación de requestId), `sourceIp`, `httpMethod`, `resourcePath`, `status`,
-`integrationStatus`/`integrationLatency`, `authorizer.claims.sub`, `apiKeyId`. Nunca se
-registra el header `Authorization`, el valor de una API key, ni bodies de
-request/response (`data_trace_enabled = false` en todos los `method_settings`). Se creó
-y configuró el rol IAM de CloudWatch a nivel de cuenta (`aws_api_gateway_account`) — un
-prerrequisito real, bien conocido operacionalmente, para que el logging de API Gateway
-efectivamente entregue algo, aunque no esté declarado como requisito estricto en la
-documentación del propio recurso Terraform. **Este es un singleton a nivel de cuenta
-AWS** (el recurso no tiene `rest_api_id` — configura la cuenta, no esta API
-específicamente): seguro de crear una vez en la cuenta AWS única y dedicada de este
-repositorio (ADR-010), pero necesitaría importarse/compartirse, no redeclararse, si se
-agrega un segundo stack de API Gateway a esta cuenta.
+**Access logs:** structured JSON, 30-day retention by default. Fields: API Gateway's own
+`requestId` (**not** the same `requestId` as the application's `ErrorResponse`,
+TECH-023 — they never coincide, since only errors originating in the app reach its own
+requestId generation), `sourceIp`, `httpMethod`, `resourcePath`, `status`,
+`integrationStatus`/`integrationLatency`, `authorizer.claims.sub`, `apiKeyId`. The
+`Authorization` header, an API key value, or request/response bodies are never logged
+(`data_trace_enabled = false` on all `method_settings`). The account-level CloudWatch
+IAM role (`aws_api_gateway_account`) was created and configured — a real, operationally
+well-known prerequisite for API Gateway logging to actually deliver anything, even
+though it is not declared as a strict requirement in the Terraform resource's own
+documentation. **This is an AWS-account-level singleton** (the resource has no
+`rest_api_id` — it configures the account, not this specific API): safe to create once
+in this repository's single, dedicated AWS account (ADR-010), but would need to be
+imported/shared, not redeclared, if a second API Gateway stack is added to this account.
 
-**Respuestas de error — origen en el Gateway vs. en la aplicación:**
-`aws_api_gateway_gateway_response` cubre `UNAUTHORIZED` (401), `ACCESS_DENIED` (403),
-`THROTTLED` (429), y `DEFAULT_5XX`, cada una con un cuerpo JSON pequeño y consistente
-(`status`/`message`/`requestId` — el propio de API Gateway). **Deliberadamente no** el
-mismo shape que `GlobalExceptionHandler.ErrorResponse` de la aplicación — replicarlo
-divergiría en el momento en que cualquiera de los dos lados cambie independientemente, y
-el gateway no puede poblar campos como el `requestId`/`instance` propios de la
-aplicación para un request que nunca llegó al backend. Los errores que la propia
-aplicación produce (400/404/500/502, su propio shape) pasan sin modificar a través de la
-integración `HTTP_PROXY`.
+**Error responses — Gateway-origin vs. application-origin:**
+`aws_api_gateway_gateway_response` covers `UNAUTHORIZED` (401), `ACCESS_DENIED` (403),
+`THROTTLED` (429), and `DEFAULT_5XX`, each with a small, consistent JSON body
+(`status`/`message`/`requestId` — API Gateway's own). **Deliberately not** the same
+shape as the application's `GlobalExceptionHandler.ErrorResponse` — replicating it would
+diverge the moment either side changes independently, and the gateway cannot populate
+fields like the application's own `requestId`/`instance` for a request that never
+reached the backend. Errors the application itself produces (400/404/500/502, its own
+shape) pass through unmodified via the `HTTP_PROXY` integration.
 
-**Timeouts:** confirmado leyendo `SipsaOpsController` — `POST
-/api/internal/ingestion/run` retorna `202` síncronamente y rápido (TECH-053, disparo
-asíncrono); `POST .../cancel/{runId}` es una actualización de estado en BD síncrona y
-rápida. Ningún endpoint espera una operación de larga duración inline — confirmado por
-inspección, no asumido; no fue necesario ningún override ni workaround de timeout.
+**Timeouts:** confirmed by reading `SipsaOpsController` — `POST
+/api/internal/ingestion/run` returns `202` synchronously and fast (TECH-053, async
+trigger); `POST .../cancel/{runId}` is a synchronous, fast DB state update. No endpoint
+waits on a long-running operation inline — confirmed by inspection, not assumed; no
+timeout override or workaround was necessary.
 
-**CORS — indecidido, acotado nativamente por diseño:** `var.api_gateway_cors_allowed_origins`
-vacío por defecto (deshabilitado) — `aws-production-readiness.md` §1.6 confirma que no
-existe ningún requisito de cliente basado en navegador en este repositorio. Cuando se
-configura exactamente un origen, este módulo agrega un header
-`Access-Control-Allow-Origin` estático (y `Access-Control-Allow-Credentials` si
-`cors_allow_credentials=true`) a los métodos GET públicos de `/api/sipsa` vía
-`aws_api_gateway_method_response`/`integration_response`. **Acotado a un solo origen por
-validación de variable**: los headers de respuesta nativos (sin Lambda) de API Gateway
-solo soportan un valor fijo, no un eco dinámico del header `Origin` del request real
-entre múltiples orígenes permitidos — eso requeriría una integración proxy Lambda, no
-adoptada especulativamente mientras no exista ningún origen real confirmado.
-`cors_allowed_origins` nunca acepta `"*"` combinado con `cors_allow_credentials=true` —
-prohibido por la propia especificación CORS.
+**CORS — undecided, natively scoped by design:** `var.api_gateway_cors_allowed_origins`
+defaults to empty (disabled) — `aws-production-readiness.md` §1.6 confirms there is no
+browser-based client requirement in this repository. When exactly one origin is
+configured, this module adds a static `Access-Control-Allow-Origin` header (and
+`Access-Control-Allow-Credentials` if `cors_allow_credentials=true`) to the public GET
+methods of `/api/sipsa` via `aws_api_gateway_method_response`/`integration_response`.
+**Scoped to a single origin by variable validation**: API Gateway's native (no Lambda)
+response headers only support a fixed value, not a dynamic echo of the real request's
+`Origin` header across multiple allowed origins — that would require a Lambda proxy
+integration, not adopted speculatively while no real origin is confirmed.
+`cors_allowed_origins` never accepts `"*"` combined with `cors_allow_credentials=true` —
+forbidden by the CORS spec itself.
 
 **Trivy exceptions:**
 
 | Finding | Resource | Risk | Justification | Exception |
 |---|---|---|---|---|
-| AWS-0003 (LOW — X-Ray no habilitado) | `aws_api_gateway_stage.main` | Bajo — costo real por request sin justificación operacional aún | Misma postura que Container Insights en `modules/ecs-task` (única excepción aceptada, justificada por necesidad operacional real) — X-Ray no tiene un equivalente aquí todavía | `# trivy:ignore:AVD-AWS-0003`, revisitar si el tracing entre las 4 capas se vuelve una necesidad real |
-| AWS-0190 (LOW — cache no habilitado) ×2 | `aws_api_gateway_method_settings.default`/`.ingestion_trigger` | Bajo/Nulo — cachear `GET .../runs`, `/running`, `/runs/{runId}` (estado en vivo) sería activamente engañoso, no solo inútil; las rutas de ingestión son POST (API Gateway no cachea métodos no-GET) | Justificación real de correctitud, no solo de costo | `# trivy:ignore:AVD-AWS-0190`, revisitar cache para `/api/sipsa/**` únicamente si aparece un patrón de tráfico real que lo justifique |
+| AWS-0003 (LOW — X-Ray not enabled) | `aws_api_gateway_stage.main` | Low — real per-request cost with no operational justification yet | Same posture as Container Insights in `modules/ecs-task` (the only accepted exception, justified by a real operational need) — X-Ray has no equivalent here yet | `# trivy:ignore:AVD-AWS-0003`, revisit if tracing across the 4 layers becomes a real need |
+| AWS-0190 (LOW — cache not enabled) ×2 | `aws_api_gateway_method_settings.default`/`.ingestion_trigger` | Low/None — caching `GET .../runs`, `/running`, `/runs/{runId}` (live state) would be actively misleading, not just useless; the ingestion routes are POST (API Gateway does not cache non-GET methods) | Real correctness justification, not just cost | `# trivy:ignore:AVD-AWS-0190`, revisit caching for `/api/sipsa/**` only if a real traffic pattern justifying it appears |
 
-Ninguna excepción toca API pública sin auth, SG abierto, IP pública, logs sin
-retención, ni IAM excesivo.
+No exception touches an unauthenticated public API, an open SG, a public IP, logs
+without retention, or excessive IAM.
 
-**Módulo:** `infra/terraform/modules/api-gateway/` (`main.tf`, `variables.tf`,
-`outputs.tf`, `versions.tf`, `README.md`, `tests/`). Sin módulos públicos de terceros.
-`environments/production/main.tf` consume el módulo, conectando
-`module.ecs_service.alb_arn`, `module.network.vpc_id`/`private_app_subnet_ids`, y
-`module.cognito.user_pool_arn`/`resource_server_identifier` — sin dependencia directa a
-los internos de esos módulos, solo a sus outputs declarados.
+**Module:** `infra/terraform/modules/api-gateway/` (`main.tf`, `variables.tf`,
+`outputs.tf`, `versions.tf`, `README.md`, `tests/`). No third-party public modules.
+`environments/production/main.tf` consumes the module, wiring
+`module.ecs_service.alb_arn`, `module.network.vpc_id`/`private_app_subnet_ids`, and
+`module.cognito.user_pool_arn`/`resource_server_identifier` — no direct dependency on
+those modules' internals, only on their declared outputs.
 
 **Outputs:** `rest_api_id`, `rest_api_arn`, `execution_arn`, `invoke_url`, `stage_name`,
-`vpc_link_id`, `usage_plan_id`, `api_key_ids` (solo IDs), `access_log_group_name`,
-`authorizer_id`. Ningún valor de API key expuesto.
+`vpc_link_id`, `usage_plan_id`, `api_key_ids` (IDs only), `access_log_group_name`,
+`authorizer_id`. No API key value exposed.
 
 **Tests:** `infra/terraform/modules/api-gateway/tests/api-gateway.tftest.hcl` — 21
-casos, `terraform test` con proveedor mockeado, cero cuenta AWS real. Cobertura: REST
-API creada; VPC Link apunta al NLB (nunca al ALB directamente); el target group del NLB
-es tipo `alb` con el ALB dado como único target, puerto coincidente; authorizer Cognito
-correcto; cada ruta de `/api/internal/**` exige su scope exacto, nunca un conjunto
-compartido; `/api/internal/**` nunca requiere API key y siempre exige Cognito;
-`/api/sipsa/**` siempre requiere API key y nunca exige Cognito; usage plan coincide con
-el tier general de ADR-010 (throttle + cuota); exactamente las dos rutas de ingestión
-llevan el tier estricto; access logs configurados sin el header Authorization ni un
-valor de API key, `data_trace_enabled=false`; las 4 gateway responses existen con los
-códigos correctos; stage `production`; el output de API key expone solo el ID; tags
-comunes; CORS deshabilitado por defecto, refleja correctamente un origen único más el
-flag de credenciales, y rechaza tanto más de un origen como wildcard+credentials. Más 2
-tests nuevos en `environments/production/tests/production.tftest.hcl` (stub de
-`module.api_gateway` vía `override_module`, sin afectar los 2 tests de wiring de
-TECH-142 que ya existían ahí). **129 tests Terraform en total en el árbol**
-(16+20+9+21+17+23+21+2).
+cases, `terraform test` with a mocked provider, zero real AWS account. Coverage: REST
+API created; VPC Link points at the NLB (never directly at the ALB); the NLB's target
+group is `alb`-type with the given ALB as its sole target, matching port; correct
+Cognito authorizer; each `/api/internal/**` route requires its exact scope, never a
+shared set; `/api/internal/**` never requires an API key and always requires Cognito;
+`/api/sipsa/**` always requires an API key and never requires Cognito; usage plan
+matches ADR-010's general tier (throttle + quota); exactly the two ingestion routes
+carry the strict tier; access logs configured without the Authorization header or an
+API key value, `data_trace_enabled=false`; all 4 gateway responses exist with the
+correct codes; `production` stage; the API key output exposes only the ID; common tags;
+CORS disabled by default, correctly reflects a single origin plus the credentials flag,
+and rejects both more than one origin and wildcard+credentials. Plus 2 new tests in
+`environments/production/tests/production.tftest.hcl` (stub of `module.api_gateway` via
+`override_module`, without affecting the 2 wiring tests from TECH-142 already there).
+**129 Terraform tests total across the tree** (16+20+9+21+17+23+21+2).
 
-**Gaps explícitos, no resueltos por esta historia:**
-- IAM/SigV4 como ruta alternativa de autorización para automatización AWS-nativa: no
-  implementado — el authorizer Cognito por sí solo cubre el contrato de esta historia;
-  queda como decisión **D** abierta si surge un consumidor real que lo necesite.
-- Formato de `method_path` para el override de throttling de ingestión no verificado
-  empíricamente contra una API real desplegada.
-- Comportamiento de preservación de IP de origen para targets NLB tipo `alb` no
-  confirmado por AWS — el diseño de ingress del ALB usa el fallback CIDR
-  conservador, ya documentado.
-- CORS soporta un único origen nativamente; múltiples orígenes dinámicos requerirían una
-  integración Lambda, no construida aquí.
-- Sin dominio custom, ACM, Route 53, ni WAF — explícitamente fuera de alcance.
-- Ningún `terraform apply` ejecutado en ningún momento de esta secuencia de historias.
+**Explicit gaps, not resolved by this story:**
+- IAM/SigV4 as an alternative authorization path for AWS-native automation: not
+  implemented — the Cognito authorizer alone covers this story's contract; remains an
+  open decision **D** if a real consumer needing it appears.
+- `method_path` format for the ingestion throttling override not empirically verified
+  against a real deployed API.
+- Source-IP preservation behavior for `alb`-type NLB targets not confirmed by AWS — the
+  ALB's ingress design uses the conservative CIDR fallback, already documented.
+- CORS natively supports a single origin; multiple dynamic origins would require a
+  Lambda integration, not built here.
+- No custom domain, ACM, Route 53, or WAF — explicitly out of scope.
+- No `terraform apply` executed at any point in this sequence of stories.
 
 **Acceptance Criteria:**
-- [x] API Gateway REST API (nunca HTTP API) con justificación documentada.
-- [x] VPC Link privado hacia el ALB interno (vía NLB, arquitectura corregida y
-      documentada).
-- [x] Cognito authorizer conectado al User Pool de TECH-130, sin crear uno nuevo.
-- [x] Scopes exactos por ruta en `/api/internal/**`, API key requerida en
-      `/api/sipsa/**`, nunca ambos mecanismos combinados como autenticación.
-- [x] Usage plans, throttling general (10/20) y de ingestión (1/2), cuota mensual
-      (100k) — valores exactos de ADR-010.
-- [x] Access logs estructurados, retención 30 días, sin tokens/secretos/bodies.
-- [x] Respuestas 401/403/429/5xx consistentes, distintas del shape de la aplicación,
-      documentado por qué.
-- [x] `/actuator/health` nunca ruteado por el gateway.
-- [x] `terraform test` 129/129 en todo el árbol.
-- [x] `terraform fmt -check -recursive`, `terraform validate` (todos los roots), TFLint
-      (0 issues), `trivy config` (0 hallazgos sin resolver, 3 excepciones LOW
-      justificadas) limpios.
-- [x] `./mvnw -q -DskipTests compile` pasa; cero cambio en `src`/`pom.xml`.
-- [x] Sin dominio custom, ACM, Route 53, WAF, consumidores reales, tokens reales, ni
-      valores de API key reales entregados.
-- [x] Sin `terraform apply`, `terraform import`, AWS CLI, en ningún momento.
-- [x] TECH-132 permanece `In progress` (no marcado Done por esta historia).
+- [x] API Gateway REST API (never HTTP API) with documented justification.
+- [x] Private VPC Link to the internal ALB (via NLB, corrected and documented
+      architecture).
+- [x] Cognito authorizer connected to TECH-130's User Pool, without creating a new one.
+- [x] Exact per-route scopes on `/api/internal/**`, API key required on
+      `/api/sipsa/**`, never both mechanisms combined as authentication.
+- [x] Usage plans, general throttling (10/20) and ingestion throttling (1/2), monthly
+      quota (100k) — exact ADR-010 values.
+- [x] Structured access logs, 30-day retention, no tokens/secrets/bodies.
+- [x] Consistent 401/403/429/5xx responses, distinct from the application's shape,
+      documented why.
+- [x] `/actuator/health` never routed through the gateway.
+- [x] `terraform test` 129/129 across the tree.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (all roots), TFLint
+      (0 issues), `trivy config` (0 unresolved findings, 3 justified LOW exceptions)
+      clean.
+- [x] `./mvnw -q -DskipTests compile` passes; zero change in `src`/`pom.xml`.
+- [x] No custom domain, ACM, Route 53, WAF, real consumers, real tokens, or real API key
+      values delivered.
+- [x] No `terraform apply`, `terraform import`, AWS CLI, at any point.
+- [x] TECH-132 remains `In progress` (not marked Done by this story).
 
-**Completed:** `infra/terraform/modules/api-gateway/` creado (6 archivos incl. tests) y
-conectado a `environments/production`. Verificado localmente vía las imágenes Docker
-oficiales `hashicorp/terraform:1.15.7`, `terraform-linters/tflint:v0.64.0`,
-`aquasec/trivy` (ninguna instalada en esta máquina): `fmt -check -recursive` limpio;
-`terraform init -backend=false && terraform validate` limpio para los nueve Terraform
-roots; `terraform test` 129/129 en el árbol; TFLint 0 issues; `trivy config` 0 hallazgos
-sin resolver (3 excepciones LOW nuevas, cada una justificada individualmente).
-`.github/workflows/infra-plan.yml` ganó un paso `terraform test — modules/api-gateway`.
-`./mvnw -q -DskipTests compile` pasó; cero cambio en `src`/`pom.xml`. Ningún `terraform
-apply`, `terraform import`, comando AWS CLI, solicitud real de token, ni retiro de API
-key en ningún momento; ningún recurso AWS de ningún tipo existe.
+**Completed:** `infra/terraform/modules/api-gateway/` created (6 files incl. tests) and
+wired into `environments/production`. Verified locally via the official Docker images
+`hashicorp/terraform:1.15.7`, `terraform-linters/tflint:v0.64.0`,
+`aquasec/trivy` (none installed on this machine): `fmt -check -recursive` clean;
+`terraform init -backend=false && terraform validate` clean for all nine Terraform
+roots; `terraform test` 129/129 across the tree; TFLint 0 issues; `trivy config` 0
+unresolved findings (3 new LOW exceptions, each individually justified).
+`.github/workflows/infra-plan.yml` gained a `terraform test — modules/api-gateway` step.
+`./mvnw -q -DskipTests compile` passed; zero change in `src`/`pom.xml`. No `terraform
+apply`, `terraform import`, AWS CLI command, real token request, or API key retrieval at
+any point; no AWS resource of any kind exists.
 
 ---
 
@@ -3469,7 +3453,7 @@ requiring it yet). Every real provisioning step itself is **C** (real AWS access
 the remaining D items are resolved.
 
 **Decision/execution plan:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md)
-(**Accepted**, 2026-07-21) — Fase 1 (network) and Fase 3 (compute/data) cover this story.
+(**Accepted**, 2026-07-21) — Phase 1 (network) and Phase 3 (compute/data) cover this story.
 Approved: new dedicated VPC, 2 AZ, ECS Fargate (`desired_count=1`, CPU/memory as
 Terraform variables, small starting values to be verified against real ingestion load),
 one NAT Gateway initially (accepted single point of failure for egress, documented
@@ -3599,7 +3583,7 @@ ingestion window configuration, Done 2026-07-17) — this story deliberately doe
 that ID, taking the next free number instead.
 
 **Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (**Accepted**,
-2026-07-21) Fase 0 — the repository owner approved Terraform, in this repository, single
+2026-07-21) Phase 0 — the repository owner approved Terraform, in this repository, single
 AWS account, `us-east-1`, `production`-only environment, and the rest of ADR-010's
 initial topology. This story is the first implementation branch: it introduces the
 Terraform project structure, remote-state bootstrap, and CI validation — no AWS resource
@@ -3704,7 +3688,7 @@ resource created, no `terraform apply` run.
 **Complexity:** M
 **Branch:** `infra/production-vpc-foundation`
 
-**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) Fase 1 —
+**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) Phase 1 —
 the network substrate [TECH-132](#tech-132) depends on. Scoped narrowly to networking
 only: VPC, subnets, routing, NAT, the S3 Gateway Endpoint, and VPC Flow Logs. **Does not**
 implement ECS, ALB, RDS, Cognito, API Gateway, VPC Link, Secrets Manager, ECR, WAF,
@@ -3818,7 +3802,7 @@ point; no AWS resource of any kind exists. TECH-132 updated to `In progress`.
 **Branch:** `infra/production-rds-foundation`
 
 **Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) — the RDS
-portion of [TECH-132](#tech-132)'s Fase 3. Scoped narrowly to the database only: DB subnet
+portion of [TECH-132](#tech-132)'s Phase 3. Scoped narrowly to the database only: DB subnet
 group, security group (no ingress rule yet), parameter group, and the RDS instance
 itself. **Does not** implement ECS, ALB, ECR, Cognito, API Gateway, VPC Link, Route 53,
 ACM, WAF, Cognito secrets, application deployment, a real database connection, or a
@@ -3992,7 +3976,7 @@ ECS and the internal ALB are still unimplemented.
 **Branch:** `infra/production-ecs-task-foundation`
 
 **Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) (Accepted) — the
-ECR/ECS-cluster/task-definition portion of [TECH-132](#tech-132)'s Fase 3. Scoped
+ECR/ECS-cluster/task-definition portion of [TECH-132](#tech-132)'s Phase 3. Scoped
 narrowly: no ECS Service, ALB, target group, listener, autoscaling, API Gateway, VPC
 Link, Cognito, Route 53, ACM, WAF, real deploy, real image, or real RDS connection.
 
@@ -4001,83 +3985,82 @@ Link, Cognito, Route 53, ACM, WAF, real deploy, real image, or real RDS connecti
 -e 'SPRING_PROFILES_ACTIVE' src/main/resources src/main/java Dockerfile
 docker-compose.yml`):
 
-| Variable | Sensible | Fuente futura | Requerida al arranque | Default |
+| Variable | Sensitive | Future source | Required at startup | Default |
 |---|---:|---|---:|---|
-| `DB_USERNAME` | Sí | Secrets Manager (RDS-managed secret — temporal, ver abajo) | Sí | ninguno |
-| `DB_PASSWORD` | Sí | Secrets Manager (ídem) | Sí | ninguno |
-| `DB_HOST` | No | `modules/database`'s `db_address` output | Sí (en AWS) | `localhost` (solo dev) |
+| `DB_USERNAME` | Yes | Secrets Manager (RDS-managed secret — temporary, see below) | Yes | none |
+| `DB_PASSWORD` | Yes | Secrets Manager (same) | Yes | none |
+| `DB_HOST` | No | `modules/database`'s `db_address` output | Yes (in AWS) | `localhost` (dev only) |
 | `DB_PORT` | No | `modules/database`'s `db_port` output | No | `5432` |
 | `DB_NAME` | No | `modules/database`'s `db_name` output | No | `sipsa_db` |
-| `SPRING_PROFILES_ACTIVE` | No | Variable Terraform (`ecs_spring_profile`) | Sí (determina el perfil) | `dev` (base app), `docker` fijado explícitamente en la task definition |
-| `PORT` / `server.port` | No | Variable Terraform (`ecs_container_port`) | No | `8080` — confirmado en `application.yaml` y `Dockerfile`, no asumido |
-| `SIPSA_JWT_ISSUER_URI` | No (URL pública) | `module.cognito.issuer_url`, conectado a la task definition por [TECH-142](#tech-142) | Sí fuera de dev/docker (falla rápido) | vacío |
-| `SIPSA_JWT_ALLOWED_CLIENT_IDS` | No | `module.cognito.allowed_client_ids_parameter_arn` (SSM), conectado por [TECH-142](#tech-142) | No | vacío |
-| `SOAP_ENDPOINT` y demás `SOAP_*` (timeouts, reintentos) | No | Ya apuntan al endpoint real de DANE | No | valores ya operativos |
-| `INGESTION_*`, `SIPSA_ASYNC_*`, `SIPSA_HEALTH_*`, `LOG_LEVEL_*` | No | Ajustes operativos, sin fuente AWS nueva | No | ya definidos, sin cambio |
+| `SPRING_PROFILES_ACTIVE` | No | Terraform variable (`ecs_spring_profile`) | Yes (determines the profile) | `dev` (base app), `docker` set explicitly in the task definition |
+| `PORT` / `server.port` | No | Terraform variable (`ecs_container_port`) | No | `8080` — confirmed in `application.yaml` and `Dockerfile`, not assumed |
+| `SIPSA_JWT_ISSUER_URI` | No (public URL) | `module.cognito.issuer_url`, wired into the task definition by [TECH-142](#tech-142) | Yes outside dev/docker (fails fast) | empty |
+| `SIPSA_JWT_ALLOWED_CLIENT_IDS` | No | `module.cognito.allowed_client_ids_parameter_arn` (SSM), wired by [TECH-142](#tech-142) | No | empty |
+| `SOAP_ENDPOINT` and other `SOAP_*` (timeouts, retries) | No | Already point at the real DANE endpoint | No | already-operational values |
+| `INGESTION_*`, `SIPSA_ASYNC_*`, `SIPSA_HEALTH_*`, `LOG_LEVEL_*` | No | Operational settings, no new AWS source | No | already defined, unchanged |
 
-No se inventó ninguna variable que la aplicación no consuma — la tabla refleja
-exactamente lo encontrado por el grep, no una lista especulativa.
+No variable the application doesn't consume was invented — the table reflects exactly
+what the grep found, not a speculative list.
 
-**ECR:** `image_tag_mutability = IMMUTABLE`, `scan_on_push = true`, cifrado `AES256` por
-defecto (KMS evaluado, no habilitado sin requisito real — excepción Trivy documentada).
-Lifecycle de dos reglas: imágenes sin tag expiran a los 7 días
-(`expire_untagged_after_days`); imágenes con tag se limitan a las últimas 20
-(`keep_last_tagged_images`) — un límite por cantidad, no por tiempo, para no borrar
-nunca la imagen actualmente desplegada si un release tarda más de lo usual. Sin
-replicación cross-region.
+**ECR:** `image_tag_mutability = IMMUTABLE`, `scan_on_push = true`, `AES256` encryption
+by default (KMS evaluated, not enabled without a real requirement — Trivy exception
+documented). Two-rule lifecycle: untagged images expire after 7 days
+(`expire_untagged_after_days`); tagged images are capped at the latest 20
+(`keep_last_tagged_images`) — a count limit, not a time limit, so the currently deployed
+image is never deleted if a release takes longer than usual. No cross-region
+replication.
 
-**ECS Cluster:** Fargate únicamente (`capacity_providers = ["FARGATE"]`), sin capacity
-provider EC2, sin `FARGATE_SPOT` (una interrupción a mitad de una ingestión programada es
-un riesgo real, no aceptable para esta única tarea productiva). Container Insights
-habilitado por defecto (`enable_container_insights = true`) — costo real documentado,
-juzgado aceptable dado que son trabajos programados sin supervisión humana en tiempo
-real.
+**ECS Cluster:** Fargate only (`capacity_providers = ["FARGATE"]`), no EC2 capacity
+provider, no `FARGATE_SPOT` (an interruption mid-scheduled-ingestion is a real,
+unacceptable risk for this single production task). Container Insights enabled by
+default (`enable_container_insights = true`) — real documented cost, judged acceptable
+given these are scheduled jobs with no real-time human supervision.
 
 **Task Definition:** `network_mode = "awsvpc"`, `requires_compatibilities = ["FARGATE"]`,
-`cpu = 256` / `memory = 512` (MiB) — **propuestas, no capacidades confirmadas**;
-documentado que deben validarse contra consumo real de heap/memoria nativa, la ingestión
-Parcial de mayor volumen (229k+ registros), comportamiento de GC y riesgo de OOM antes del
-primer despliegue real. `cpu_architecture = "X86_64"` por defecto — CI de este repositorio
-(`ubuntu-latest`) construye x86_64 hoy, sin pipeline multi-arch, sin verificación de
-compatibilidad ARM64 para Java 25 ni auditoría de dependencias nativas; ARM64 queda
-documentado como optimización futura, no adoptado sin esa evidencia.
+`cpu = 256` / `memory = 512` (MiB) — **proposals, not confirmed capacities**; documented
+as needing validation against real heap/native-memory consumption, the largest-volume
+Parcial ingestion (229k+ records), GC behavior, and OOM risk before the first real
+deployment. `cpu_architecture = "X86_64"` by default — this repository's CI
+(`ubuntu-latest`) builds x86_64 today, with no multi-arch pipeline, no ARM64
+compatibility verification for Java 25, and no native-dependency audit; ARM64 remains
+documented as a future optimization, not adopted without that evidence.
 
-**Puerto:** 8080, confirmado directamente desde `application.yaml`
-(`server.port: ${PORT:8080}`) y `Dockerfile` (`EXPOSE 8080`) — no asumido. Health check
-futuro documentado (no creado aún): path `/actuator/health`, puerto 8080, estado esperado
-`200`, con gracia de arranque suficiente para la inicialización del contexto Spring.
+**Port:** 8080, confirmed directly from `application.yaml`
+(`server.port: ${PORT:8080}`) and `Dockerfile` (`EXPOSE 8080`) — not assumed. Future
+health check documented (not yet created): path `/actuator/health`, port 8080, expected
+status `200`, with startup grace sufficient for Spring context initialization.
 
-**Seguridad de contenedor:** `readonlyRootFilesystem = true` — sin evidencia de escritura
-a disco fuera de la JVM (confirmado: sin `java.io.File`/`Files.write`/`createTempFile` en
-`src/main/java`); mount `tmpfs` en `/tmp` (128 MiB) como salvaguarda para necesidades de
-la JVM/librerías (JAXB/CXF) sin arriesgar romper la aplicación por una configuración no
-validada. Usuario no-root ya aplicado a nivel de imagen (`Dockerfile`'s `USER appuser`).
-`privileged` no es siquiera soportado por Fargate. Sin `linuxParameters.capabilities`
-adicionales. Una sola definición de contenedor, `essential = true`.
+**Container security:** `readonlyRootFilesystem = true` — no evidence of disk writes
+outside the JVM (confirmed: no `java.io.File`/`Files.write`/`createTempFile` in
+`src/main/java`); a `tmpfs` mount on `/tmp` (128 MiB) as a safeguard for JVM/library
+needs (JAXB/CXF) without risking breaking the application over an unvalidated
+configuration. Non-root user already applied at the image level (`Dockerfile`'s
+`USER appuser`). `privileged` isn't even supported by Fargate. No additional
+`linuxParameters.capabilities`. A single container definition, `essential = true`.
 
-**Almacenamiento efímero:** sin bloque `ephemeral_storage` — se deja el default de
-Fargate (20 GiB) sin evidencia de necesitar más; uso esperado: temporales JVM, buffering
-de respuestas SOAP, logs no persistentes (van a stdout vía `awslogs`).
+**Ephemeral storage:** no `ephemeral_storage` block — Fargate's default (20 GiB) is left
+as-is with no evidence more is needed; expected use: JVM temporaries, SOAP response
+buffering, non-persistent logs (go to stdout via `awslogs`).
 
-**IAM — execution role vs. task role:** el execution role (usado por el agente ECS para
-preparar la tarea) adjunta únicamente la política administrada estándar
-`AmazonECSTaskExecutionRolePolicy` más una política inline escoped a los ARNs exactos de
-secretos/parámetros referenciados — nunca `Resource = "*"`, nunca
-`SecretsManagerReadWrite`, nunca `AdministratorAccess`/`PowerUserAccess`. El task role
-(credenciales disponibles dentro de la aplicación) queda **sin permisos adicionales por
-defecto** — la aplicación no llama ninguna API de AWS directamente hoy (JPA contra RDS vía
-credencial de base de datos, no autenticación IAM).
+**IAM — execution role vs. task role:** the execution role (used by the ECS agent to
+prepare the task) attaches only the standard managed policy
+`AmazonECSTaskExecutionRolePolicy` plus an inline policy scoped to the exact ARNs of the
+referenced secrets/parameters — never `Resource = "*"`, never
+`SecretsManagerReadWrite`, never `AdministratorAccess`/`PowerUserAccess`. The task role
+(credentials available inside the application) gets **no additional permissions by
+default** — the application calls no AWS API directly today (JPA against RDS via a
+database credential, not IAM authentication).
 
-**Secretos:** la task definition referencia el secreto maestro de RDS
-(`modules/database`'s `master_secret_arn`) para `DB_USERNAME`/`DB_PASSWORD`, resuelto vía
-el bloque `secrets` de la task definition (`valueFrom`), **nunca como variable de entorno
-en texto plano**. Esto es **explícitamente una integración temporal**, no el diseño
-final: esta historia no crea un usuario de aplicación de mínimo privilegio (requeriría un
-bootstrap SQL real, fuera de alcance) — un despliegue real debe reemplazar esta
-credencial antes de ir a producción; usar el secreto maestro permanentemente violaría el
-principio de mínimo privilegio.
+**Secrets:** the task definition references RDS's master secret
+(`modules/database`'s `master_secret_arn`) for `DB_USERNAME`/`DB_PASSWORD`, resolved via
+the task definition's `secrets` block (`valueFrom`), **never as a plaintext environment
+variable**. This is **explicitly a temporary integration**, not the final design: this
+story does not create a least-privilege application user (would require a real SQL
+bootstrap, out of scope) — a real deployment must replace this credential before going
+to production; using the master secret permanently would violate the least-privilege
+principle.
 
-**Trivy exceptions** (reevaluadas para estos dos módulos, no copiadas mecánicamente):
+**Trivy exceptions** (re-evaluated for these two modules, not copied mechanically):
 
 | Finding | Resource | Risk | Justification | Exception |
 |---|---|---|---|---|
@@ -4087,97 +4070,95 @@ principio de mínimo privilegio.
 No exception touches encryption presence, public access, or backups — both are about
 *which* encryption key manages already-present encryption.
 
-**Módulos:** `infra/terraform/modules/ecr/` y `infra/terraform/modules/ecs-task/` (cada
-uno con `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`, `README.md`, `tests/`) —
-sin módulos públicos de terceros. `environments/production/main.tf` consume ambos,
-encadenando `module.ecr.repository_url` y `module.database.db_address`/`db_port`/
-`db_name`/`master_secret_arn` hacia `module.ecs_task`.
+**Modules:** `infra/terraform/modules/ecr/` and `infra/terraform/modules/ecs-task/`
+(each with `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`, `README.md`,
+`tests/`) — no third-party public modules. `environments/production/main.tf` consumes
+both, chaining `module.ecr.repository_url` and `module.database.db_address`/`db_port`/
+`db_name`/`master_secret_arn` into `module.ecs_task`.
 
 **Outputs — ECR:** `repository_name`, `repository_arn`, `repository_url`. **Outputs —
 ECS/task:** `ecs_cluster_id`, `ecs_cluster_arn`, `task_definition_arn`,
 `task_definition_family`, `execution_role_arn`, `task_role_arn`,
-`application_log_group_name`, `container_name`, `container_port`. Ningún secreto se
-expone en ningún output.
+`application_log_group_name`, `container_name`, `container_port`. No secret is exposed
+in any output.
 
-**Tests:** `infra/terraform/modules/ecr/tests/ecr.tftest.hcl` (9 casos) y
-`infra/terraform/modules/ecs-task/tests/ecs-task.tftest.hcl` (17 casos) — 26 en total,
-todos verdes, `terraform test` con proveedor AWS completamente mockeado
-(`mock_provider "aws" {}`), **cero cuenta AWS real contactada**. Cobertura: tags
-inmutables, scan on push, cifrado por defecto, lifecycle de imágenes tagged/untagged
-parametrizable, tags comunes (ECR); Fargate + `awsvpc`, CPU/memoria parametrizables,
-arquitectura `X86_64` por defecto, log group de 30 días, `awslogs` configurado
-correctamente, execution role y task role como roles IAM distintos, cero permisos
-administrativos, sin contenedor `privileged` ni capabilities adicionales, una sola
-definición de contenedor esencial, rechazo explícito del tag `latest`, puerto 8080
-confirmado, credenciales nunca en texto plano, y confirmación estructural de que solo
-existen el cluster y la task definition (ningún `aws_ecs_service`/`aws_lb` declarado en
-el módulo) (ECS/task).
+**Tests:** `infra/terraform/modules/ecr/tests/ecr.tftest.hcl` (9 cases) and
+`infra/terraform/modules/ecs-task/tests/ecs-task.tftest.hcl` (17 cases) — 26 total, all
+green, `terraform test` with a fully mocked AWS provider (`mock_provider "aws" {}`),
+**zero real AWS account contacted**. Coverage: immutable tags, scan on push, encryption
+by default, parameterizable tagged/untagged image lifecycle, common tags (ECR); Fargate
++ `awsvpc`, parameterizable CPU/memory, `X86_64` architecture by default, 30-day log
+group, correctly configured `awslogs`, execution role and task role as distinct IAM
+roles, zero administrative permissions, no `privileged` container or additional
+capabilities, a single essential container definition, explicit rejection of the
+`latest` tag, confirmed port 8080, credentials never in plaintext, and structural
+confirmation that only the cluster and task definition exist (no
+`aws_ecs_service`/`aws_lb` declared in the module) (ECS/task).
 
 **Acceptance Criteria:**
-- [x] Repositorio ECR con tags inmutables, scan on push, cifrado y lifecycle policy
-      parametrizable creado en código Terraform.
-- [x] Cluster ECS Fargate (sin EC2, sin `FARGATE_SPOT`) con Container Insights
-      configurable.
-- [x] Task definition Fargate (`awsvpc`, CPU/memoria parametrizables, arquitectura
-      `X86_64` por defecto) con una sola definición de contenedor esencial.
-- [x] Puerto del contenedor confirmado como 8080 desde el código real de la aplicación.
-- [x] Execution role y task role son roles IAM separados; el execution role no excede el
-      alcance necesario (política administrada estándar + secretos escogidos); el task
-      role no tiene permisos por defecto.
-- [x] Credenciales de base de datos resueltas vía Secrets Manager (`secrets` block),
-      nunca como variable de entorno en texto plano; wiring del secreto maestro
-      documentado explícitamente como temporal.
-- [x] Sin `0.0.0.0/0`, sin contenedor `privileged`, sin capabilities adicionales.
-- [x] Log group de aplicación con retención explícita de 30 días.
-- [x] `terraform test` pasa (26/26) contra un proveedor mockeado — cero cuenta AWS real
-      contactada.
-- [x] `terraform fmt -check -recursive`, `terraform validate` (los cinco Terraform
-      roots), TFLint, y `trivy config` están todos limpios (2 excepciones nuevas,
-      individualmente justificadas).
-- [x] `./mvnw -q -DskipTests compile` pasa; cero cambio en `src`/`pom.xml`.
-- [x] Sin `terraform apply`, `terraform import`, AWS CLI, `docker push`, login ECR, ni
-      despliegue ECS.
-- [x] Ningún ECS Service ni ALB existe en este módulo — confirmado tanto por inspección
-      del código como por un test dedicado.
-- [x] TECH-132 actualizado a `In progress — VPC, RDS and ECS task foundations complete`
-      (no `Done`).
+- [x] ECR repository with immutable tags, scan on push, encryption, and a
+      parameterizable lifecycle policy created in Terraform code.
+- [x] ECS Fargate cluster (no EC2, no `FARGATE_SPOT`) with configurable Container
+      Insights.
+- [x] Fargate task definition (`awsvpc`, parameterizable CPU/memory, `X86_64`
+      architecture by default) with a single essential container definition.
+- [x] Container port confirmed as 8080 from the application's real code.
+- [x] Execution role and task role are separate IAM roles; the execution role does not
+      exceed the necessary scope (standard managed policy + scoped secrets); the task
+      role has no default permissions.
+- [x] Database credentials resolved via Secrets Manager (`secrets` block), never as a
+      plaintext environment variable; master-secret wiring explicitly documented as
+      temporary.
+- [x] No `0.0.0.0/0`, no `privileged` container, no additional capabilities.
+- [x] Application log group with explicit 30-day retention.
+- [x] `terraform test` passes (26/26) against a mocked provider — zero real AWS account
+      contacted.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (all five Terraform
+      roots), TFLint, and `trivy config` are all clean (2 new, individually justified
+      exceptions).
+- [x] `./mvnw -q -DskipTests compile` passes; zero change in `src`/`pom.xml`.
+- [x] No `terraform apply`, `terraform import`, AWS CLI, `docker push`, ECR login, or
+      ECS deployment.
+- [x] No ECS Service or ALB exists in this module — confirmed both by code inspection
+      and a dedicated test.
+- [x] TECH-132 updated to `In progress — VPC, RDS and ECS task foundations complete`
+      (not `Done`).
 
-**Completed:** `infra/terraform/modules/ecr/` y `infra/terraform/modules/ecs-task/`
-creados (6 archivos cada uno incl. tests) y conectados a `environments/production` junto
-a los módulos existentes de red y base de datos; `modules/database` recibió un output
-adicional pequeño (`db_address`, hostname sin puerto) para permitir este wiring. Verificado
-localmente vía las imágenes Docker oficiales `hashicorp/terraform:1.15.7`,
-`terraform-linters/tflint`, y `aquasec/trivy` (ninguna instalada en esta máquina):
-`fmt -check -recursive` limpio; `terraform init -backend=false && terraform validate`
-limpio para los cinco Terraform roots (`bootstrap/`, `environments/production`,
+**Completed:** `infra/terraform/modules/ecr/` and `infra/terraform/modules/ecs-task/`
+created (6 files each incl. tests) and wired into `environments/production` alongside
+the existing network and database modules; `modules/database` gained one small
+additional output (`db_address`, hostname without port) to enable this wiring. Verified
+locally via the official Docker images `hashicorp/terraform:1.15.7`,
+`terraform-linters/tflint`, and `aquasec/trivy` (none installed on this machine):
+`fmt -check -recursive` clean; `terraform init -backend=false && terraform validate`
+clean for all five Terraform roots (`bootstrap/`, `environments/production`,
 `modules/network/`, `modules/database/`, `modules/ecr/`, `modules/ecs-task/`);
-`terraform test` 26/26 pasando para los dos módulos nuevos (16/16 y 20/20 de
-network/database re-confirmados sin afectar); TFLint 0 issues; `trivy config` 0
-hallazgos sin resolver en todo el árbol (2 excepciones nuevas, cada una justificada
-individualmente). `.github/workflows/infra-plan.yml` ganó pasos `terraform test —
-modules/ecr` y `terraform test — modules/ecs-task` (proveedor mockeado, sin
-credenciales). `./mvnw -q -DskipTests compile` pasó; cero cambio en `src`/`pom.xml`.
-Ningún `terraform apply`, `terraform import`, comando AWS CLI, `docker push`, login ECR,
-ni despliegue ECS ejecutado en ningún momento; ningún recurso AWS de ningún tipo existe;
-ninguna credencial AWS fue agregada. TECH-132 actualizado a `In progress — VPC, RDS and
-ECS task foundations complete`.
+`terraform test` 26/26 passing for the two new modules (16/16 and 20/20 for
+network/database re-confirmed unaffected); TFLint 0 issues; `trivy config` 0 unresolved
+findings across the tree (2 new exceptions, each individually justified).
+`.github/workflows/infra-plan.yml` gained `terraform test — modules/ecr` and
+`terraform test — modules/ecs-task` steps (mocked provider, no credentials).
+`./mvnw -q -DskipTests compile` passed; zero change in `src`/`pom.xml`. No `terraform
+apply`, `terraform import`, AWS CLI command, `docker push`, ECR login, or ECS deployment
+executed at any point; no AWS resource of any kind exists; no AWS credential was added.
+TECH-132 updated to `In progress — VPC, RDS and ECS task foundations complete`.
 
-**Gaps documentados, previos a cualquier despliegue real** (ninguno resuelto por esta
-historia, todos explícitamente pendientes):
-- Validar PostgreSQL 18 como `engine_version` real de RDS en `us-east-1`
+**Documented gaps, prior to any real deployment** (none resolved by this story, all
+explicitly pending):
+- Validate PostgreSQL 18 as RDS's real `engine_version` in `us-east-1`
   (`aws rds describe-db-engine-versions`).
-- Validar disponibilidad real de `db.t3.micro` para esa combinación de motor/región.
-- Crear el backend remoto real (bucket S3 del bootstrap) — el bootstrap sigue sin
-  aplicarse.
-- Crear los roles OIDC (`terraform-plan`, `terraform-apply`, `application-deploy`) —
-  ninguno existe aún.
-- Medir CPU/memoria reales de la task definition contra la ingestión Parcial de mayor
-  volumen antes de fijar `cpu`/`memory` como valores confirmados.
-- Crear un usuario de base de datos de mínimo privilegio específico de la aplicación —
-  la task definition usa el secreto maestro de RDS solo como wiring temporal.
-- Crear el ECS Service y el ALB interno — resto del alcance de TECH-132.
-- Configurar Cognito (TECH-130).
-- Configurar API Gateway (TECH-131).
+- Validate real `db.t3.micro` availability for that engine/region combination.
+- Create the real remote backend (bootstrap's S3 bucket) — the bootstrap is still not
+  applied.
+- Create the OIDC roles (`terraform-plan`, `terraform-apply`, `application-deploy`) —
+  none exist yet.
+- Measure the task definition's real CPU/memory against the largest-volume Parcial
+  ingestion before fixing `cpu`/`memory` as confirmed values.
+- Create an application-specific least-privilege database user — the task definition
+  uses RDS's master secret only as temporary wiring.
+- Create the ECS Service and the internal ALB — the rest of TECH-132's scope.
+- Configure Cognito (TECH-130).
+- Configure API Gateway (TECH-131).
 
 ---
 
@@ -4197,199 +4178,194 @@ Scoped narrowly: no API Gateway, VPC Link, Cognito, WAF, Route 53, ACM, custom d
 production autoscaling, real deployment, image publication, task execution, or
 definitive DB user.
 
-**Topología:**
+**Topology:**
 
 ```
-API Gateway futuro → VPC Link futuro → ALB interno (este módulo)
-  → ECS Service en subnets privadas-app (este módulo)
-    → RDS en subnets privadas-DB (TECH-139)
+Future API Gateway → Future VPC Link → Internal ALB (this module)
+  → ECS Service in private-app subnets (this module)
+    → RDS in private-DB subnets (TECH-139)
 ```
 
-`internal = true` en el ALB — nunca internet-facing. Ubicado en las mismas subnets
-privadas-app que las tareas ECS (evaluado y descartado tener una capa dedicada: ningún
-otro workload existe ahí hoy, así que una capa separada añadiría complejidad de
-subredes/route tables sin un beneficio de aislamiento correspondiente).
+`internal = true` on the ALB — never internet-facing. Located in the same private-app
+subnets as the ECS tasks (a dedicated layer was evaluated and dropped: no other workload
+exists there today, so a separate layer would add subnet/route-table complexity with no
+corresponding isolation benefit).
 
-**Security groups — tres relaciones, cada una acotada:**
-- **ALB SG:** sin regla de ingress por defecto — ningún VPC Link existe aún;
-  `alb_allowed_ingress_security_group_ids` (preferido) queda vacío hasta TECH-131;
-  `alb_allowed_ingress_cidr_blocks` es un fallback documentado con `0.0.0.0/0` rechazado
-  explícitamente por validación de variable. Egress acotado al SG de ECS en el puerto de
-  la aplicación únicamente.
-- **ECS Service SG:** ingress solo desde el SG del ALB, puerto 8080. Egress acotado:
-  PostgreSQL (5432) al SG de RDS; HTTPS (443) a `0.0.0.0/0` — necesario porque el
-  endpoint SOAP de DANE es una URL pública de internet (excepción Trivy documentada,
-  `AVD-AWS-0104`, egress-only, nunca ingress); DNS (53 TCP/UDP) acotado al CIDR de la
-  VPC, no `0.0.0.0/0`.
-- **RDS SG:** este módulo agrega la regla real `ECS → RDS` (`modules/database` crea el
-  SG sin ninguna regla de ingress propia, por diseño) — puerto 5432, origen exclusivo el
-  SG de ECS, nunca un CIDR.
+**Security groups — three relationships, each scoped:**
+- **ALB SG:** no ingress rule by default — no VPC Link exists yet;
+  `alb_allowed_ingress_security_group_ids` (preferred) stays empty until TECH-131;
+  `alb_allowed_ingress_cidr_blocks` is a documented fallback with `0.0.0.0/0` explicitly
+  rejected by variable validation. Egress scoped solely to the ECS SG on the
+  application's port.
+- **ECS Service SG:** ingress only from the ALB's SG, port 8080. Egress scoped:
+  PostgreSQL (5432) to RDS's SG; HTTPS (443) to `0.0.0.0/0` — necessary because DANE's
+  SOAP endpoint is a public internet URL (documented Trivy exception, `AVD-AWS-0104`,
+  egress-only, never ingress); DNS (53 TCP/UDP) scoped to the VPC's CIDR, not
+  `0.0.0.0/0`.
+- **RDS SG:** this module adds the real `ECS → RDS` rule (`modules/database` creates the
+  SG with no ingress rule of its own, by design) — port 5432, source exclusively the
+  ECS SG, never a CIDR.
 
-**ALB:** `enable_deletion_protection=true` por defecto, `drop_invalid_header_fields=true`,
-`desync_mitigation_mode="defensive"`, `enable_http2=true`. Access logs deshabilitados por
-defecto (`enable_alb_access_logs=false`) — habilitarlos requiere un bucket S3 real con
-política, cifrado y retención correctos, que esta historia no crea; los access logs de
-API Gateway serán obligatorios en TECH-131 independientemente de esto.
+**ALB:** `enable_deletion_protection=true` by default, `drop_invalid_header_fields=true`,
+`desync_mitigation_mode="defensive"`, `enable_http2=true`. Access logs disabled by
+default (`enable_alb_access_logs=false`) — enabling them requires a real S3 bucket with
+correct policy, encryption, and retention, which this story does not create; API
+Gateway's access logs will be mandatory in TECH-131 regardless.
 
-**Listener:** HTTP únicamente — sin dominio ni certificado ACM (ADR-010), no se simula
-HTTPS con un certificado inexistente. Aceptable específicamente porque el ALB es interno,
-alcanzable solo dentro de la VPC; API Gateway (TECH-131) será el único punto de entrada
-público. Excepción Trivy documentada (`AVD-AWS-0054`, CRITICAL): el propio SG del ALB no
-tiene ingress desde internet y `internal=true` significa que AWS nunca le asigna un
-DNS/IP público resoluble fuera de la VPC — HTTPS cifraría tráfico que nunca sale de un
-límite de red privado.
+**Listener:** HTTP only — no domain or ACM certificate (ADR-010), HTTPS is not simulated
+with a nonexistent certificate. Acceptable specifically because the ALB is internal,
+reachable only within the VPC; API Gateway (TECH-131) will be the only public entry
+point. Documented Trivy exception (`AVD-AWS-0054`, CRITICAL): the ALB's own SG has no
+internet ingress and `internal=true` means AWS never assigns it a public DNS/IP
+resolvable outside the VPC — HTTPS would encrypt traffic that never leaves a private
+network boundary.
 
-**Target group:** `target_type=ip` (requerido para tareas Fargate con `awsvpc`),
+**Target group:** `target_type=ip` (required for Fargate tasks with `awsvpc`),
 `protocol=HTTP`, `port=8080`. Health check: `path=/actuator/health`, `matcher=200` —
-confirmado seguro sin autenticación, no inventado: `SecurityConfig` lo permite
-explícitamente (`permitAll()`) y `application.yaml` fija
-`management.endpoint.health.show-details: when-authorized`, es decir, un llamador no
-autenticado (el ALB) solo recibe el estado `UP`/`DOWN`, nunca detalles de componentes.
+confirmed safe without authentication, not invented: `SecurityConfig` explicitly allows
+it (`permitAll()`) and `application.yaml` sets
+`management.endpoint.health.show-details: when-authorized`, meaning an unauthenticated
+caller (the ALB) only receives the `UP`/`DOWN` status, never component details.
 
-**ECS Service:** `launch_type=FARGATE`, `desired_count=1` (ver riesgo del scheduler
-abajo), `enable_execute_command=false` por defecto (ECS Exec requiere IAM/logging/
-auditoría deliberados antes de habilitarse). `deployment_minimum_healthy_percent=100` /
-`deployment_maximum_percent=200` — con `desired_count=1`, esto permite iniciar una tarea
-nueva antes de detener la anterior, confirmado por test. `deployment_circuit_breaker`
-habilitado con `rollback=true`. `health_check_grace_period_seconds=120` — propuesta
-conservadora sin medir, cubre conexión a RDS, Flyway, inicialización de Spring y carga de
-seguridad, pendiente de validación con un arranque real.
+**ECS Service:** `launch_type=FARGATE`, `desired_count=1` (see the scheduler risk
+below), `enable_execute_command=false` by default (ECS Exec requires deliberate
+IAM/logging/audit before enabling). `deployment_minimum_healthy_percent=100` /
+`deployment_maximum_percent=200` — with `desired_count=1`, this allows a new task to
+start before the old one stops, confirmed by test. `deployment_circuit_breaker` enabled
+with `rollback=true`. `health_check_grace_period_seconds=120` — a conservative,
+unmeasured proposal, covering RDS connection, Flyway, Spring initialization, and
+security-context loading, pending validation with a real startup.
 
-**Flyway y despliegues rolling — riesgo documentado, no resuelto aquí:** con
-`minimum_healthy_percent=100`/`maximum_percent=200`, un despliegue rolling puede correr
-brevemente dos tareas simultáneas, y ambas ejecutarían Flyway al arrancar. El mecanismo
-propio de Flyway (lock a nivel de base de datos sobre la tabla de historial de esquema
-para PostgreSQL) es la mitigación documentada para exactamente este escenario — no
-personalizado por este repositorio, y **no verificado empíricamente** contra un
-despliegue rolling concurrente real por esta historia (TECH-141 no se conecta a RDS ni
-ejecuta ninguna tarea). Criterios explícitos previos al despliegue real: validar el
-comportamiento de migración concurrente, medir tiempos, validar rollback, y considerar un
-job de migración separado solo si aparece evidencia real de que el lock de Flyway es
-insuficiente.
+**Flyway and rolling deployments — documented risk, not resolved here:** with
+`minimum_healthy_percent=100`/`maximum_percent=200`, a rolling deployment can briefly
+run two tasks simultaneously, and both would run Flyway on startup. Flyway's own
+mechanism (a database-level lock on the schema history table for PostgreSQL) is the
+documented mitigation for exactly this scenario — not customized by this repository, and
+**not empirically verified** against a real concurrent rolling deployment by this story
+(TECH-141 does not connect to RDS or run any task). Explicit criteria before a real
+deployment: validate concurrent-migration behavior, measure timing, validate rollback,
+and consider a separate migration job only if real evidence appears that Flyway's lock
+is insufficient.
 
-**Scheduler y múltiples réplicas — riesgo crítico documentado:** el scheduler de
-ingestión vive dentro del proceso de la aplicación, sin leader election ni lock
-distribuido. `desired_count` debe permanecer en 1 hasta que exista leader election, un
-scheduler externo, un lock distribuido, o una separación scheduler/API — de lo contrario,
-múltiples réplicas dispararían cada job de ingestión programado múltiples veces. Este
-servicio **explícitamente no está listo** para múltiples réplicas ni autoscaling —
-ninguna de esas dos cosas se implementa en esta historia.
+**Scheduler and multiple replicas — documented critical risk:** the ingestion scheduler
+lives inside the application process, with no leader election or distributed lock.
+`desired_count` must stay at 1 until leader election, an external scheduler, a
+distributed lock, or a scheduler/API split exists — otherwise, multiple replicas would
+trigger every scheduled ingestion job multiple times. This service is **explicitly not
+ready** for multiple replicas or autoscaling — neither is implemented in this story.
 
-**Credenciales de RDS:** sin cambios respecto a TECH-140 — el wiring al secreto maestro
-de RDS sigue siendo un placeholder Terraform, no el diseño final. Gap explícito, sin
-resolver: crear un usuario de aplicación de mínimo privilegio, crear un secreto dedicado,
-migrar la task definition a ese secreto — requiere conectividad real a la base de datos,
-no intentado aquí.
+**RDS credentials:** unchanged from TECH-140 — the wiring to RDS's master secret remains
+a Terraform placeholder, not the final design. Explicit, unresolved gap: create a
+least-privilege application user, create a dedicated secret, migrate the task definition
+to that secret — requires real database connectivity, not attempted here.
 
-**Imagen inexistente:** ningún despliegue real es posible todavía — la task definition
-referenciada no tiene una imagen real con tag inmutable en ECR (TECH-140 creó el
-repositorio, no una imagen).
+**Nonexistent image:** no real deployment is possible yet — the referenced task
+definition has no real, immutable-tagged image in ECR (TECH-140 created the repository,
+not an image).
 
-**Autoscaling:** no implementado. Criterios documentados para cuando el riesgo del
-scheduler esté resuelto y existan datos de uso reales: CPU, memoria, ALB request count, y
-duración/profundidad de cola de ingestiones — específico de esta carga de trabajo, ya que
-un policy basado solo en request count no captura "una ingestión está tardando". Nunca
-escalar a cero en producción.
+**Autoscaling:** not implemented. Documented criteria for when the scheduler risk is
+resolved and real usage data exists: CPU, memory, ALB request count, and
+ingestion-queue duration/depth — specific to this workload, since a policy based on
+request count alone doesn't capture "an ingestion is taking a while." Never scale to
+zero in production.
 
-**Trivy exceptions** (reevaluadas para este módulo, ninguna copiada mecánicamente):
+**Trivy exceptions** (re-evaluated for this module, none copied mechanically):
 
 | Finding | Resource | Risk | Justification | Exception |
 |---|---|---|---|---|
-| AVD-AWS-0054 (CRITICAL — Listener sin HTTPS) | `aws_lb_listener.http` | Bajo en la práctica pese a la severidad reportada — el ALB es interno, sin ingress desde internet en su propio SG, y sin DNS/IP público resoluble fuera de la VPC | Simular HTTPS sin un certificado ACM real no es una alternativa válida; el cifrado protegería tráfico que nunca sale del límite de red privado | `# trivy:ignore:AVD-AWS-0054`, revisitar si TLS interno se decide como requisito real, junto con una estrategia de certificado |
-| AVD-AWS-0104 (CRITICAL — Egress sin restricción `0.0.0.0/0`) | `aws_security_group_rule.ecs_service_egress_https` | Bajo — regla de un solo puerto (443), solo egress, sin ingress correspondiente desde internet en el mismo SG | El destino (endpoint SOAP de DANE) es una URL pública de internet, no un recurso AWS con rango fijo — el mismo hecho que ya justificó el NAT Gateway de TECH-138 | `# trivy:ignore:AVD-AWS-0104`, ningún destino más acotado es técnicamente expresable para un endpoint público de terceros |
+| AVD-AWS-0054 (CRITICAL — Listener without HTTPS) | `aws_lb_listener.http` | Low in practice despite the reported severity — the ALB is internal, with no internet ingress in its own SG, and no public DNS/IP resolvable outside the VPC | Simulating HTTPS without a real ACM certificate is not a valid alternative; the encryption would protect traffic that never leaves the private network boundary | `# trivy:ignore:AVD-AWS-0054`, revisit if internal TLS is decided as a real requirement, along with a certificate strategy |
+| AVD-AWS-0104 (CRITICAL — Unrestricted `0.0.0.0/0` egress) | `aws_security_group_rule.ecs_service_egress_https` | Low — single-port (443) rule, egress-only, with no corresponding internet ingress in the same SG | The destination (DANE's SOAP endpoint) is a public internet URL, not an AWS resource with a fixed range — the same fact that already justified TECH-138's NAT Gateway | `# trivy:ignore:AVD-AWS-0104`, no more scoped destination is technically expressible for a public third-party endpoint |
 
-Ninguna excepción toca ALB público real, SG con ingress abierto, ECS con IP pública,
-logs sin retención, o IAM excesivo — ambas son sobre exposición de red ya mitigada por
-otros controles (SG del ALB sin ingress; el listener HTTP nunca es alcanzable desde
-fuera de la VPC).
+No exception touches a real public ALB, an open-ingress SG, ECS with a public IP, logs
+without retention, or excessive IAM — both are about network exposure already mitigated
+by other controls (the ALB's SG has no ingress; the HTTP listener is never reachable
+from outside the VPC).
 
-**Módulo:** `infra/terraform/modules/ecs-service/` (`main.tf`, `variables.tf`,
-`outputs.tf`, `versions.tf`, `README.md`, `tests/`) — ALB y Service en el mismo módulo
-deliberadamente ("servicio interno balanceado" es una sola responsabilidad, usada solo
-por este servicio; separar el ALB añadiría complejidad de límites de archivo sin reuso
-que lo justifique). Sin módulos públicos de terceros. `environments/production/main.tf`
-consume el módulo, encadenando outputs de `module.network`, `module.ecs_task`, y
-`module.database` — nunca reconstruye la task definition dentro de este módulo.
+**Module:** `infra/terraform/modules/ecs-service/` (`main.tf`, `variables.tf`,
+`outputs.tf`, `versions.tf`, `README.md`, `tests/`) — ALB and Service in the same module
+deliberately ("load-balanced internal service" is a single responsibility, used only by
+this service; splitting out the ALB would add file-boundary complexity with no reuse to
+justify it). No third-party public modules. `environments/production/main.tf` consumes
+the module, chaining outputs from `module.network`, `module.ecs_task`, and
+`module.database` — never rebuilding the task definition inside this module.
 
-**Outputs:** `alb_arn`, `alb_dns_name` (`sensitive=true`, misma postura defensiva que
+**Outputs:** `alb_arn`, `alb_dns_name` (`sensitive=true`, the same defensive posture as
 `db_endpoint`), `alb_zone_id`, `alb_security_group_id`, `target_group_arn`,
 `listener_arn`, `ecs_service_name`, `ecs_service_id`, `ecs_service_security_group_id`,
-`ecs_desired_count`. Ningún secreto expuesto.
+`ecs_desired_count`. No secret exposed.
 
-**Tests:** `infra/terraform/modules/ecs-service/tests/ecs-service.tftest.hcl` — 17 casos,
-todos verdes, `terraform test` con proveedor AWS completamente mockeado, cero cuenta AWS
-real contactada. Cobertura: ALB interno en subnets privadas-app, nunca internet-facing;
-target type `ip`; listener HTTP interno; health check correcto (`path`/`matcher`/
-`protocol`); ECS Service Fargate con `desired_count=1`; circuit breaker con rollback;
-grace period 120s; ECS en subnets privadas sin IP pública; ingress de ECS solo desde el
-SG del ALB (puerto 8080); ingress de RDS solo desde el SG de ECS (puerto 5432); ALB sin
-ingress por defecto, y exactamente una regla creada por SG configurado; rechazo de
-`0.0.0.0/0` en el fallback CIDR por validación de variable; puerto 8080 en target
-group/service; la task definition se reutiliza por ARN, no se reconstruye; ECS Exec
-deshabilitado por defecto; tags comunes aplicadas. Ausencia de autoscaling, API Gateway,
-Cognito y VPC Link confirmada por inspección del código fuente (ningún recurso
-`aws_appautoscaling_*`/`aws_api_gateway_*`/`aws_cognito_*` declarado en el módulo), no
-como aserción en tiempo de ejecución.
+**Tests:** `infra/terraform/modules/ecs-service/tests/ecs-service.tftest.hcl` — 17 cases,
+all green, `terraform test` with a fully mocked AWS provider, zero real AWS account
+contacted. Coverage: internal ALB in private-app subnets, never internet-facing; `ip`
+target type; internal HTTP listener; correct health check
+(`path`/`matcher`/`protocol`); Fargate ECS Service with `desired_count=1`; circuit
+breaker with rollback; 120s grace period; ECS in private subnets with no public IP; ECS
+ingress only from the ALB's SG (port 8080); RDS ingress only from the ECS SG (port
+5432); ALB with no ingress by default, and exactly one rule created per configured SG;
+rejection of `0.0.0.0/0` in the CIDR fallback by variable validation; port 8080 on the
+target group/service; the task definition is reused by ARN, not rebuilt; ECS Exec
+disabled by default; common tags applied. Absence of autoscaling, API Gateway, Cognito,
+and VPC Link confirmed by inspecting the source code (no
+`aws_appautoscaling_*`/`aws_api_gateway_*`/`aws_cognito_*` resource declared in the
+module), not as a runtime assertion.
 
 **Acceptance Criteria:**
-- [x] Security groups del ALB y del ECS Service creados, con la regla ECS→RDS agregada
-      sobre el SG de RDS existente.
-- [x] ALB interno (`internal=true`), en subnets privadas-app, nunca en subnets públicas.
-- [x] Listener HTTP interno (sin HTTPS simulado sin certificado real), documentado como
-      aceptable dado que el ALB nunca es alcanzable fuera de la VPC.
-- [x] Target group `target_type=ip`, health check en el endpoint real y ya-seguro de
-      Actuator.
-- [x] ECS Service Fargate, `desired_count=1`, circuit breaker con rollback, grace period
-      parametrizado.
-- [x] Sin ECS Service adicional, sin ALB adicional, sin API Gateway, sin Cognito, sin
-      VPC Link, sin autoscaling productivo — confirmado por inspección y por tests.
-- [x] Riesgo de Flyway en despliegue rolling documentado explícitamente, no resuelto.
-- [x] Riesgo de scheduler con múltiples réplicas documentado explícitamente como crítico.
-- [x] Gap de credencial de RDS (usuario mínimo privilegio) reiterado explícitamente, sin
-      resolver.
-- [x] `terraform test` pasa (17/17) contra un proveedor mockeado.
-- [x] `terraform fmt -check -recursive`, `terraform validate` (los seis Terraform
-      roots), TFLint, y `trivy config` están todos limpios (2 excepciones CRITICAL,
-      ambas individualmente justificadas, ninguna sobre ALB público real, SG abierto sin
-      justificación, IP pública en ECS, o IAM excesivo).
-- [x] `./mvnw -q -DskipTests compile` pasa; cero cambio en `src`/`pom.xml`.
-- [x] Sin `terraform apply`, `terraform import`, AWS CLI, `docker push`, login ECR, ni
-      ejecución de tareas ECS.
-- [x] TECH-132 actualizado a `In progress — VPC, RDS, ECS task and internal service
-      foundations complete` (no `Done`).
+- [x] ALB and ECS Service security groups created, with the ECS→RDS rule added onto
+      RDS's existing SG.
+- [x] Internal ALB (`internal=true`), in private-app subnets, never in public subnets.
+- [x] Internal HTTP listener (no HTTPS simulated without a real certificate), documented
+      as acceptable given the ALB is never reachable outside the VPC.
+- [x] Target group `target_type=ip`, health check on Actuator's real, already-safe
+      endpoint.
+- [x] Fargate ECS Service, `desired_count=1`, circuit breaker with rollback,
+      parameterized grace period.
+- [x] No additional ECS Service, no additional ALB, no API Gateway, no Cognito, no VPC
+      Link, no production autoscaling — confirmed by inspection and by tests.
+- [x] Flyway rolling-deployment risk explicitly documented, not resolved.
+- [x] Scheduler-with-multiple-replicas risk explicitly documented as critical.
+- [x] RDS credential gap (least-privilege user) explicitly reiterated, unresolved.
+- [x] `terraform test` passes (17/17) against a mocked provider.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (all six Terraform
+      roots), TFLint, and `trivy config` are all clean (2 CRITICAL exceptions, both
+      individually justified, none over a real public ALB, an unjustified open SG, a
+      public IP on ECS, or excessive IAM).
+- [x] `./mvnw -q -DskipTests compile` passes; zero change in `src`/`pom.xml`.
+- [x] No `terraform apply`, `terraform import`, AWS CLI, `docker push`, ECR login, or
+      ECS task execution.
+- [x] TECH-132 updated to `In progress — VPC, RDS, ECS task and internal service
+      foundations complete` (not `Done`).
 
-**Completed:** `infra/terraform/modules/ecs-service/` creado (6 archivos incl. tests) y
-conectado a `environments/production` junto a los módulos existentes. Verificado
-localmente vía las imágenes Docker oficiales `hashicorp/terraform:1.15.7`,
-`terraform-linters/tflint`, y `aquasec/trivy` (ninguna instalada en esta máquina):
-`fmt -check -recursive` limpio; `terraform init -backend=false && terraform validate`
-limpio para los seis Terraform roots (`bootstrap/`, `environments/production`,
+**Completed:** `infra/terraform/modules/ecs-service/` created (6 files incl. tests) and
+wired into `environments/production` alongside the existing modules. Verified locally
+via the official Docker images `hashicorp/terraform:1.15.7`,
+`terraform-linters/tflint`, and `aquasec/trivy` (none installed on this machine):
+`fmt -check -recursive` clean; `terraform init -backend=false && terraform validate`
+clean for all six Terraform roots (`bootstrap/`, `environments/production`,
 `modules/network/`, `modules/database/`, `modules/ecr/`, `modules/ecs-task/`,
-`modules/ecs-service/`); `terraform test` 17/17 pasando para el módulo nuevo (16/16,
-20/20, 9/9, 17/17 de network/database/ecr/ecs-task re-confirmados sin afectar — 79 tests
-en total en el árbol); TFLint 0 issues; `trivy config` 0 hallazgos sin resolver en todo
-el árbol (2 excepciones nuevas CRITICAL, cada una justificada individualmente).
-`.github/workflows/infra-plan.yml` ganó un paso `terraform test — modules/ecs-service`
-(proveedor mockeado, sin credenciales). `./mvnw -q -DskipTests compile` pasó; cero
-cambio en `src`/`pom.xml`. Ningún `terraform apply`, `terraform import`, comando AWS CLI,
-`docker push`, login ECR, ni ejecución de tareas ECS en ningún momento; ningún recurso
-AWS de ningún tipo existe; ninguna credencial AWS fue agregada. TECH-132 actualizado a
+`modules/ecs-service/`); `terraform test` 17/17 passing for the new module (16/16,
+20/20, 9/9, 17/17 for network/database/ecr/ecs-task re-confirmed unaffected — 79 tests
+total across the tree); TFLint 0 issues; `trivy config` 0 unresolved findings across the
+tree (2 new CRITICAL exceptions, each individually justified).
+`.github/workflows/infra-plan.yml` gained a `terraform test — modules/ecs-service` step
+(mocked provider, no credentials). `./mvnw -q -DskipTests compile` passed; zero change
+in `src`/`pom.xml`. No `terraform apply`, `terraform import`, AWS CLI command,
+`docker push`, ECR login, or ECS task execution at any point; no AWS resource of any
+kind exists; no AWS credential was added. TECH-132 updated to
 `In progress — VPC, RDS, ECS task and internal service foundations complete`.
 
-**Gaps documentados, previos a cualquier despliegue real** (ninguno resuelto por esta
-historia):
-- Imagen no publicada en ECR (TECH-140 creó el repositorio, no una imagen).
-- Backend remoto real no creado (bootstrap sigue sin aplicarse).
-- Roles OIDC (`terraform-plan`, `terraform-apply`, `application-deploy`) no creados.
-- PostgreSQL 18 no validado contra RDS `us-east-1` real.
-- Clase `db.t3.micro` no validada.
-- CPU/memoria de la task definition (256/512) no medidas contra carga real.
-- Usuario de base de datos de mínimo privilegio pendiente — wiring al secreto maestro
-  sigue siendo temporal.
-- Scheduler no apto para múltiples réplicas — `desired_count` debe permanecer en 1.
-- API Gateway y VPC Link (TECH-131) pendientes.
-- Cognito (TECH-130) pendiente.
-- Ningún `terraform apply` ejecutado en ningún momento de esta secuencia de historias.
+**Documented gaps, prior to any real deployment** (none resolved by this story):
+- Image not published to ECR (TECH-140 created the repository, not an image).
+- Real remote backend not created (bootstrap is still not applied).
+- OIDC roles (`terraform-plan`, `terraform-apply`, `application-deploy`) not created.
+- PostgreSQL 18 not validated against real RDS `us-east-1`.
+- `db.t3.micro` class not validated.
+- Task definition CPU/memory (256/512) not measured against real load.
+- Least-privilege database user pending — wiring to the master secret remains
+  temporary.
+- Scheduler not fit for multiple replicas — `desired_count` must stay at 1.
+- API Gateway and VPC Link (TECH-131) pending.
+- Cognito (TECH-130) pending.
+- No `terraform apply` executed at any point in this sequence of stories.
 
 ---
 
@@ -4466,15 +4442,16 @@ duplicates.
 **Title:** Disable `baseline-on-migrate` after per-environment Flyway history inventory
 **Type:** Config
 **Priority:** Low
-**Status:** Pending
+**Status:** **Done**
 **Origin:** ADR-009 rule 6 follow-up, formalized during the TECH-012 preparation.
 
 **Acceptance Criteria:**
-- [ ] Inventory (per the runbook's annex queries) confirms every real environment has
+- [x] Inventory (per the runbook's annex queries) confirms every real environment has
       correct Flyway history and no baselined non-empty schemas.
-- [ ] `baseline-on-migrate: false` applied in a dedicated PR (never mixed with TECH-011).
+- [x] `baseline-on-migrate: false` applied in a dedicated PR (never mixed with TECH-011).
 
-**Completed:** —
+**Completed:** 2026-08-03, branch `chore/disable-flyway-baseline-on-migrate` (commit `9829049`).
+Closes ADR-009 rule 6; see ADR-009 §Resolution (2026-08-03, TECH-116).
 
 ---
 
@@ -4519,8 +4496,7 @@ equivalent also to be evaluated then).
       the overlapping-execution window that force-restart opens.
 
 **Completed:** 2026-07-19, branch `fix/sipsa-parcial-concurrent-dedup`. No migration
-(V1–V4 untouched; the existing `sipsa_parcial_key_hash_key` constraint is the conflict
-target). 16 parameters per single-row statement in one JDBC batch — every batch size
+(the existing `sipsa_parcial_key_hash_key` constraint is the conflict target). 16 parameters per single-row statement in one JDBC batch — every batch size
 stays far below the 32,767-per-statement driver limit, no sub-batching needed. IDs are
 deliberately not returned (entities discarded after flush); conflicting rows keep the
 `ingestion_run_id` of the first inserter. TECH-011 idempotence, TECH-113 filters and
@@ -4553,7 +4529,7 @@ future values stay small — that is exactly why the entity was raised to the DD
 instead of shrinking the column to 15,2.
 
 **Resolution:** entity annotation aligned to `precision=19, scale=2` (matching
-`MayoristasMensual`/`Abastecimientos`); **no Flyway migration — V1/V2/V3/V4 unchanged**.
+`MayoristasMensual`/`Abastecimientos`); **no Flyway migration**.
 No `@Digits` added: values come exclusively from DANE ingestion (no write API), the
 parser is the validation point, and a cap could reject contract-valid `xs:decimal`
 input. Scale > 2 at the DB boundary is *defined* behavior now: `NUMERIC(19,2)` rounds
@@ -4574,7 +4550,7 @@ data property, not monetary formatting.
 **Completed:** 2026-07-19. Tests: parser exactness (6 unit cases) + real-PostgreSQL
 boundary matrix (observed min/max, zero, null, `9999999999999.99` = DECIMAL(15,2) edge,
 `99999999999999999.99` = fits only 19,2, rounding pins, JSON exactness), with
-`ddl-auto=validate` booting against the untouched V1→V4 schema.
+`ddl-auto=validate` booting against the untouched schema.
 
 ---
 
@@ -4589,196 +4565,193 @@ complete. No AWS resources have been applied yet.
 **Complexity:** S
 **Branch:** `infra/wire-cognito-ecs-configuration`
 
-**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) — conecta los recursos
-declarados por [TECH-130](#tech-130) (Cognito) con la configuración que Spring Security ya
-consume (TECH-001/ADR-002), cerrando el hueco explícito que TECH-130 dejó documentado
-("this module does not wire that parameter into `modules/ecs-task`"). Alcance acotado
-explícitamente: sin API Gateway, sin VPC Link (TECH-131 sigue sin empezar), sin cambio al
-usuario de base de datos de mínimo privilegio (gap de TECH-140/141, no tocado aquí).
+**Origin:** [ADR-010](../adr/ADR-010-aws-infrastructure-as-code.md) — connects the
+resources declared by [TECH-130](#tech-130) (Cognito) with the configuration Spring
+Security already consumes (TECH-001/ADR-002), closing the explicit gap TECH-130 left
+documented ("this module does not wire that parameter into `modules/ecs-task`"). Scope
+explicitly bounded: no API Gateway, no VPC Link (TECH-131 still not started), no change
+to the least-privilege database user (TECH-140/141 gap, not touched here).
 
-**Inventario de configuración Spring** (`grep -RIn --exclude-dir=.git -e 'SIPSA_JWT_' -e
+**Spring configuration inventory** (`grep -RIn --exclude-dir=.git -e 'SIPSA_JWT_' -e
 'issuer-uri' -e 'allowed-client' -e 'allowedClient' -e 'token_use' -e 'client_id' -e
 '@ConfigurationProperties' -e 'oauth2.resourceserver' src/main src/test
-docker-compose.yml docs`, no inventado):
+docker-compose.yml docs`, not invented):
 
-| Propiedad Spring | Variable de entorno | Fuente Terraform | Sensible | Obligatoria |
+| Spring property | Environment variable | Terraform source | Sensitive | Mandatory |
 |---|---|---|---:|---:|
-| `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `SIPSA_JWT_ISSUER_URI` | `module.cognito.issuer_url` | No (JWKS es público por diseño) | Sí — sin default fuera del perfil `dev` (que apunta al mock OIDC local); el perfil `docker`, el que usa ECS, hereda el `application.yaml` base sin default, por lo que falla rápido si falta |
-| `sipsa.security.jwt.allowed-client-ids` | `SIPSA_JWT_ALLOWED_CLIENT_IDS` | `module.cognito.allowed_client_ids_parameter_arn` (SSM, vía `secrets`) | No (identificadores, no secretos — Javadoc de `AllowedClientIdsValidator`) | No — CSV opcional; vacío significa "acepta cualquier cliente del issuer confiable" |
+| `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `SIPSA_JWT_ISSUER_URI` | `module.cognito.issuer_url` | No (JWKS is public by design) | Yes — no default outside the `dev` profile (which points at the local mock OIDC); the `docker` profile, the one ECS uses, inherits the base `application.yaml` with no default, so it fails fast if missing |
+| `sipsa.security.jwt.allowed-client-ids` | `SIPSA_JWT_ALLOWED_CLIENT_IDS` | `module.cognito.allowed_client_ids_parameter_arn` (SSM, via `secrets`) | No (identifiers, not secrets — `AllowedClientIdsValidator`'s Javadoc) | No — optional CSV; empty means "accept any client from the trusted issuer" |
 
-Ambas propiedades ya existían y ya se consumían exactamente así antes de esta historia
-(`SipsaJwtProperties`, vía `@Value`, no `@ConfigurationProperties` de clase — el único uso
-de esa anotación en el árbol de seguridad es indirecto, vía otras clases de configuración
-no relacionadas con JWT). Ningún nombre nuevo fue inventado; el formato CSV de
-`SIPSA_JWT_ALLOWED_CLIENT_IDS` (confirmado leyendo `SipsaJwtProperties.parseCsv` — separa
-por comas, recorta espacios, rechaza entradas en blanco) coincide exactamente con el join
-`,`-separado que `modules/cognito` ya publicaba en SSM desde TECH-130 — **no fue necesario
-cambiar el formato**.
+Both properties already existed and were already consumed exactly this way before this
+story (`SipsaJwtProperties`, via `@Value`, not a class-level `@ConfigurationProperties` —
+the only use of that annotation in the security tree is indirect, via other,
+JWT-unrelated configuration classes). No new name was invented; the
+`SIPSA_JWT_ALLOWED_CLIENT_IDS` CSV format (confirmed by reading
+`SipsaJwtProperties.parseCsv` — comma-splits, trims whitespace, rejects blank entries)
+matches exactly the comma-joined string `modules/cognito` was already publishing to SSM
+since TECH-130 — **no format change was necessary**.
 
-**Perfil de Spring en ECS — auditado, sin cambio:** `modules/ecs-task`'s `spring_profile`
-ya defaulteaba a `"docker"` desde TECH-140, con una justificación explícita en la propia
-variable. Esta historia audita esa decisión directamente contra el código, no la asume:
-`application-docker.yaml` (perfil `docker`) solo sobreescribe `DB_HOST` (default `db` en
-vez de `localhost`) y hereda `application.yaml` (la base "production-safe") sin ningún
-cambio de seguridad/logging/scheduler. El mock OIDC (`issuer-uri` con default
-`http://localhost:9000/default`), las credenciales de base de datos por defecto, el
-endpoint Actuator `loggers`, `show-details: always`, y el logging verboso viven
-**exclusivamente** en `application-dev.yaml` (perfil `dev`) — nunca en `docker`. Conclusión
-verificada: `docker` ya es un perfil seguro para AWS; no se creó un perfil `production`/
-`aws` nuevo, porque no existe ninguna diferencia real que lo justifique (instrucción
-explícita: "No crees un perfil por estética").
+**Spring profile on ECS — audited, unchanged:** `modules/ecs-task`'s `spring_profile`
+already defaulted to `"docker"` since TECH-140, with an explicit justification in the
+variable itself. This story audits that decision directly against the code, not
+assuming it: `application-docker.yaml` (`docker` profile) only overrides `DB_HOST`
+(default `db` instead of `localhost`) and inherits `application.yaml` (the
+"production-safe" base) with no security/logging/scheduler change. The mock OIDC
+(`issuer-uri` defaulting to `http://localhost:9000/default`), the default database
+credentials, the Actuator `loggers` endpoint, `show-details: always`, and verbose
+logging live **exclusively** in `application-dev.yaml` (`dev` profile) — never in
+`docker`. Verified conclusion: `docker` is already a safe profile for AWS; no new
+`production`/`aws` profile was created, because no real difference exists to justify one
+(explicit instruction: "Don't create a profile for aesthetics").
 
-**Diseño — dos variables genéricas en `modules/ecs-task`, sin acoplar el módulo a
-Cognito:** `environment_variables` (`map(string)`, variables de entorno planas
-adicionales) y `secret_parameters` (`map(string)`, entradas `secrets` adicionales
-resueltas por el agente ECS desde Secrets Manager/SSM en el arranque). Ambas se
-concatenan (`concat(...)`) al conjunto fijo ya existente del módulo — `modules/ecs-task`
-sigue sin conocer `modules/cognito` en ningún momento; el root
-(`environments/production/main.tf`) es el único lugar que conecta
-`module.cognito.issuer_url`/`module.cognito.allowed_client_ids_parameter_arn` hacia
-`module.ecs_task`. El wiring del allowlist está protegido con un condicional (`!= null ?
-... : {}` para `secret_parameters`, `compact([...])` para
-`execution_ssm_parameter_arns`), ya que `allowed_client_ids_parameter_arn` es `null`
-cuando `var.cognito_publish_client_ids_to_ssm` es `false` (default `true`).
+**Design — two generic variables in `modules/ecs-task`, without coupling the module to
+Cognito:** `environment_variables` (`map(string)`, additional plain environment
+variables) and `secret_parameters` (`map(string)`, additional `secrets` entries resolved
+by the ECS agent from Secrets Manager/SSM at startup). Both are concatenated
+(`concat(...)`) onto the module's already-existing fixed set — `modules/ecs-task` still
+never knows about `modules/cognito`; the root (`environments/production/main.tf`) is the
+only place that wires `module.cognito.issuer_url`/
+`module.cognito.allowed_client_ids_parameter_arn` into `module.ecs_task`. The allowlist
+wiring is guarded by a conditional (`!= null ? ... : {}` for `secret_parameters`,
+`compact([...])` for `execution_ssm_parameter_arns`), since
+`allowed_client_ids_parameter_arn` is `null` when `var.cognito_publish_client_ids_to_ssm`
+is `false` (default `true`).
 
-**IAM — sin ampliar el alcance del execution role más allá de lo ya existente:**
-`modules/ecs-task` ya exponía `execution_extra_secret_arns`/`execution_ssm_parameter_arns`
-desde TECH-140 (con una descripción que literalmente anticipaba "e.g. a future Cognito
-client secret once TECH-130 exists") — **no fue necesario ningún cambio de IAM en el
-módulo**, solo pasar `execution_ssm_parameter_arns = compact([module.cognito.
-allowed_client_ids_parameter_arn])` desde el root. La política resultante
-(`aws_iam_role_policy.execution_secrets`, ya existente) concede `ssm:GetParameters`
-acotado exactamente al ARN del parámetro de Cognito, nunca `Resource = "*"`, nunca
-`ssm:*`. Sin permiso KMS agregado — el parámetro es `type = "String"`, no `SecureString`,
-por lo que no involucra ninguna CMK. El task role permanece vacío (`task_role_policy_arns`
-sin tocar) — la resolución de `secrets` la hace el agente ECS vía el execution role, no la
-aplicación en tiempo de ejecución.
+**IAM — no widening of the execution role's scope beyond what already existed:**
+`modules/ecs-task` already exposed `execution_extra_secret_arns`/
+`execution_ssm_parameter_arns` since TECH-140 (with a description that literally
+anticipated "e.g. a future Cognito client secret once TECH-130 exists") — **no IAM
+change to the module was necessary**, only passing
+`execution_ssm_parameter_arns = compact([module.cognito.
+allowed_client_ids_parameter_arn])` from the root. The resulting policy
+(`aws_iam_role_policy.execution_secrets`, already existing) grants `ssm:GetParameters`
+scoped exactly to Cognito's parameter ARN, never `Resource = "*"`, never `ssm:*`. No KMS
+permission added — the parameter is `type = "String"`, not `SecureString`, so no CMK is
+involved. The task role stays empty (`task_role_policy_arns` untouched) — `secrets`
+resolution is done by the ECS agent via the execution role, not by the application at
+runtime.
 
-**Issuer derivado, nunca reconstruido:** `environment_variables = { SIPSA_JWT_ISSUER_URI =
-module.cognito.issuer_url }` en el root — ninguna región, user pool ID, ni URL se
-hardcodea ni se reconstruye manualmente en un segundo lugar.
+**Issuer derived, never rebuilt:** `environment_variables = { SIPSA_JWT_ISSUER_URI =
+module.cognito.issuer_url }` in the root — no region, user pool ID, or URL is
+hardcoded or manually rebuilt in a second place.
 
-**Allowlist de client IDs — ambos clientes incluidos, semántica verificada, no
-asumida:** el claim que revisa `AllowedClientIdsValidator` es `client_id` — presente en
-los access tokens de **ambos** grants de Cognito (`client_credentials` y
-`authorization_code`), confirmado contra la estructura de token documentada por AWS
-Cognito (no solo contra la documentación del provider de Terraform) y verificado
-empíricamente por `CognitoJwtDecoderContractTest` (abajo) firmando tokens locales con
-`client_id` para ambos tipos de cliente y confirmando que el decoder los acepta cuando
-están en el allowlist. Los ID tokens de Cognito no llevan `client_id` de la misma forma
-relevante — pero esto es irrelevante de todas formas, porque `TokenUseValidator` ya
-rechaza cualquier ID token (`token_use=id`) antes de que el allowlist se evalúe. El
-resource server acepta únicamente access tokens — confirmado, no un cambio de esta
-historia. El cliente humano **sí** se incluyó en el allowlist (ambos IDs, ya publicados
-por TECH-130 desde el inicio) porque ni la política de autorización de la aplicación
-(`SecurityConfig`'s matchers por scope, no por tipo de cliente) ni la tabla de scopes de
-TECH-130 distinguen M2M de humano — ambos son consumidores legítimos de los cuatro scopes.
+**Client ID allowlist — both clients included, semantics verified, not assumed:** the
+claim `AllowedClientIdsValidator` checks is `client_id` — present in access tokens from
+**both** Cognito grants (`client_credentials` and `authorization_code`), confirmed
+against the token structure AWS Cognito documents (not just the Terraform provider's
+documentation) and empirically verified by `CognitoJwtDecoderContractTest` (below) by
+signing local tokens with `client_id` for both client types and confirming the decoder
+accepts them when they're in the allowlist. Cognito's ID tokens don't carry `client_id`
+in the same relevant way — but this is irrelevant regardless, because
+`TokenUseValidator` already rejects any ID token (`token_use=id`) before the allowlist is
+evaluated. The resource server accepts only access tokens — confirmed, not a change made
+by this story. The human client **was** included in the allowlist (both IDs, already
+published by TECH-130 from the start) because neither the application's authorization
+policy (`SecurityConfig`'s scope-based matchers, not client-type-based) nor TECH-130's
+scope table distinguishes M2M from human — both are legitimate consumers of the four
+scopes.
 
-**Pruebas Java — 6 nuevas, cierran un hueco real de cobertura, no redundantes:**
-`CognitoJwtDecoderContractTest` (nueva clase) ejercita
-`SecurityConfig.jwtDecoder(SipsaJwtProperties)` de punta a punta contra tokens firmados
-localmente con forma realista de Cognito — descubrimiento OIDC, verificación de firma vía
-JWKS, `token_use`, y el allowlist de `client_id`, todo junto — algo que ni
-`SipsaJwtValidatorsTest` (construye objetos `Jwt` a mano, sin firma/issuer real) ni
-`InternalEndpointSecurityTest` (mockea `JwtDecoder` por completo, inyecta autoridades
-directamente) cubren hoy. Un servidor `com.sun.net.httpserver.HttpServer` JDK local
-(loopback, sin dependencia nueva — este repositorio no tiene un extension de servidor
-HTTP de WireMock funcional en el classpath todavía, mismo patrón ya documentado en
-`SoapStreamingClientMetricsTest`) sirve el discovery document OIDC y el JWKS. Los 6
-escenarios pedidos: (1) access token M2M válido, decodifica, scopes se convierten
-correctamente a autoridades `SCOPE_*`; (2) access token humano válido, decodifica cuando
-el cliente humano está en el allowlist; (3) ID token (`token_use=id`) rechazado incluso
-con firma/issuer/`client_id` válidos; (4) `client_id` fuera del allowlist rechazado; (5)
-scope faltante — el decoder no lo rechaza (no es su responsabilidad), pero se confirma que
-se derivan cero autoridades `SCOPE_*`, lo que efectivamente deniega el acceso en
-`SecurityConfig`'s matchers (el camino 403 ya lo cubre `InternalEndpointSecurityTest`); (6)
-issuer incorrecto rechazado incluso con una firma que el JWKS configurado acepta.
-Descubrimiento no asumido, confirmado al correr la prueba: el
-`JwtAuthenticationConverter` por defecto de esta versión de Spring Security también añade
-una autoridad `FACTOR_BEARER` (seguimiento de factor de autenticación) a todo token
-bearer — irrelevante para esta aplicación (ningún matcher de `SecurityConfig` la revisa,
-confirmado por grep), documentado y filtrado explícitamente en el helper de la prueba.
-Ningún cambio a `SecurityConfig`/`TokenUseValidator`/`AllowedClientIdsValidator`/
-`SipsaJwtProperties` fue necesario — no se encontró ningún defecto real de compatibilidad.
+**Java tests — 6 new, closing a real coverage gap, not redundant:**
+`CognitoJwtDecoderContractTest` (new class) exercises
+`SecurityConfig.jwtDecoder(SipsaJwtProperties)` end-to-end against locally signed tokens
+shaped realistically like Cognito's — OIDC discovery, signature verification via JWKS,
+`token_use`, and the `client_id` allowlist, all together — something neither
+`SipsaJwtValidatorsTest` (builds `Jwt` objects by hand, no real signature/issuer) nor
+`InternalEndpointSecurityTest` (mocks `JwtDecoder` entirely, injects authorities
+directly) cover today. A local JDK `com.sun.net.httpserver.HttpServer` (loopback, no new
+dependency — this repository has no functional WireMock HTTP server extension on the
+classpath yet, the same pattern already documented in
+`SoapStreamingClientMetricsTest`) serves the OIDC discovery document and the JWKS. The 6
+requested scenarios: (1) valid M2M access token, decodes, scopes convert correctly to
+`SCOPE_*` authorities; (2) valid human access token, decodes when the human client is in
+the allowlist; (3) ID token (`token_use=id`) rejected even with a valid
+signature/issuer/`client_id`; (4) `client_id` outside the allowlist rejected; (5) missing
+scope — the decoder does not reject it (not its responsibility), but zero `SCOPE_*`
+authorities are confirmed to be derived, which effectively denies access at
+`SecurityConfig`'s matchers (the 403 path is already covered by
+`InternalEndpointSecurityTest`); (6) wrong issuer rejected even with a signature the
+configured JWKS accepts. Not assumed, confirmed by running the test: this Spring
+Security version's default `JwtAuthenticationConverter` also adds a `FACTOR_BEARER`
+authority (authentication-factor tracking) to every bearer token — irrelevant for this
+application (no `SecurityConfig` matcher checks it, confirmed by grep), documented and
+explicitly filtered in the test helper. No change to
+`SecurityConfig`/`TokenUseValidator`/`AllowedClientIdsValidator`/`SipsaJwtProperties`
+was necessary — no real compatibility defect was found.
 
-**Pruebas Terraform — 8 nuevas (108 en total en el árbol):**
-- `modules/ecs-task` gana 4 (17→21): confirma que `environment_variables`/
-  `secret_parameters` están vacíos por defecto sin romper el conjunto fijo; una variable
-  de entorno provista por el llamador se añade correctamente en texto plano; una entrada
-  `secret_parameters` se añade al bloque `secrets` (nunca a `environment`); y
-  `execution_ssm_parameter_arns` concede lectura exactamente al ARN dado, nunca un
-  wildcard.
-- `modules/cognito` gana 1 assertion nueva dentro de un run existente (sigue en 23 runs):
-  el nuevo output `allowed_client_ids_parameter_arn` expone el ARN real, y es `null`
-  cuando `publish_client_ids_to_ssm` es `false`.
-- `environments/production/tests/production.tftest.hcl` (nuevo, primera suite de tests
-  para el root de este repositorio): 2 tests que prueban específicamente el *wiring* entre
-  módulos (no la corrección interna de cada módulo, ya cubierta por sus propias
-  suites) — `module.network`/`module.database`/`module.ecr`/`module.ecs_service`/
-  `module.cognito` se stubbean con `override_module` (valores fijos y distintivos), dejando
-  solo `module.ecs_task` real; se confirma que `SIPSA_JWT_ISSUER_URI` llega a la
-  definición de tarea con exactamente el valor de `module.cognito.issuer_url`, y que
-  `SIPSA_JWT_ALLOWED_CLIENT_IDS` llega vía el bloque `secrets` con el ARN de
-  `module.cognito.allowed_client_ids_parameter_arn`, nunca como valor de entorno plano.
-  `modules/ecs-task` ganó un output nuevo, `container_definitions` (el JSON ya
-  computado, no sensible — ningún secreto vive ahí en texto plano, solo referencias
-  `valueFrom`), necesario porque un test de nivel raíz no puede direccionar los recursos
-  internos de un módulo hijo, solo sus outputs declarados.
+**Terraform tests — 8 new (108 total across the tree):**
+- `modules/ecs-task` gains 4 (17→21): confirms `environment_variables`/
+  `secret_parameters` are empty by default without breaking the fixed set; a
+  caller-provided environment variable is correctly added in plaintext; a
+  `secret_parameters` entry is added to the `secrets` block (never to `environment`);
+  and `execution_ssm_parameter_arns` grants read access exactly to the given ARN, never
+  a wildcard.
+- `modules/cognito` gains 1 new assertion within an existing run (stays at 23 runs): the
+  new `allowed_client_ids_parameter_arn` output exposes the real ARN, and is `null` when
+  `publish_client_ids_to_ssm` is `false`.
+- `environments/production/tests/production.tftest.hcl` (new, this repository root's
+  first test suite): 2 tests that specifically test the *wiring* between modules (not
+  each module's internal correctness, already covered by its own suite) —
+  `module.network`/`module.database`/`module.ecr`/`module.ecs_service`/
+  `module.cognito` are stubbed with `override_module` (fixed, distinctive values),
+  leaving only `module.ecs_task` real; it's confirmed that `SIPSA_JWT_ISSUER_URI` reaches
+  the task definition with exactly `module.cognito.issuer_url`'s value, and that
+  `SIPSA_JWT_ALLOWED_CLIENT_IDS` reaches it via the `secrets` block with
+  `module.cognito.allowed_client_ids_parameter_arn`'s ARN, never as a plaintext
+  environment value. `modules/ecs-task` gained a new output, `container_definitions`
+  (the already-computed JSON, not sensitive — no secret lives there in plaintext, only
+  `valueFrom` references), necessary because a root-level test cannot address a child
+  module's internal resources, only its declared outputs.
 
 **Acceptance Criteria:**
-- [x] Inventario completo de configuración Spring vía grep, tabla exacta, sin nombres
-      inventados.
-- [x] Perfil de Spring auditado (`docker`) — confirmado ya seguro para AWS, sin crear un
-      perfil nuevo sin evidencia real.
-- [x] `issuer_url` conectado desde `module.cognito` hacia `module.ecs_task`, sin
-      reconstrucción manual, sin región/pool hardcodeados.
-- [x] Allowlist de client IDs conectada vía SSM (`secrets`, nunca texto plano), formato
-      CSV compatible sin cambios, ambos clientes incluidos con justificación explícita.
-- [x] IAM: execution role lee exactamente el parámetro SSM requerido, nunca un wildcard;
-      sin permiso KMS agregado (parámetro `String`, no `SecureString`); task role sin
-      cambios.
-- [x] `modules/ecs-task` permanece reusable — sin dependencia directa a
-      `modules/cognito`.
-- [x] Semántica del allowlist verificada, no asumida: `client_id` presente en ambos tipos
-      de access token; ID tokens ya rechazados por `token_use`; resource server acepta
-      solo access tokens.
-- [x] 6 fixtures JWT firmados localmente cubren los 6 escenarios pedidos; ningún cambio a
-      Spring Security fue necesario.
-- [x] 108 tests Terraform en el árbol, todos verdes (16+20+9+21+17+23+2).
-- [x] 338 tests Java en total, 0 fallos, 0 errores, 0 omitidos, `BUILD SUCCESS`.
-- [x] `terraform fmt -check -recursive`, `terraform validate` (todos los roots), TFLint (0
-      issues), `trivy config` (0 hallazgos sin resolver) limpios.
-- [x] Sin API Gateway, sin VPC Link, en ningún módulo de este stack.
-- [x] Sin `terraform apply`, `terraform import`, AWS CLI, solicitud real de token, ni
-      despliegue ECS en ningún momento.
-- [x] TECH-130 permanece marcado explícitamente: "Terraform foundation and ECS
-      configuration wiring complete." TECH-132 permanece `In progress`; TECH-131
-      permanece `Pending`.
+- [x] Complete Spring configuration inventory via grep, exact table, no invented names.
+- [x] Spring profile audited (`docker`) — confirmed already safe for AWS, no new profile
+      created without real evidence.
+- [x] `issuer_url` wired from `module.cognito` into `module.ecs_task`, no manual
+      reconstruction, no hardcoded region/pool.
+- [x] Client ID allowlist wired via SSM (`secrets`, never plaintext), compatible CSV
+      format with no changes, both clients included with explicit justification.
+- [x] IAM: execution role reads exactly the required SSM parameter, never a wildcard; no
+      KMS permission added (`String` parameter, not `SecureString`); task role
+      unchanged.
+- [x] `modules/ecs-task` remains reusable — no direct dependency on `modules/cognito`.
+- [x] Allowlist semantics verified, not assumed: `client_id` present in both access-token
+      types; ID tokens already rejected by `token_use`; resource server accepts only
+      access tokens.
+- [x] 6 locally signed JWT fixtures cover the 6 requested scenarios; no change to Spring
+      Security was necessary.
+- [x] 108 Terraform tests across the tree, all green (16+20+9+21+17+23+2).
+- [x] 338 Java tests total, 0 failures, 0 errors, 0 skipped, `BUILD SUCCESS`.
+- [x] `terraform fmt -check -recursive`, `terraform validate` (all roots), TFLint (0
+      issues), `trivy config` (0 unresolved findings) clean.
+- [x] No API Gateway, no VPC Link, in any module of this stack.
+- [x] No `terraform apply`, `terraform import`, AWS CLI, real token request, or ECS
+      deployment at any point.
+- [x] TECH-130 remains explicitly marked: "Terraform foundation and ECS configuration
+      wiring complete." TECH-132 remains `In progress`; TECH-131 remains `Pending`.
 
-**Completed:** `infra/terraform/modules/ecs-task/{main.tf,variables.tf,outputs.tf}` (dos
-variables genéricas + un output nuevo), `infra/terraform/modules/cognito/outputs.tf` (un
-output ARN nuevo), `infra/terraform/environments/production/main.tf` (wiring),
-`infra/terraform/environments/production/tests/production.tftest.hcl` (nuevo, 2 tests),
-`.github/workflows/infra-plan.yml` (paso `terraform test` nuevo para
+**Completed:** `infra/terraform/modules/ecs-task/{main.tf,variables.tf,outputs.tf}` (two
+generic variables + one new output), `infra/terraform/modules/cognito/outputs.tf` (one
+new ARN output), `infra/terraform/environments/production/main.tf` (wiring),
+`infra/terraform/environments/production/tests/production.tftest.hcl` (new, 2 tests),
+`.github/workflows/infra-plan.yml` (new `terraform test` step for
 `environments/production`), `src/test/java/.../security/CognitoJwtDecoderContractTest.java`
-(nuevo, 6 tests), documentación de los cuatro módulos actualizada. Verificado localmente
-vía `hashicorp/terraform:1.15.7`, `terraform-linters/tflint:v0.64.0`, `aquasec/trivy`
-(ninguna instalada en esta máquina): `fmt -check -recursive` limpio; `terraform validate`
-limpio en los ocho Terraform roots; 108/108 `terraform test` en el árbol; TFLint 0 issues;
-`trivy config` 0 hallazgos sin resolver; `./mvnw clean verify` — 338 tests, 0 fallos, 0
-errores, 0 omitidos, `BUILD SUCCESS`; `git diff --check` limpio. Ningún `terraform apply`,
-`terraform import`, comando AWS CLI, solicitud real de token, Hosted UI real, ni
-despliegue ECS en ningún momento; ningún recurso AWS de ningún tipo existe.
+(new, 6 tests), documentation for all four modules updated. Verified locally via
+`hashicorp/terraform:1.15.7`, `terraform-linters/tflint:v0.64.0`, `aquasec/trivy`
+(none installed on this machine): `fmt -check -recursive` clean; `terraform validate`
+clean across all eight Terraform roots; 108/108 `terraform test` across the tree; TFLint
+0 issues; `trivy config` 0 unresolved findings; `./mvnw clean verify` — 338 tests, 0
+failures, 0 errors, 0 skipped, `BUILD SUCCESS`; `git diff --check` clean. No `terraform
+apply`, `terraform import`, AWS CLI command, real token request, real Hosted UI, or ECS
+deployment at any point; no AWS resource of any kind exists.
 
-**Gaps documentados, previos a cualquier despliegue real** (ninguno resuelto por esta
-historia):
+**Documented gaps, prior to any real deployment** (none resolved by this story):
 - RDS master secret remains temporary wiring. A least-privilege application database
-  user is required before deployment (gap heredado de TECH-140/141, explícitamente no
-  mezclado con Cognito en esta historia).
-- API Gateway y VPC Link (TECH-131) pendientes — sin empezar.
-- Dominio Hosted UI de Cognito no creado (gap de TECH-130, sin cambios).
-- Sin rotación automática del secreto M2M (gap de TECH-130, sin cambios).
-- Ningún `terraform apply` ejecutado en ningún momento de esta secuencia de historias.
+  user is required before deployment (gap inherited from TECH-140/141, explicitly not
+  mixed with Cognito in this story).
+- API Gateway and VPC Link (TECH-131) pending — not started.
+- Cognito Hosted UI domain not created (TECH-130 gap, unchanged).
+- No automatic rotation of the M2M secret (TECH-130 gap, unchanged).
+- No `terraform apply` executed at any point in this sequence of stories.
 
 ---
 
@@ -4788,42 +4761,39 @@ historia):
 **Type:** Infrastructure / Operations
 **Priority:** High
 **Phase:** —
-**Status:** **Blocked / In progress** — no se fusiona a `main`. Mantenida intacta en su
-propia rama como evidencia, separada explícitamente del trabajo local verificable, que
-se extrajo a [TECH-144](#tech-144).
+**Status:** **Blocked / In progress** — not merged to `main`. Kept intact on its own
+branch as evidence, explicitly separated from the locally verifiable work, which was
+extracted to [TECH-144](#tech-144).
 **Complexity:** M
-**Branch:** `infra/production-deployment-preflight` (NO fusionada — conservada como
-evidencia del preflight bloqueado)
+**Branch:** `infra/production-deployment-preflight` (NOT merged — kept as evidence of
+the blocked preflight)
 
-**Origin:** cierre de los bloqueos reales que impiden el primer `terraform apply` de
-TECH-132.
+**Origin:** closing out the real blockers preventing TECH-132's first `terraform apply`.
 
-**Motivo de bloqueo, sin cambios:** no existe ninguna credencial AWS específica de
-SIPSA en este entorno. Se encontraron dos perfiles no relacionados (`incampo`,
-`trustid`), ambos con access keys permanentes, ninguno usado — ningún comando AWS se
-ejecutó con ninguno de los dos, en ningún momento, en ninguna de las dos historias.
+**Blocking reason, unchanged:** no SIPSA-specific AWS credential exists in this
+environment. Two unrelated profiles were found (`incampo`, `trustid`), both with
+permanent access keys, neither used — no AWS command was run with either one, at any
+point, in either story.
 
-**Permanece bloqueado, sin resolver:**
-- Disponibilidad de PostgreSQL 18 / `db.t3.micro` en RDS `us-east-1`.
-- Plan real del bootstrap del backend S3.
-- Inspección del subject real emitido por GitHub OIDC.
-- `terraform plan` real contra la cuenta de producción.
-- Estimación de costos con cifras reales.
+**Remains blocked, unresolved:**
+- PostgreSQL 18 / `db.t3.micro` availability in RDS `us-east-1`.
+- Real S3 backend bootstrap plan.
+- Inspection of the real subject issued by GitHub OIDC.
+- Real `terraform plan` against the production account.
+- Cost estimate with real figures.
 
-**Decisión del propietario del repositorio (2026-07-22):** el manejo original de
-TECH-143 fue confirmado como correcto (ninguna credencial ajena usada, la historia no se
-marcó Done indebidamente), pero la rama mezclaba trabajo local terminado con resultados
-de AWS bloqueados. Se separaron ambos alcances: **TECH-143 permanece bloqueada, en su
-propia rama, sin fusionar**; el trabajo verificable localmente (gate del cliente humano
-de Cognito, estrategia de credenciales de BD, decisión de Flyway, evidencia de
-capacidad/grace period de ECS — esta última re-verificada con una medición adicional a
-1024 MiB) se extrajo a **[TECH-144](#tech-144)**, que sí se fusiona.
+**Repository owner's decision (2026-07-22):** TECH-143's original handling was confirmed
+correct (no unrelated credential used, the story was not improperly marked Done), but
+the branch mixed finished local work with blocked AWS results. Both scopes were
+separated: **TECH-143 stays blocked, on its own branch, unmerged**; the locally
+verifiable work (Cognito human-client gate, DB credential strategy, Flyway decision, ECS
+capacity/grace-period evidence — the latter re-verified with an additional measurement at
+1024 MiB) was extracted to **[TECH-144](#tech-144)**, which does merge.
 
-**No se marca Done.** Retomar esta historia (o una nueva) una vez existan credenciales
-AWS reales y correctamente acotadas para la cuenta de SIPSA. Ver
-`docs/operations/aws-production-preflight.md` (presente en ambas ramas, con las
-secciones bloqueadas — §1-4, §8 de la versión de esa rama — sin cambios) para el detalle
-completo.
+**Not marked Done.** Resume this story (or a new one) once real, correctly scoped AWS
+credentials exist for the SIPSA account. See
+`docs/operations/aws-production-preflight.md` (present on both branches, with the
+blocked sections — §1-4, §8 of that branch's version — unchanged) for the full detail.
 
 ---
 
@@ -4833,37 +4803,36 @@ completo.
 **Type:** Infrastructure / Operations
 **Priority:** High
 **Phase:** —
-**Status:** **Done** — únicamente refuerzo local, verificable, sin AWS. No constituye un
-preflight de despliegue AWS ni un plan de Terraform real (eso permanece en
-[TECH-143](#tech-143), bloqueado).
+**Status:** **Done** — local, verifiable hardening only, no AWS. Does not constitute an
+AWS deployment preflight or a real Terraform plan (that remains in
+[TECH-143](#tech-143), blocked).
 **Complexity:** S
 **Branch:** `infra/preflight-local-hardening`
 
-**Origin:** extracción del trabajo local terminado y verificable de TECH-143, separado
-explícitamente de los resultados bloqueados de AWS, por decisión del propietario del
-repositorio.
+**Origin:** extraction of TECH-143's finished, locally verifiable work, explicitly
+separated from the blocked AWS results, by the repository owner's decision.
 
-**Gate del cliente humano de Cognito:** `enable_human_client` (nueva variable,
-`modules/cognito`, default `false`) — el cliente humano
-(`aws_cognito_user_pool_client.human`, ahora con `count`) no se crea sin URLs de
-callback/logout reales. El cliente M2M, el resource server, los scopes, y el user pool
-permanecen completamente intactos e incondicionales. Una validación rechaza habilitar el
-cliente humano con URLs vacías. 25/25 tests en el módulo (antes 23).
+**Cognito human-client gate:** `enable_human_client` (new variable, `modules/cognito`,
+default `false`) — the human client (`aws_cognito_user_pool_client.human`, now with
+`count`) is not created without real callback/logout URLs. The M2M client, the resource
+server, the scopes, and the user pool remain fully intact and unconditional. A
+validation rejects enabling the human client with empty URLs. 25/25 tests in the module
+(previously 23).
 
-**Memoria de ECS — resultado exacto a 512 MiB y re-verificado a 1024 MiB:**
+**ECS memory — exact result at 512 MiB and re-verified at 1024 MiB:**
 
-| Config | Resultado |
+| Config | Result |
 |---|---|
-| 512 MiB, 0.25 vCPU (3 muestras) | 459.4 MiB usados de 512 MiB — **89.73% de utilización de memoria, 10.27% libre**, en idle post-arranque, antes de cualquier carga de ingestión real. Sin OOM. |
-| 1024 MiB, 0.25 vCPU (3 muestras nuevas, re-verificación exigida antes de fusionar) | Pico de memoria observado: 560.4 MiB (54.72%), 483.5 MiB (47.22%), 549.0 MiB (53.61%) — utilización máxima 44.89%-55.25% en las lecturas finales. `ExitCode=0` en las tres, `OOMKilled=false` en las tres. |
+| 512 MiB, 0.25 vCPU (3 samples) | 459.4 MiB used out of 512 MiB — **89.73% memory utilization, 10.27% free**, at post-startup idle, before any real ingestion load. No OOM. |
+| 1024 MiB, 0.25 vCPU (3 new samples, re-verification required before merge) | Observed memory peak: 560.4 MiB (54.72%), 483.5 MiB (47.22%), 549.0 MiB (53.61%) — 44.89%-55.25% max utilization in the final readings. `ExitCode=0` on all three, `OOMKilled=false` on all three. |
 
-Memoria de tarea ECS: **512 → 1024 MiB** — combinación válida de Fargate para 256 CPU
-(sin cambio de CPU), respaldada por evidencia real en ambos valores, no solo por la
-presión observada a 512 MiB.
+ECS task memory: **512 → 1024 MiB** — a valid Fargate combination for 256 CPU (no CPU
+change), backed by real evidence at both values, not just the pressure observed at
+512 MiB.
 
-**Tiempos de arranque — mínimo/mediana/máximo (6 muestras reales, no 3):**
+**Startup times — min/median/max (6 real samples, not 3):**
 
-| # | Config | Segundos hasta `/actuator/health` 200 |
+| # | Config | Seconds to `/actuator/health` 200 |
 |---:|---|---:|
 | 1 | 512 MiB | 207 |
 | 2 | 512 MiB | 214 |
@@ -4872,75 +4841,76 @@ presión observada a 512 MiB.
 | 5 | 1024 MiB | 187 |
 | 6 | 1024 MiB | **385** |
 
-**Mínimo: 187s. Mediana: ~210.5s. Máximo: 385s.**
+**Min: 187s. Median: ~210.5s. Max: 385s.**
 
-**Justificación del grace period:** la muestra 6 (385s) se conserva, no se descarta como
-outlier conveniente — el propio log de Spring Boot de esa corrida reportó ~192s hasta
-"Started SipsaApplication", consistente con las otras cinco muestras, por lo que la
-brecha adicional de ~193s antes de que el *health probe* externo (`curl` desde el host)
-recibiera `200` es más plausiblemente contención de red/host de Docker Desktop local por
-el uso intensivo y concurrente de Docker durante esta sesión de medición — no
-confirmado, tampoco descartado sin más. `health_check_grace_period_seconds`: 120
-(original, sin medir) → 300 (borrador de TECH-143, solo 3 muestras a 512 MiB) → **480**
-(TECH-144, final) — con ~95s de margen sobre el peor de las **seis** muestras reales, no
-solo un subconjunto favorable. Sigue siendo medición local; requiere confirmación contra
-Fargate real antes del primer despliegue real.
+**Grace-period justification:** sample 6 (385s) is kept, not discarded as a convenient
+outlier — that run's own Spring Boot log reported ~192s to "Started SipsaApplication",
+consistent with the other five samples, so the additional ~193s gap before the external
+health probe (`curl` from the host) received `200` is more plausibly local Docker
+Desktop network/host contention from intensive, concurrent Docker use during this
+measurement session — not confirmed, nor dismissed outright either.
+`health_check_grace_period_seconds`: 120 (original, unmeasured) → 300 (TECH-143 draft,
+only 3 samples at 512 MiB) → **480** (TECH-144, final) — with ~95s of margin over the
+worst of the **six** real samples, not just a favorable subset. Still a local
+measurement; requires confirmation against real Fargate before the first real
+deployment.
 
-**Script de medición endurecido:** `scripts/measure-container-startup.sh` — sin
-credenciales, sin dependencia de cuentas AWS, `set -euo pipefail`, limpia contenedores y
-el stack de compose al salir (incluso en error), CPU/memoria configurables, timeout por
-muestra, **falla con código de salida distinto de cero si algún health check nunca llega
-a 200** (antes solo lo registraba), nunca usa un `sleep` fijo como criterio de éxito,
-documenta sus prerrequisitos en su propio encabezado.
+**Hardened measurement script:** `scripts/measure-container-startup.sh` — no
+credentials, no AWS account dependency, `set -euo pipefail`, cleans up containers and
+the compose stack on exit (even on error), configurable CPU/memory, per-sample timeout,
+**fails with a non-zero exit code if any health check never reaches 200** (previously
+only logged it), never uses a fixed `sleep` as a success criterion, documents its
+prerequisites in its own header.
 
-**Estrategia de BD:** diseño de dos roles PostgreSQL (`sipsa_migration`/`sipsa_runtime`)
-con grants exactos en `infra/terraform/modules/database/scripts/create-application-users.sql`
-— confirmado: sin `SUPERUSER`/`CREATEROLE`/`CREATEDB`; separa migraciones de runtime;
-grants mínimos; documenta explícitamente por qué no es idempotente en `CREATE ROLE`
-(y qué partes del script sí son seguras de re-ejecutar); no conecta a AWS; no ejecuta
-Flyway. **Nunca ejecutado.**
+**DB strategy:** design of two PostgreSQL roles (`sipsa_migration`/`sipsa_runtime`) with
+exact grants in
+`infra/terraform/modules/database/scripts/create-application-users.sql` — confirmed: no
+`SUPERUSER`/`CREATEROLE`/`CREATEDB`; separates migrations from runtime; minimal grants;
+explicitly documents why it isn't idempotent on `CREATE ROLE` (and which parts of the
+script are safe to re-run); does not connect to AWS; does not run Flyway. **Never
+executed.**
 
-**Decisión de Flyway:** tarea de migración ECS única antes del rollout del servicio,
-registrada con follow-up explícito (definición de la tarea, paso del pipeline, manejo de
-fallos, orden del rollout, comportamiento de rollback — este último documentando una
-asimetría real y no resuelta: una migración de Flyway ya aplicada no revierte
-automáticamente si el despliegue de la aplicación falla después). **No implementada.**
+**Flyway decision:** a single ECS migration task before service rollout, recorded with
+an explicit follow-up (task definition, pipeline step, failure handling, rollout order,
+rollback behavior — the latter documenting a real, unresolved asymmetry: an already-
+applied Flyway migration does not automatically roll back if the application deployment
+fails afterward). **Not implemented.**
 
-**Scheduler:** `desired_count=1` se mantiene; 4 opciones de seguimiento documentadas,
-ninguna decidida — bloqueo de HA, no del despliegue inicial de una sola tarea.
+**Scheduler:** `desired_count=1` is kept; 4 follow-up options documented, none decided —
+an HA blocker, not a blocker for the initial single-task deployment.
 
-**No incluido en TECH-144** (permanece exclusivamente en TECH-143, bloqueada):
-disponibilidad RDS, clase RDS, backend remoto, OIDC real, cuenta AWS, plan real, costos,
-callback URLs reales, endpoint Cognito real. Ningún archivo de esta historia afirma
-haber validado ninguno de esos puntos.
+**Not included in TECH-144** (remains exclusively in TECH-143, blocked): RDS
+availability, RDS class, remote backend, real OIDC, AWS account, a real plan, costs,
+real callback URLs, a real Cognito endpoint. No file in this story claims to have
+validated any of those points.
 
-**Trivy/TFLint:** re-ejecutados, limpios, sin hallazgos nuevos.
+**Trivy/TFLint:** re-run, clean, no new findings.
 
 **Acceptance Criteria:**
-- [x] Gate de cliente humano de Cognito implementado, con tests (25/25).
-- [x] Memoria de ECS respaldada por medición real en ambos valores (512 y 1024 MiB),
-      no solo por el fallo a 512 MiB.
-- [x] Grace period basado en las 6 muestras reales (mínimo/mediana/máximo reportados),
-      con margen razonable sobre el máximo.
-- [x] Script de medición endurecido según los 9 criterios pedidos.
-- [x] Estrategia de BD diseñada, script SQL verificado seguro, nunca ejecutado.
-- [x] Decisión de Flyway registrada con follow-up explícito de 4 puntos.
-- [x] Scheduler documentado, sin decisión arquitectónica tomada.
-- [x] 131/131 `terraform test` en el árbol; TFLint 0; Trivy 0 sin resolver.
-- [x] `./mvnw clean verify` — 338 tests, 0 fallos, `BUILD SUCCESS`.
-- [x] Ningún `terraform apply`, comando AWS CLI, ni credencial usada en ningún momento.
-- [x] Ninguna afirmación de validación AWS incluida.
-- [x] TECH-143 permanece `Blocked / In progress`, sin fusionar. TECH-132 permanece
+- [x] Cognito human-client gate implemented, with tests (25/25).
+- [x] ECS memory backed by real measurement at both values (512 and 1024 MiB), not just
+      the failure at 512 MiB.
+- [x] Grace period based on the 6 real samples (min/median/max reported), with
+      reasonable margin over the max.
+- [x] Hardened measurement script per the 9 requested criteria.
+- [x] DB strategy designed, SQL script verified safe, never executed.
+- [x] Flyway decision recorded with an explicit 4-point follow-up.
+- [x] Scheduler documented, no architectural decision made.
+- [x] 131/131 `terraform test` across the tree; TFLint 0; Trivy 0 unresolved.
+- [x] `./mvnw clean verify` — 338 tests, 0 failures, `BUILD SUCCESS`.
+- [x] No `terraform apply`, AWS CLI command, or credential used at any point.
+- [x] No AWS validation claim included.
+- [x] TECH-143 remains `Blocked / In progress`, unmerged. TECH-132 remains
       `In progress`.
 
 **Completed:** `infra/terraform/modules/cognito/{main,variables,outputs,README}.tf`
-(gate de cliente humano), `modules/ecs-task/variables.tf` + tests (memoria),
+(human-client gate), `modules/ecs-task/variables.tf` + tests (memory),
 `modules/ecs-service/variables.tf` + tests (grace period),
 `environments/production/{main,variables}.tf` (wiring), `modules/database/README.md`
-(referencia a la estrategia), `modules/database/scripts/create-application-users.sql`
-(nuevo), `scripts/measure-container-startup.sh` (nuevo, endurecido),
-`docs/operations/aws-production-preflight.md` (actualizado con la evidencia corregida y
-la separación explícita de alcance TECH-143/TECH-144).
+(reference to the strategy), `modules/database/scripts/create-application-users.sql`
+(new), `scripts/measure-container-startup.sh` (new, hardened),
+`docs/operations/aws-production-preflight.md` (updated with the corrected evidence and
+the explicit TECH-143/TECH-144 scope separation).
 
 ---
 
@@ -4970,14 +4940,14 @@ NULL**. No negatives, nothing beyond `DECIMAL(15,2)` — and, as in TECH-118, th
 observed range is evidence for safety, never a license to shrink the columns.
 
 **Resolution:** six annotations aligned to `precision=19, scale=2`. **No Flyway
-migration — V1/V2/V3/V4 unchanged, no V5.** Rounding semantics unchanged and shared
+migration.** Rounding semantics unchanged and shared
 with TECH-118 (`NUMERIC(19,2)` coerces scale > 2 half-away-from-zero at insert; pinned
 per model). No `@Digits`, no CHECK constraints, no API/DTO changes — JSON stays exact
 unquoted numbers (verified per model).
 
 **Final state of decimal declarations:**
 
-| Modelo | Estado previo | Estado final |
+| Model | Previous state | Final state |
 | --- | --- | --- |
 | SipsaParcial | 19,2 (TECH-118) | 19,2 |
 | SipsaCiudad | 15,2 | **19,2** |
@@ -5057,8 +5027,8 @@ filtered by `tech117-a`/`tech117-b`, Awaitility retained).
   (`requestId`), so logs correlate by parameter, not by MDC — acceptable today,
   revisit only if MDC-based tracing is adopted.
 
-**Completed:** 2026-07-19. No migration (V1–V4 untouched), no tuning, no functional
-change to audit semantics.
+**Completed:** 2026-07-19. No migration, no tuning, no functional change to audit
+semantics.
 
 ---
 
@@ -5115,12 +5085,12 @@ the explicit non-unique `idx_sipsa_parcial_key_hash` (80 MB, created by V1). One
 two is pure write/storage overhead on every insert. Dropping the explicit one requires a
 new migration (never editing V1) and a check that no query names it explicitly.
 
-**Completed:** 2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`,
-migration `V3__drop_redundant_parcial_key_hash_index.sql` (transactional `DROP INDEX`,
-no `IF EXISTS`; rationale in the script). Verified: no code/test/script references the
-index name (grep); V1→V2→V3 from empty base and V2→V3 upgrade with data preserved
+**Completed:** 2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`, a
+dedicated migration (transactional `DROP INDEX`, no `IF EXISTS`; rationale in the
+script). Verified: no code/test/script references the index name (grep); tested from an
+empty base and as an upgrade with data preserved
 (`ParcialKeyHashIndexMigrationTest`); `UNIQUE (key_hash)` still rejects duplicates
-post-V3; hash lookups use `sipsa_parcial_key_hash_key` with identical plan cost; live
+post-migration; hash lookups use `sipsa_parcial_key_hash_key` with identical plan cost; live
 upgrade on the real 676K local base in 8 ms with −80 MB of indexes (254→174 MB) and a
 subsequent full idempotent re-ingestion (`inserted=0, skipped=676,210`). Suite: 138
 tests, 0 failures.
@@ -5150,7 +5120,7 @@ expand–migrate–contract with `NOT VALID` + `VALIDATE CONSTRAINT` where appli
 **Type:** Performance
 **Priority:** Low
 **Status:** **Done**
-**Branch:** `perf/sipsa-parcial-article-filter-index` (migration V4)
+**Branch:** `perf/sipsa-parcial-article-filter-index`
 
 **Problem (measured, not assumed):** `GET /api/sipsa/parcial?idArtiSemana=…` (alias
 `artiId` — same Specification, verified by SQL capture) had no index leading with
@@ -5175,7 +5145,7 @@ story only if consumers systematically page past ~page 100 or volume grows ~5×.
 Evidence, plans and re-evaluation thresholds:
 [tech-124-article-filter-analysis.md](../diagnostics/tech-124-article-filter-analysis.md).
 
-**Completed:** 2026-07-18. V4 tested from clean base (`FlywayMigrationsTest` V1→V4) and
+**Completed:** 2026-07-18. Tested from a clean base (`FlywayMigrationsTest`) and
 as an upgrade with data (`ParcialArticleQueryIndexMigrationTest`, 60K rows; live upgrade
 on the real 677K-row local base in 197 ms). No API contract change (TECH-113 untouched).
 
