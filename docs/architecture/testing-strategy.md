@@ -15,7 +15,7 @@
 | Database dependency for tests | H2 in-memory for context/unit tests; several tests (`FlywayMigrationsTest`, `SpecificationBuilderPostgresTest`, and others) provision real PostgreSQL 18 via Testcontainers (self-skip without Docker locally; CI fails if they skip — TECH-120) |
 | Integration-test scaffolding (Failsafe profile, WireMock support, fixture convention) | **Done** ([TECH-150](../backlog/technical-backlog.md#tech-150), 2026-08-03) |
 | Integration tests (handler-level, real SOAP transport + real DB) | **5 of 5 — complete.** `CiudadIngestionHandlerIT` ([TECH-151](../backlog/technical-backlog.md#tech-151)), `SemanaIngestionHandlerIT` ([TECH-152](../backlog/technical-backlog.md#tech-152)), `MesIngestionHandlerIT` ([TECH-153](../backlog/technical-backlog.md#tech-153)), `AbasIngestionHandlerIT` ([TECH-154](../backlog/technical-backlog.md#tech-154)), and `ParcialIngestionHandlerIT` ([TECH-155](../backlog/technical-backlog.md#tech-155), also exercises the real `ON CONFLICT (key_hash) DO NOTHING` path, TECH-117), all 2026-08-03 — golden path, idempotency, and SOAP-fault cases, through the real `SoapGatewayImpl`/`SoapStreamingClient` and a real Testcontainers PostgreSQL, 15 test cases total. `ParcialIngestionHandlerTest` is kept as-is (mocked-repo/no-real-transport path, a different and still-valid concern — see ADR-011) |
-| E2E tests | **None yet.** Previously "not planned"; reversed by ADR-011 (narrow scope). Tracked as [TECH-160](../backlog/technical-backlog.md#tech-160) |
+| E2E tests | **Done** ([TECH-160](../backlog/technical-backlog.md#tech-160), 2026-08-03) — `CiudadIngestionE2ETest`, golden path + failure path, over real HTTP (`RANDOM_PORT`) |
 | Intentional skips | 0 |
 
 Updated by TECH-110, TECH-090, TECH-111, ADR-009, TECH-001/002 (as recorded in the
@@ -36,11 +36,11 @@ three "Recommended" unit tests below (`SipsaReadServiceTest`, `PaginationConfigT
 
 ```
           ┌───────────────────────┐
-          │   E2E                 │  ← Narrow scope: 1 golden path + 1 failure path
+          │   E2E                 │  ← Done: 1 golden path + 1 failure path
           │   (WireMock + PG +    │     (TECH-160). Not a second copy of the IT layer —
           │    mock OIDC)         │     see ADR-011.
           ├───────────────────────┤
-          │   Integration Tests   │  ← Per-handler, WireMock + Testcontainers
+          │   Integration Tests   │  ← Done: per-handler, WireMock + Testcontainers
           │   (Spring context)    │     (TECH-150..155, resolves TECH-044/ADR-011)
           ├───────────────────────┤
           │   Unit Tests          │  ← Mandatory tier: Done. Recommended tier: Done
@@ -366,33 +366,52 @@ see TECH-150 for the 3 Jetty-related `pom.xml` fixes required).
 
 ---
 
-## End-to-End Tests — New, added by ADR-011 (reverses the original "not planned" call)
+## End-to-End Tests — Done (TECH-160, 2026-08-03), reverses the original "not planned" call
 
 The original version of this document marked E2E "Not planned (system boundary)" — a
 reasonable call while AWS deployment (TECH-132/TECH-143) was still theoretical.
-[ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) reverses it: the app is
-now close to real production traffic and has never had a single test proving the HTTP
-trigger → async dispatch → ingestion pipeline → audit trail → query-back chain works
-together in one running Spring context.
+[ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) reversed it, and
+[TECH-160](../backlog/technical-backlog.md#tech-160) implemented it as
+`CiudadIngestionE2ETest`: the app is close to real production traffic and previously had
+no test proving the HTTP trigger → async dispatch → ingestion pipeline → audit trail →
+query-back chain works together in one running Spring context.
 
-**Deliberately narrow scope** — this is not a second copy of the per-handler integration
-tests above (those verify each handler's parsing/persistence contract; this suite
-verifies the *wiring* between layers, once):
+**Deliberately narrow scope** — not a second copy of the per-handler integration tests
+above (those verify each handler's parsing/persistence contract; this suite verifies the
+*wiring* between layers, once):
 
-- **Golden path:** `POST /api/internal/ingestion/run?method=promediosSipsaCiudad` → `202
-  Accepted` → poll `GET /api/internal/ingestion/runs/{id}` until `SUCCEEDED` → `GET
-  /api/sipsa/ciudad` returns the persisted rows → `GET /api/internal/audit/run/{id}`
-  shows the complete `REQUEST_RECEIVED → REQUEST_ACCEPTED → INGESTION_STARTED →
-  INGESTION_RUNNING → INGESTION_SUCCEEDED → METRICS_UPDATED` sequence.
-- **Failure path:** same trigger, WireMock returns a SOAP 500 → run ends `FAILED`, audit
-  trail intact.
+- **Golden path:** `POST /api/internal/ingestion/run?method=promediosSipsaCiudad&force=true`
+  → `202 Accepted` → poll `GET /api/internal/audit/request/{requestId}` until
+  `METRICS_UPDATED` appears → asserts the exact 6-event sequence
+  (`REQUEST_RECEIVED → REQUEST_ACCEPTED → INGESTION_STARTED → INGESTION_RUNNING →
+  INGESTION_SUCCEEDED → METRICS_UPDATED`) → extracts `runId` from that response → `GET
+  /api/internal/ingestion/runs/{runId}` confirms `SUCCEEDED` → `GET /api/sipsa/ciudad`
+  returns the 2 persisted rows.
+- **Failure path:** same trigger, WireMock returns a SOAP 500 → sequence ends
+  `INGESTION_FAILED → METRICS_UPDATED`, run status `FAILED`, zero rows persisted.
 
-**Mechanics:** `@SpringBootTest(webEnvironment = RANDOM_PORT)`, a real HTTP client,
-WireMock SOAP, Testcontainers PostgreSQL, reusing the mock-OIDC-issuer pattern already
-proven by the security work (PR #17) to drive the real Spring context under
-authentication. Lives under `src/test/java/.../e2e/`, named `*E2ETest`, run through the
-same `integration-tests` Failsafe profile as the per-handler ITs — no third tool or
-phase. Tracked as [TECH-160](../backlog/technical-backlog.md#tech-160).
+**Three implementation details that turned out to matter** (see
+[TECH-160](../backlog/technical-backlog.md#tech-160) for the full reasoning behind each):
+`force=true` on the trigger, so the test doesn't depend on the real wall-clock daily
+window; polling `/audit/request/{requestId}` rather than `/audit/run/{runId}`, because
+the pre-run events (`REQUEST_RECEIVED`/`REQUEST_ACCEPTED`) carry a `null` `run_id` and
+the by-run endpoint structurally cannot return them; and polling for `METRICS_UPDATED`
+specifically (the last event, and itself `@Async`), not the outcome event just before
+it, to avoid the exact async-audit race this document's own [Asserting on asynchronous
+side effects](#asserting-on-asynchronous-side-effects-audit-trail) section already
+documents from a prior incident.
+
+**Mechanics:** `@SpringBootTest(webEnvironment = RANDOM_PORT)`, `TestRestTemplate`
+(moved to `spring-boot-resttestclient` in Spring Boot 4 — a second new dependency,
+`spring-boot-restclient`, was also needed for its `RestTemplateBuilder`), WireMock SOAP,
+Testcontainers PostgreSQL, reusing the mock-OIDC-issuer pattern already proven by the
+security work (PR #17) to drive the real Spring context under authentication. Lives
+under `src/test/java/.../e2e/`, named `*E2ETest`, run through the same
+`integration-tests` Failsafe profile as the per-handler ITs — required two small pom.xml
+additions beyond declaring the dependencies: an explicit Surefire exclude (its own
+default `**/*Test.java` pattern also matches `*E2ETest.java`) and an explicit Failsafe
+include (its defaults don't match `*E2ETest` either). CI's `integration-verify` job
+(TECH-161) now also asserts this suite's report ran and wasn't skipped.
 
 ---
 

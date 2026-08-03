@@ -93,25 +93,31 @@ jobs:
       - name: Build and run the integration-tests profile (*IT via Failsafe)
         run: ./mvnw --batch-mode --no-transfer-progress clean verify -P integration-tests
 
-      # Every handler IT is @Testcontainers(disabledWithoutDocker = true), same
-      # self-skip risk FlywayMigrationsTest already guards against in the `verify`
-      # job above — a silent skip here would void the whole per-handler IT suite
-      # without failing the build.
-      - name: Assert all 5 per-handler integration tests ran (not skipped)
+      # Every handler IT and the E2E suite (TECH-160) are all
+      # @Testcontainers(disabledWithoutDocker = true), same self-skip risk
+      # FlywayMigrationsTest already guards against in the `verify` job above — a
+      # silent skip here would void the whole IT/E2E suite without failing the build.
+      - name: Assert all 5 per-handler integration tests + the E2E suite ran (not skipped)
         run: |
           set -e
-          for handler in Ciudad Semana Mes Abas Parcial; do
-            report="target/failsafe-reports/TEST-com.dalejandrov.sipsa.application.ingestion.handler.${handler}IngestionHandlerIT.xml"
+          for report_class in \
+              com.dalejandrov.sipsa.application.ingestion.handler.CiudadIngestionHandlerIT \
+              com.dalejandrov.sipsa.application.ingestion.handler.SemanaIngestionHandlerIT \
+              com.dalejandrov.sipsa.application.ingestion.handler.MesIngestionHandlerIT \
+              com.dalejandrov.sipsa.application.ingestion.handler.AbasIngestionHandlerIT \
+              com.dalejandrov.sipsa.application.ingestion.handler.ParcialIngestionHandlerIT \
+              com.dalejandrov.sipsa.e2e.CiudadIngestionE2ETest; do
+            report="target/failsafe-reports/TEST-${report_class}.xml"
             if [ ! -f "$report" ]; then
-              echo "::error::${handler}IngestionHandlerIT report not found — it did not run at all."
+              echo "::error::${report_class} report not found — it did not run at all."
               exit 1
             fi
             suite=$(head -2 "$report" | tail -1)
             tests=$(printf '%s' "$suite" | sed -n 's/.*tests="\([0-9]*\)".*/\1/p')
             skipped=$(printf '%s' "$suite" | sed -n 's/.*skipped="\([0-9]*\)".*/\1/p')
-            echo "${handler}IngestionHandlerIT: tests=${tests:-?} skipped=${skipped:-?}"
+            echo "${report_class}: tests=${tests:-?} skipped=${skipped:-?}"
             if [ "${tests:-0}" -eq 0 ] || [ "${skipped:-0}" -ne 0 ]; then
-              echo "::error::${handler}IngestionHandlerIT was skipped (tests=${tests:-0}, skipped=${skipped:-0}). Docker must be available to the runner for WireMock/Testcontainers."
+              echo "::error::${report_class} was skipped (tests=${tests:-0}, skipped=${skipped:-0}). Docker must be available to the runner for WireMock/Testcontainers."
               exit 1
             fi
           done
