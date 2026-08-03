@@ -94,9 +94,9 @@ When a story is implemented:
 | TECH-153 | `MesIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | **Done** (2026-08-03, branch `test/mes-ingestion-handler-it`) |
 | TECH-154 | `AbasIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | **Done** (2026-08-03, branch `test/abas-ingestion-handler-it`) |
 | TECH-155 | `ParcialIngestionHandlerIT` (WireMock + Testcontainers PG); existing `ParcialIngestionHandlerTest` kept as-is | High | 6 | **Done** (2026-08-03, branch `test/parcial-ingestion-handler-it` — completes the 5-handler IT suite, TECH-151..155) |
-| TECH-156 | `SoapStreamingClientTest`: retry/backoff/GZIP decompression unit coverage | Medium | 3 | Pending — carried over from `testing-strategy.md` "Recommended" |
-| TECH-157 | `SipsaReadServiceTest` + `PaginationConfigTest` | Medium | 3 | Pending — carried over from `testing-strategy.md` "Recommended" |
-| TECH-158 | Unit coverage for `GenericIngestionJob`/`IngestionService` dispatch (currently covered only transitively) | Low | 3 | Pending |
+| TECH-156 | `SoapStreamingClientTest`: retry/backoff/GZIP decompression unit coverage | Medium | 3 | **Done** (2026-08-03, branch `test/unit-coverage-gaps-tech156-158`) |
+| TECH-157 | `SipsaReadServiceTest` + `PaginationConfigTest` | Medium | 3 | **Done** (2026-08-03, branch `test/unit-coverage-gaps-tech156-158`) |
+| TECH-158 | Unit coverage for `GenericIngestionJob`/`IngestionService` dispatch (currently covered only transitively) | Low | 3 | **Done** (2026-08-03, branch `test/unit-coverage-gaps-tech156-158`) |
 | TECH-159 | Introduce JaCoCo (report-only, no build-breaking `check` goal yet) | Medium | 3 | Pending — [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
 | TECH-160 | E2E suite: golden-path (`Ciudad`) + failure-path (SOAP 500) black-box test via `RANDOM_PORT` + WireMock + Testcontainers + mock OIDC | High | 6 | Pending — depends on TECH-150; [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
 | TECH-161 | CI: new `integration-verify` job (`./mvnw verify -P integration-tests`), parallel to `verify` | Medium | 6 | Pending — depends on TECH-150 |
@@ -5577,9 +5577,9 @@ but resolved against what was actually needed and built, not literally.
 **Type:** Test
 **Priority:** Medium
 **Phase:** 3
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** S
-**Branch (suggested):** `test/soap-streaming-client-retry-gzip`
+**Branch:** `test/unit-coverage-gaps-tech156-158`
 **Dependencies:** None.
 
 **Objective:** Carried over from `testing-strategy.md`'s "Recommended" unit-test list
@@ -5589,13 +5589,21 @@ the missing behavioral assertions on the same fixture: exponential backoff timin
 between retries, immediate failure (no retry) on 4xx vs retry on 5xx, and GZIP
 decompression when the response carries `Content-Encoding: gzip`.
 
-**Acceptance Criteria:**
-- [ ] 4xx response → no retry, immediate `SipsaExternalException`.
-- [ ] 5xx response → retried up to `maxRetries`, with backoff timing asserted (not just
-      counted).
-- [ ] `Content-Encoding: gzip` response is transparently decompressed before parsing.
+**Implemented as** `SoapStreamingClientBehaviorTest` (4 cases): 4xx → exactly 1 real HTTP
+call, `SipsaExternalException` with the real status; 5xx exhausting all retries →
+exactly `maxRetries + 1` real calls *and* a real elapsed-time assertion (not just a call
+count) that the exponential backoff (`backoffMs * 2^0 + backoffMs * 2^1 + ...`) actually
+happened; 5xx then success → recovers and returns the real response body; GZIP → a
+real `GZIPOutputStream`-compressed response body is transparently decompressed to the
+original plaintext.
 
-**Completed:** —
+**Acceptance Criteria:**
+- [x] 4xx response → no retry, immediate `SipsaExternalException`.
+- [x] 5xx response → retried up to `maxRetries`, with backoff timing asserted (not just
+      counted).
+- [x] `Content-Encoding: gzip` response is transparently decompressed before parsing.
+
+**Completed:** 2026-08-03, branch `test/unit-coverage-gaps-tech156-158`. 4/4 tests green.
 
 ---
 
@@ -5605,9 +5613,9 @@ decompression when the response carries `Content-Encoding: gzip`.
 **Type:** Test
 **Priority:** Medium
 **Phase:** 3
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** S
-**Branch (suggested):** `test/read-service-and-pagination-config`
+**Branch:** `test/unit-coverage-gaps-tech156-158`
 **Dependencies:** None.
 
 **Objective:** Carried over from `testing-strategy.md`'s "Recommended" unit-test list
@@ -5617,10 +5625,34 @@ correct hardcoded field names per query method. `PaginationConfigTest`: `buildPa
 converts 1-based API pages to 0-based Spring pages; `validatePageable()` enforces the
 max page size.
 
-**Acceptance Criteria:**
-- [ ] Both classes covered per their description above, mocking collaborators (no DB).
+**Scope note against the original description:** "`SpecificationBuilder` is invoked with
+the correct hardcoded field names per query method" is **not** re-verified here — that
+exact contract (which field name each `SipsaReadService` call site passes) is already
+covered by `SpecificationBuilderTest`/`SpecificationBuilderPostgresTest`
+(TECH-041), and re-asserting it from `SipsaReadService`'s side would need a real
+`CriteriaBuilder`/`Root` (or reflection into the built `Specification`) for no added
+signal. `SipsaReadServiceTest` instead covers what is actually `SipsaReadService`'s own
+responsibility: 1-based→0-based pagination conversion, `validateIds` rejecting a
+negative/zero filter ID *before* the repository is ever called (`verifyNoInteractions`),
+and the repository result being mapped through the right mapper — for `getCiudad` fully,
+and lightly (one valid-path + one validation-rejection case each) for the other 4 query
+methods, since they all share the same `executeQuery` template.
 
-**Completed:** —
+**Real finding surfaced while writing `PaginationConfigTest`:** `validatePageable`'s
+"page number cannot be negative" branch is unreachable through any current caller —
+`buildPageable` already clamps `Math.max(0, page - 1)` before a `Pageable` is ever
+built, and Spring's own `PageRequest.of` rejects a negative page argument itself before
+`validatePageable` could see it. Tested anyway, directly, against a hand-stubbed
+`Pageable` (`Mockito.mock`) to prove the method's own contract; documented as dead code
+in production terms, not "fixed" (same treatment `SpecificationBuilderTest`, TECH-041,
+gave a similar no-current-exploit-path observation).
+
+**Acceptance Criteria:**
+- [x] Both classes covered per their description above (with the one scope note),
+      mocking collaborators (no DB).
+
+**Completed:** 2026-08-03, branch `test/unit-coverage-gaps-tech156-158`.
+`SipsaReadServiceTest`: 12/12 green. `PaginationConfigTest`: 14/14 green.
 
 ---
 
@@ -5630,9 +5662,9 @@ max page size.
 **Type:** Test
 **Priority:** Low
 **Phase:** 3
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** S
-**Branch (suggested):** `test/generic-ingestion-job-dispatch`
+**Branch:** `test/unit-coverage-gaps-tech156-158`
 **Dependencies:** None.
 
 **Objective:** `GenericIngestionJob.runIngestion()` (delegates to `IngestionService.execute()`)
@@ -5643,14 +5675,30 @@ have no dedicated unit test; they are covered only transitively through
 real `GenericIngestionJob` incidentally, not to prove this class's own contract. Add a
 small, explicit, mocked-`IngestionHandler` test for both classes.
 
+**Implemented as** `IngestionServiceTest` (9 cases — dispatch to the correct handler and
+no other; unregistered method throws `SipsaBusinessException`, handler never invoked;
+null/blank method name and null context both throw; `isValidMethod`/
+`getAvailableMethodNames` reflect exactly the registered handlers; a null/empty handler
+list registers nothing; `validateTriggerRequest`'s null/blank/unregistered/valid paths)
+and `GenericIngestionJobTest` (2 cases — calls the `protected runIngestion` directly,
+same-package test, rather than going through the full `IngestionJob.execute()`
+orchestration, which is already covered elsewhere against `ScriptedIngestionJob`;
+delegates to `IngestionService.execute` with the context's own method name unmodified;
+an exception from `IngestionService.execute` propagates out unmodified — asserted
+`isSameAs`, not just "some exception").
+
 **Acceptance Criteria:**
-- [ ] `IngestionService.execute` dispatches to the correct handler by method name.
-- [ ] `IngestionService.execute` on an unregistered method name throws
+- [x] `IngestionService.execute` dispatches to the correct handler by method name.
+- [x] `IngestionService.execute` on an unregistered method name throws
       `SipsaBusinessException` (currently untested directly).
-- [ ] `GenericIngestionJob.runIngestion` delegates to `IngestionService.execute` with the
+- [x] `GenericIngestionJob.runIngestion` delegates to `IngestionService.execute` with the
       context's method name, unmodified.
 
-**Completed:** —
+**Completed:** 2026-08-03, branch `test/unit-coverage-gaps-tech156-158`.
+`IngestionServiceTest`: 9/9 green. `GenericIngestionJobTest`: 2/2 green.
+`./mvnw clean test`: 506 unit tests green (0 regressions, up from 465 — the 41 new
+tests across TECH-156/157/158). `./mvnw verify -P integration-tests`: all 15
+integration tests still green.
 
 ---
 

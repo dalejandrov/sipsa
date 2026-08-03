@@ -9,8 +9,8 @@
 
 | Metric | Value |
 |---|---|
-| Test files (Surefire, unit) | 64 (as of 2026-08-03; grown from the 10 recorded on 2026-07-13 — see the full list under `src/test/java/`) |
-| Test methods (Surefire, unit) | 459 `@Test` methods (`./mvnw clean test`: 465 executions per the XML reports — a few methods are parameterized into multiple cases; 0 failures, 0 skips) |
+| Test files (Surefire, unit) | 69 (as of 2026-08-03; grown from the 10 recorded on 2026-07-13 — see the full list under `src/test/java/`) |
+| Test methods (Surefire, unit) | 500 `@Test` methods (`./mvnw clean test`: 506 executions per the XML reports — a few methods are parameterized into multiple cases; 0 failures, 0 skips) |
 | Business logic coverage | Every unit-test target listed as **Done** in "Unit Tests — Mandatory" below, plus the ADR-002 security chain, the ADR-009 Flyway migration gate, and package-boundary ArchUnit rules (TECH-093). No JaCoCo configured yet — line-coverage % still not measured (tracked as [TECH-159](../backlog/technical-backlog.md#tech-159)) |
 | Database dependency for tests | H2 in-memory for context/unit tests; several tests (`FlywayMigrationsTest`, `SpecificationBuilderPostgresTest`, and others) provision real PostgreSQL 18 via Testcontainers (self-skip without Docker locally; CI fails if they skip — TECH-120) |
 | Integration-test scaffolding (Failsafe profile, WireMock support, fixture convention) | **Done** ([TECH-150](../backlog/technical-backlog.md#tech-150), 2026-08-03) |
@@ -26,11 +26,9 @@ resolves [TECH-044](../backlog/technical-backlog.md#tech-044) (the integration-t
 tooling SPIKE) and reverses this document's original "E2E not planned" call — see the
 Integration Tests and End-to-End Tests sections below, both rewritten by that ADR. The
 three "Recommended" unit tests below (`SipsaReadServiceTest`, `PaginationConfigTest`,
-`SoapStreamingClientTest`) are **still not implemented** — now tracked as
-[TECH-157](../backlog/technical-backlog.md#tech-157) and
-[TECH-156](../backlog/technical-backlog.md#tech-156) respectively, plus a new gap found
-during the ADR-011 review, `GenericIngestionJob`/`IngestionService` dispatch coverage
-([TECH-158](../backlog/technical-backlog.md#tech-158)).
+`SoapStreamingClientTest`) plus a new gap found during the ADR-011 review
+(`GenericIngestionJob`/`IngestionService` dispatch coverage) are now all **done**
+([TECH-156..158](../backlog/technical-backlog.md#tech-156), 2026-08-03).
 
 ---
 
@@ -45,7 +43,7 @@ during the ADR-011 review, `GenericIngestionJob`/`IngestionService` dispatch cov
           │   Integration Tests   │  ← Per-handler, WireMock + Testcontainers
           │   (Spring context)    │     (TECH-150..155, resolves TECH-044/ADR-011)
           ├───────────────────────┤
-          │   Unit Tests          │  ← Mandatory tier: Done. Recommended tier: pending
+          │   Unit Tests          │  ← Mandatory tier: Done. Recommended tier: Done
           │   (pure Java)         │     (TECH-156..158)
           └───────────────────────┘
 ```
@@ -285,34 +283,48 @@ the generic-exception catch-all.
 
 ---
 
-## Unit Tests — Recommended (Phase 3+)
+## Unit Tests — Recommended (Phase 3+) — all Done (2026-08-03)
 
-These add value but are not blockers. Still not implemented as of 2026-08-03 — each now
-has a tracked story (added during the [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
-review).
+Add value but were not blockers; each was tracked as a story during the
+[ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) review and closed the
+same day.
 
-### `SipsaReadServiceTest` / `PaginationConfigTest` — [TECH-157](../backlog/technical-backlog.md#tech-157)
+### `SipsaReadServiceTest` / `PaginationConfigTest` — **Done** ([TECH-157](../backlog/technical-backlog.md#tech-157))
 
-Verify: pagination parameters are validated; invalid IDs throw `SipsaValidationException`;
-`SpecificationBuilder` is called with the correct field names. `buildPageable()` converts
-1-based API pages to 0-based Spring pages; `validatePageable()` enforces max page size.
+Pagination parameters are validated; invalid IDs throw `SipsaValidationException` before
+the repository is ever called; `buildPageable()` converts 1-based API pages to 0-based
+Spring pages (and never produces a negative index, regardless of input);
+`validatePageable()` enforces max page size. Re-verifying which field names
+`SpecificationBuilder` is called with is deliberately **not** duplicated here — that
+exact contract already belongs to `SpecificationBuilderTest`/`SpecificationBuilderPostgresTest`
+(TECH-041). `SipsaReadServiceTest`: 12 cases (`getCiudad` fully, the other 4 query
+methods lightly — they share the same `executeQuery` template). `PaginationConfigTest`:
+14 cases, including a documented-not-fixed finding that `validatePageable`'s
+negative-page branch is unreachable through any current caller.
 
-### `SoapStreamingClientTest` — [TECH-156](../backlog/technical-backlog.md#tech-156)
+### `SoapStreamingClientTest` — **Done** ([TECH-156](../backlog/technical-backlog.md#tech-156), as `SoapStreamingClientBehaviorTest`)
 
-Verify: retry logic on 5xx; immediate failure on 4xx; exponential backoff timing (use mock HTTP server);
-GZIP decompression applied when `Content-Encoding: gzip`. Complements
+Retry logic on 5xx (exactly `maxRetries + 1` real HTTP calls, with real exponential
+backoff *elapsed time* asserted, not just a call count); immediate failure on 4xx (zero
+retries); a 5xx-then-success case (recovers, returns the real response body); GZIP
+decompression against a real `GZIPOutputStream`-compressed response. Complements
 `SoapStreamingClientMetricsTest` (TECH-032), which already proves the metrics emitted
 per attempt/retry against the same kind of local `HttpServer` fixture, but not this
-behavioral contract.
+behavioral contract. 4 cases.
 
-### `GenericIngestionJob` / `IngestionService` dispatch — [TECH-158](../backlog/technical-backlog.md#tech-158)
+### `GenericIngestionJob` / `IngestionService` dispatch — **Done** ([TECH-158](../backlog/technical-backlog.md#tech-158))
 
-Found during the ADR-011 review: neither class has a dedicated unit test today. Both are
+Found during the ADR-011 review: neither class had a dedicated unit test. Both were
 covered only *transitively*, through `ScheduledIngestionDispatcherTest` and
 `ParcialConcurrentIngestionAppTest`, which happen to use a real `GenericIngestionJob` for
-other reasons. Verify directly: `IngestionService.execute` dispatches to the correct
-handler by method name and throws `SipsaBusinessException` for an unregistered one;
-`GenericIngestionJob.runIngestion` delegates to `IngestionService.execute` unmodified.
+other reasons. `IngestionServiceTest` (9 cases): dispatch to the correct handler and no
+other; unregistered method throws `SipsaBusinessException`, handler never invoked;
+null/blank method name and null context; `isValidMethod`/`getAvailableMethodNames`;
+`validateTriggerRequest`'s null/blank/unregistered/valid paths.
+`GenericIngestionJobTest` (2 cases, calling the `protected runIngestion` directly rather
+than the full `IngestionJob.execute()` orchestration already covered elsewhere):
+delegates to `IngestionService.execute` with the context's own method name unmodified;
+a handler exception propagates out unmodified.
 
 ---
 
