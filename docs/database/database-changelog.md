@@ -134,16 +134,18 @@ concreta de fila fallida. Procedimiento en orden, para cualquier fallo:
 aplicada — la edición se revierte en git (ADR-009 regla 2). `clean` está deshabilitado y
 no es un mecanismo de recuperación en ningún caso.
 
-### Baseline (`baseline-on-migrate`)
+### Baseline (`baseline-on-migrate`) — deshabilitado (TECH-116, 2026-08-03)
 
-La configuración actual (`baseline-on-migrate: true`, `baseline-version: 1`) existe para
-adoptar Flyway sobre bases que preceden al historial. Antes de desactivarla se requiere
-un **inventario por ambiente** (dev local, Docker, staging, producción) con las consultas
-del [runbook, Parte I §8](../diagnostics/tech-012-runbook.md): existencia de
-`flyway_schema_history`, migraciones aplicadas con checksum y resultado, presencia de
-fila `type='BASELINE'`, y detección de esquemas no vacíos sin historial. Solo con los
-ambientes verificados se crea una **historia separada** para `baseline-on-migrate: false`
-— nunca mezclada con TECH-011.
+Existía para adoptar Flyway sobre bases que preceden al historial. Inventario realizado
+con las consultas del [runbook, Parte I §8](../diagnostics/tech-012-runbook.md): todos los
+ambientes en que esta app ha corrido (dev local vía docker-compose, CI vía Testcontainers,
+y el RDS de AWS aún no provisionado) obtienen su esquema exclusivamente vía `flyway
+migrate` de esta misma app — nunca un esquema creado manualmente seguido de `flyway
+baseline`. Verificado empíricamente contra un PostgreSQL 18 recién creado:
+`flyway_schema_history` muestra exactamente una fila (`type=SQL`, la migración `V1`) y
+cero filas `type='BASELINE'`. `baseline-on-migrate: false` desde este cambio — si en el
+futuro apareciera un esquema no vacío sin historial, la app debe fallar el arranque en
+voz alta, no adoptarlo silenciosamente como "ya migrado."
 
 ### Validación exigida a toda migración nueva
 
