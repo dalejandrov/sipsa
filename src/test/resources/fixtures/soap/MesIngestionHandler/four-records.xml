@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TECH-153/ADR-011 example fixture: a realistically-shaped promediosSipsaMesMadr SOAP
+  1.2 response with 4 records - 2 with tmpMayoMesId (route to
+  SipsaMayoristasMensualRepository.upsertTmpBatch) and 2 without it (route to
+  upsertFallbackBatch, the ON CONFLICT (arti_id, fuen_id, fecha_mes_ini) DO NOTHING
+  path, same TECH-060-style atomic upsert as Semana's). See CiudadIngestionHandler's
+  fixture for why only "return" and its children matter to AbstractStaxParser.
+-->
+<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
+    <soap12:Body>
+        <promediosSipsaMesMadrResponse xmlns="http://servicios.sipsa.co.gov.dane/">
+            <promediosSipsaMesMadrResult>
+                <return>
+                    <tmpMayoMesId>600001</tmpMayoMesId>
+                    <artiId>301</artiId>
+                    <artiNombre>ARROZ CLASE PRIMERA</artiNombre>
+                    <fuenId>20</fuenId>
+                    <fuenNombre>CORABASTOS</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaMesIni>2026-08-01T00:00:00-05:00</fechaMesIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <minimoKg>2100.00</minimoKg>
+                    <maximoKg>2900.00</maximoKg>
+                    <promedioKg>2500.00</promedioKg>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <tmpMayoMesId>600002</tmpMayoMesId>
+                    <artiId>302</artiId>
+                    <artiNombre>FRIJOL CARGAMANTO ROJO SECO</artiNombre>
+                    <fuenId>21</fuenId>
+                    <fuenNombre>SANTA HELENA</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaMesIni>2026-08-01T00:00:00-05:00</fechaMesIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <minimoKg>6200.00</minimoKg>
+                    <maximoKg>7800.00</maximoKg>
+                    <promedioKg>7000.00</promedioKg>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <artiId>303</artiId>
+                    <artiNombre>MAIZ AMARILLO CAMPESINO</artiNombre>
+                    <fuenId>22</fuenId>
+                    <fuenNombre>BAZURTO</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaMesIni>2026-08-01T00:00:00-05:00</fechaMesIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <minimoKg>1400.00</minimoKg>
+                    <maximoKg>1900.00</maximoKg>
+                    <promedioKg>1650.00</promedioKg>
+                    <enviado>1</enviado>
+                </return>
+                <return>
+                    <artiId>304</artiId>
+                    <artiNombre>PLATANO DOMINICO HARTON VERDE</artiNombre>
+                    <fuenId>23</fuenId>
+                    <fuenNombre>CENABASTOS</fuenNombre>
+                    <futiId>1</futiId>
+                    <fechaMesIni>2026-08-01T00:00:00-05:00</fechaMesIni>
+                    <fechaCreacion>2026-08-01T06:00:00-05:00</fechaCreacion>
+                    <minimoKg>1000.00</minimoKg>
+                    <maximoKg>1600.00</maximoKg>
+                    <promedioKg>1300.00</promedioKg>
+                    <enviado>1</enviado>
+                </return>
+            </promediosSipsaMesMadrResult>
+        </promediosSipsaMesMadrResponse>
+    </soap12:Body>
+</soap12:Envelope>
