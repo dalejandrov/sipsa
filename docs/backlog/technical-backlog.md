@@ -90,7 +90,7 @@ When a story is implemented:
 | TECH-136 | Centralize async executor configuration and pin the audit executor (C-05) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-async-executor-config` — `AsyncExecutorProperties` + `@Async("ingestionTaskExecutor")` for audit; geometry 2/10/25/60s unchanged) |
 | TECH-150 | Integration-test scaffolding: Failsafe `integration-tests` profile, `*IT` convention, shared WireMock SOAP fixture support | High | 6 | **Done** (2026-08-03, branch `spike/tech-044-comprehensive-testing-strategy` — found and fixed a real WireMock/Jetty 12 dependency conflict along the way, see story) |
 | TECH-151 | `CiudadIngestionHandlerIT` (WireMock + Testcontainers PG) | High | 6 | **Done** (2026-08-03, branch `test/ciudad-ingestion-handler-it`) |
-| TECH-152 | `SemanaIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
+| TECH-152 | `SemanaIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | **Done** (2026-08-03, branch `test/semana-ingestion-handler-it`) |
 | TECH-153 | `MesIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
 | TECH-154 | `AbasIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
 | TECH-155 | `ParcialIngestionHandlerIT` (WireMock + Testcontainers PG); existing `ParcialIngestionHandlerTest` kept as-is | High | 6 | Pending — depends on TECH-150 |
@@ -5431,9 +5431,9 @@ path.
 **Type:** Test
 **Priority:** Medium
 **Phase:** 6
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** S (pattern already established by TECH-151)
-**Branch (suggested):** `test/semana-ingestion-handler-it`
+**Branch:** `test/semana-ingestion-handler-it`
 **Dependencies:** TECH-150, pattern from TECH-151.
 
 **Objective:** Same shape as TECH-151, for `SemanaIngestionHandler` /
@@ -5441,10 +5441,22 @@ path.
 covering the `upsertFallbackBatch` path ([TECH-060](#tech-060)) against the real
 tmpId/business-key dual lookup.
 
-**Acceptance Criteria:**
-- [ ] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure.
+**Beyond TECH-151's shape:** Semana is the first handler with two real, distinct
+persistence paths in the same execution — `upsertTmpBatch` (matched by
+`tmp_mayo_sem_id`) for records with a tmp id, `upsertFallbackBatch` (TECH-060's atomic
+`ON CONFLICT (arti_id, fuen_id, fecha_ini) DO NOTHING`) for records without one. The
+fixture (`fixtures/soap/SemanaIngestionHandler/four-records.xml`) has 2 of each shape,
+so every test case exercises both real repository methods against the real
+`ux_semana_tmp`/`ux_semana_fallback` unique constraints, not just one of them.
 
-**Completed:** —
+**Acceptance Criteria:**
+- [x] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure —
+      golden-path and idempotency additionally assert both upsert paths independently
+      (one record from each route checked by field values, not just aggregate counts).
+
+**Completed:** 2026-08-03, branch `test/semana-ingestion-handler-it`.
+`./mvnw clean verify -P integration-tests`: 465 unit tests green (0 regressions), 3/3
+new integration tests green.
 
 ---
 
