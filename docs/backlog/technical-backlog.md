@@ -33,7 +33,7 @@ When a story is implemented:
 | TECH-041 | Unit tests for `SpecificationBuilder` | High | 3 | Done |
 | TECH-042 | Unit tests for `IngestionJob` | High | 3 | Done |
 | TECH-043 | Tests for `GlobalExceptionHandler` | Medium | 3 | Done |
-| TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | Partially resolved — Testcontainers half settled by ADR-009 (`FlywayMigrationsTest`); WireMock half pending |
+| TECH-044 | SPIKE: Integration test strategy (WireMock/Testcontainers) | Low | 6 | **Resolved** (2026-08-03, [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) — combined WireMock + Testcontainers, one IT per handler; follow-up work is TECH-150..161) |
 | TECH-050 | Remove placeholder comments from handlers | Low | 1 | **Done** (2026-07-19, branch `refactor/remove-existing-code-comments`) |
 | TECH-051 | Rename `toAuditEventRequest` → `toAuditEventResponse` | Low | 1 | **Done** (2026-07-19, branch `refactor/rename-audit-mapper-response`) |
 | TECH-052 | `getRun()` returns `Optional<IngestionRun>` | Low | 1 | **Done** (2026-07-19, branch `refactor/optional-ingestion-run`) |
@@ -88,6 +88,18 @@ When a story is implemented:
 | TECH-134 | Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`) | Low | — | **Done** (2026-07-19, branch `fix/align-remaining-sipsa-decimal-precision` — all SIPSA price models now declare `19,2`, no migration) |
 | TECH-135 | Centralize ingestion rejection-threshold configuration (C-04) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-ingestion-rejection-thresholds` — thresholds bind once in `IngestionProperties`, effective 0.01/5000 unchanged) |
 | TECH-136 | Centralize async executor configuration and pin the audit executor (C-05) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-async-executor-config` — `AsyncExecutorProperties` + `@Async("ingestionTaskExecutor")` for audit; geometry 2/10/25/60s unchanged) |
+| TECH-150 | Integration-test scaffolding: Failsafe `integration-tests` profile, `*IT` convention, shared WireMock SOAP fixture support | High | 6 | Pending — [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
+| TECH-151 | `CiudadIngestionHandlerIT` (WireMock + Testcontainers PG) | High | 6 | Pending — depends on TECH-150 |
+| TECH-152 | `SemanaIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
+| TECH-153 | `MesIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
+| TECH-154 | `AbasIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
+| TECH-155 | `ParcialIngestionHandlerIT` (WireMock + Testcontainers PG); existing `ParcialIngestionHandlerTest` kept as-is | High | 6 | Pending — depends on TECH-150 |
+| TECH-156 | `SoapStreamingClientTest`: retry/backoff/GZIP decompression unit coverage | Medium | 3 | Pending — carried over from `testing-strategy.md` "Recommended" |
+| TECH-157 | `SipsaReadServiceTest` + `PaginationConfigTest` | Medium | 3 | Pending — carried over from `testing-strategy.md` "Recommended" |
+| TECH-158 | Unit coverage for `GenericIngestionJob`/`IngestionService` dispatch (currently covered only transitively) | Low | 3 | Pending |
+| TECH-159 | Introduce JaCoCo (report-only, no build-breaking `check` goal yet) | Medium | 3 | Pending — [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
+| TECH-160 | E2E suite: golden-path (`Ciudad`) + failure-path (SOAP 500) black-box test via `RANDOM_PORT` + WireMock + Testcontainers + mock OIDC | High | 6 | Pending — depends on TECH-150; [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
+| TECH-161 | CI: new `integration-verify` job (`./mvnw verify -P integration-tests`), parallel to `verify` | Medium | 6 | Pending — depends on TECH-150 |
 
 ---
 
@@ -1006,9 +1018,9 @@ V1–V4 unchanged; no `V5`.
 **Type:** SPIKE  
 **Priority:** Low  
 **Phase:** 6  
-**Status:** Pending  
+**Status:** **Resolved**  
 **Complexity:** M  
-**Branch:** `spike/integration-test-strategy`
+**Branch:** `spike/tech-044-comprehensive-testing-strategy`
 **Dependencies:** None.
 
 **Objective:** Determine the integration test tooling: WireMock 3.x vs `wiremock-spring-boot:4.x`, H2 vs Testcontainers. Produce a proof-of-concept test for `CiudadIngestionHandler`.
@@ -1019,11 +1031,20 @@ PostgreSQL is adopted and proven by `FlywayMigrationsTest` (dependencies already
 `pom.xml`, managed by the Spring Boot BOM). The remaining scope of this SPIKE is the
 WireMock half (SOAP mocking strategy and the `CiudadIngestionHandler` proof of concept).
 
-**Acceptance Criteria:**
-- [ ] Decision documented in [Testing Strategy](../architecture/testing-strategy.md).
-- [ ] One working proof-of-concept integration test for `promediosSipsaCiudad`.
+**Full resolution (2026-08-03):** [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
+closes the WireMock half: combined WireMock (SOAP) + Testcontainers (PostgreSQL), one
+integration test per handler, via a new Maven `integration-tests` Failsafe profile —
+not the H2 fallback `testing-strategy.md` originally suggested (rejected: H2 cannot
+exercise the real `ON CONFLICT ... DO NOTHING` upsert or `TIMESTAMPTZ`/`DATE` semantics
+the persistence layer depends on). The proof-of-concept for `CiudadIngestionHandler`
+itself, and the rest of the follow-on work this decision unblocks, is tracked as
+TECH-150 through TECH-161, not as part of this SPIKE.
 
-**Completed:** —
+**Acceptance Criteria:**
+- [x] Decision documented in [Testing Strategy](../architecture/testing-strategy.md) and [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md).
+- [ ] One working proof-of-concept integration test for `promediosSipsaCiudad` — tracked as [TECH-151](#tech-151), not part of this SPIKE's closure.
+
+**Completed:** 2026-08-03, branch `spike/tech-044-comprehensive-testing-strategy` (decision only — see TECH-150..161 for implementation).
 
 ---
 
@@ -5251,3 +5272,345 @@ remains a business decision to validate separately.
 `./mvnw clean verify`: 168 tests green. Startup logs a single safe confirmation pair:
 `Monthly ingestion window start = <HH:mm>` (IngestionProperties) and
 `Monthly ingestion timezone = <zone>` (WindowPolicy).
+
+---
+
+### TECH-150
+
+**Title:** Integration-test scaffolding — Failsafe profile, `*IT` convention, shared WireMock SOAP fixture support
+**Type:** Infrastructure (test)
+**Priority:** High
+**Phase:** 6
+**Status:** Pending
+**Complexity:** M
+**Branch (suggested):** `test/integration-test-scaffolding`
+**Dependencies:** None. Unblocks TECH-151..155, TECH-160, TECH-161.
+**Decision reference:** [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
+
+**Objective:** Add the `maven-failsafe-plugin`-backed `integration-tests` profile
+(`*IT.java` naming, bound to `verify`, separate from the Surefire unit run), and a
+shared WireMock support base class that serves SOAP XML fixtures from
+`src/test/resources/fixtures/soap/<HandlerName>/`. No handler test is written in this
+story — it is scaffolding only, proven with one throwaway smoke `*IT` that gets deleted
+once TECH-151 lands.
+
+**Acceptance Criteria:**
+- [ ] `./mvnw test` behavior is unchanged (still Docker-optional, still excludes `*IT`).
+- [ ] `./mvnw verify -P integration-tests` runs `*IT` classes via Failsafe.
+- [ ] A shared WireMock support base class exists and is documented (Javadoc + a short
+      section in `testing-strategy.md`) well enough that TECH-151..155 can each be
+      implemented by copying its usage pattern.
+- [ ] Fixture directory convention (`fixtures/soap/<HandlerName>/`) documented with at
+      least one real fixture file committed as an example.
+
+**Completed:** —
+
+---
+
+### TECH-151
+
+**Title:** `CiudadIngestionHandlerIT` (WireMock + Testcontainers PostgreSQL)
+**Type:** Test
+**Priority:** High
+**Phase:** 6
+**Status:** Pending
+**Complexity:** M
+**Branch (suggested):** `test/ciudad-ingestion-handler-it`
+**Dependencies:** TECH-150.
+
+**Objective:** First real per-handler integration test, establishing the pattern
+TECH-152..155 copy. Runs the full path — `SoapGateway` → `SoapStreamingClient` (real
+HTTP call to a local WireMock instance serving a real `promediosSipsaCiudad` XML
+fixture) → StAX parse → `SipsaIngestionMapper` → `batchUpsert` against a real
+PostgreSQL 18 Testcontainer — and asserts: the correct rows land in `sipsa_ciudad`; a
+second run against the same fixture produces `skipped > 0` (idempotency); `IngestionContext`
+metrics match the fixture's record count.
+
+**Acceptance Criteria:**
+- [ ] Golden-path case (valid fixture → rows inserted).
+- [ ] Idempotency case (same fixture run twice → second run skips).
+- [ ] SOAP-fault case (WireMock returns 500 → handler surfaces the failure the same way
+      unit tests already prove `IngestionJob` handles it — no behavior change, just
+      proof it holds through the real transport).
+
+**Completed:** —
+
+---
+
+### TECH-152
+
+**Title:** `SemanaIngestionHandlerIT` (WireMock + Testcontainers PostgreSQL)
+**Type:** Test
+**Priority:** Medium
+**Phase:** 6
+**Status:** Pending
+**Complexity:** S (pattern already established by TECH-151)
+**Branch (suggested):** `test/semana-ingestion-handler-it`
+**Dependencies:** TECH-150, pattern from TECH-151.
+
+**Objective:** Same shape as TECH-151, for `SemanaIngestionHandler` /
+`promediosSipsaSemanaMadr`, asserting rows land in `sipsa_mayoristas_semanal` and
+covering the `upsertFallbackBatch` path ([TECH-060](#tech-060)) against the real
+tmpId/business-key dual lookup.
+
+**Acceptance Criteria:**
+- [ ] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure.
+
+**Completed:** —
+
+---
+
+### TECH-153
+
+**Title:** `MesIngestionHandlerIT` (WireMock + Testcontainers PostgreSQL)
+**Type:** Test
+**Priority:** Medium
+**Phase:** 6
+**Status:** Pending
+**Complexity:** S (pattern already established by TECH-151)
+**Branch (suggested):** `test/mes-ingestion-handler-it`
+**Dependencies:** TECH-150, pattern from TECH-151.
+
+**Objective:** Same shape as TECH-151, for `MesIngestionHandler` /
+`promediosSipsaMesMadr` (the day-8 monthly window), asserting rows land in
+`sipsa_mayoristas_mensual`.
+
+**Acceptance Criteria:**
+- [ ] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure.
+
+**Completed:** —
+
+---
+
+### TECH-154
+
+**Title:** `AbasIngestionHandlerIT` (WireMock + Testcontainers PostgreSQL)
+**Type:** Test
+**Priority:** Medium
+**Phase:** 6
+**Status:** Pending
+**Complexity:** S (pattern already established by TECH-151)
+**Branch (suggested):** `test/abas-ingestion-handler-it`
+**Dependencies:** TECH-150, pattern from TECH-151.
+
+**Objective:** Same shape as TECH-151, for `AbasIngestionHandler` /
+`promedioAbasSipsaMesMadr` (the day-10 monthly window), asserting rows land in
+`sipsa_abastecimientos_mensual`.
+
+**Acceptance Criteria:**
+- [ ] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure.
+
+**Completed:** —
+
+---
+
+### TECH-155
+
+**Title:** `ParcialIngestionHandlerIT` (WireMock + Testcontainers PostgreSQL)
+**Type:** Test
+**Priority:** High
+**Phase:** 6
+**Status:** Pending
+**Complexity:** M (highest-volume handler, real dedup path)
+**Branch (suggested):** `test/parcial-ingestion-handler-it`
+**Dependencies:** TECH-150, pattern from TECH-151.
+
+**Objective:** Same shape as TECH-151, for `ParcialIngestionHandler` /
+`promediosSipsaParcial`, but through the *real* transport and *real* database — the
+existing `ParcialIngestionHandlerTest` (TECH-011) deliberately uses a real StAX parser
+and real mapper against a Mockito-faked repository and a hand-built `InputStream`, so it
+never exercises `SoapGateway`/`SoapStreamingClient` or a real `key_hash` unique
+constraint. This story does not replace that test — it adds the missing real-transport/
+real-DB coverage, including the concurrent-dedup path
+([TECH-117](#tech-117), `ON CONFLICT (key_hash) DO NOTHING`) against a real Postgres
+unique index instead of a fake.
+
+**Acceptance Criteria:**
+- [ ] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure.
+- [ ] `ParcialIngestionHandlerTest` is untouched — both tests coexist, each covering what
+      the other does not.
+- [ ] At least one case exercises the real `ON CONFLICT (key_hash) DO NOTHING` path
+      (TECH-117) against actual concurrent-looking inserts, not a mock.
+
+**Completed:** —
+
+---
+
+### TECH-156
+
+**Title:** `SoapStreamingClientTest` — retry/backoff/GZIP decompression unit coverage
+**Type:** Test
+**Priority:** Medium
+**Phase:** 3
+**Status:** Pending
+**Complexity:** S
+**Branch (suggested):** `test/soap-streaming-client-retry-gzip`
+**Dependencies:** None.
+
+**Objective:** Carried over from `testing-strategy.md`'s "Recommended" unit-test list
+(never implemented). `SoapStreamingClientMetricsTest` (TECH-032) already proves the
+*metrics* emitted per attempt/retry, using a real local `HttpServer`; this story adds
+the missing behavioral assertions on the same fixture: exponential backoff timing
+between retries, immediate failure (no retry) on 4xx vs retry on 5xx, and GZIP
+decompression when the response carries `Content-Encoding: gzip`.
+
+**Acceptance Criteria:**
+- [ ] 4xx response → no retry, immediate `SipsaExternalException`.
+- [ ] 5xx response → retried up to `maxRetries`, with backoff timing asserted (not just
+      counted).
+- [ ] `Content-Encoding: gzip` response is transparently decompressed before parsing.
+
+**Completed:** —
+
+---
+
+### TECH-157
+
+**Title:** `SipsaReadServiceTest` + `PaginationConfigTest`
+**Type:** Test
+**Priority:** Medium
+**Phase:** 3
+**Status:** Pending
+**Complexity:** S
+**Branch (suggested):** `test/read-service-and-pagination-config`
+**Dependencies:** None.
+
+**Objective:** Carried over from `testing-strategy.md`'s "Recommended" unit-test list
+(never implemented). `SipsaReadServiceTest`: pagination parameters are validated,
+invalid IDs throw `SipsaValidationException`, `SpecificationBuilder` is invoked with the
+correct hardcoded field names per query method. `PaginationConfigTest`: `buildPageable()`
+converts 1-based API pages to 0-based Spring pages; `validatePageable()` enforces the
+max page size.
+
+**Acceptance Criteria:**
+- [ ] Both classes covered per their description above, mocking collaborators (no DB).
+
+**Completed:** —
+
+---
+
+### TECH-158
+
+**Title:** Unit coverage for `GenericIngestionJob` / `IngestionService` dispatch
+**Type:** Test
+**Priority:** Low
+**Phase:** 3
+**Status:** Pending
+**Complexity:** S
+**Branch (suggested):** `test/generic-ingestion-job-dispatch`
+**Dependencies:** None.
+
+**Objective:** `GenericIngestionJob.runIngestion()` (delegates to `IngestionService.execute()`)
+and `IngestionService`'s handler registry (`isValidMethod`, `getAvailableMethodNames`,
+`execute` — including the "no handler found" `SipsaBusinessException` path) currently
+have no dedicated unit test; they are covered only transitively through
+`ScheduledIngestionDispatcherTest` and `ParcialConcurrentIngestionAppTest`, which use a
+real `GenericIngestionJob` incidentally, not to prove this class's own contract. Add a
+small, explicit, mocked-`IngestionHandler` test for both classes.
+
+**Acceptance Criteria:**
+- [ ] `IngestionService.execute` dispatches to the correct handler by method name.
+- [ ] `IngestionService.execute` on an unregistered method name throws
+      `SipsaBusinessException` (currently untested directly).
+- [ ] `GenericIngestionJob.runIngestion` delegates to `IngestionService.execute` with the
+      context's method name, unmodified.
+
+**Completed:** —
+
+---
+
+### TECH-159
+
+**Title:** Introduce JaCoCo (report-only)
+**Type:** Infrastructure (test)
+**Priority:** Medium
+**Phase:** 6
+**Status:** Pending
+**Complexity:** S
+**Branch (suggested):** `test/introduce-jacoco-reporting`
+**Dependencies:** None.
+**Decision reference:** [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
+
+**Objective:** Add the JaCoCo Maven plugin bound to `test` (unit) and, once TECH-150
+lands, `verify` (integration), producing an HTML/XML report. **No `check` goal, no
+build-breaking threshold** — the coverage targets already written in
+`testing-strategy.md` (80/60/95/50%) remain aspirational until there is real data to
+show whether they are realistic, consistent with this repo's stated preference
+(see GitHub issue #7's own guidance: "should not enforce unrealistic thresholds
+initially").
+
+**Acceptance Criteria:**
+- [ ] `./mvnw clean verify` produces a JaCoCo report under `target/site/jacoco/`.
+- [ ] No build fails due to coverage.
+- [ ] `testing-strategy.md`'s Coverage Targets table is updated with the first real
+      measured numbers per layer, replacing the "not measured" note.
+
+**Completed:** —
+
+---
+
+### TECH-160
+
+**Title:** E2E suite — golden path (`Ciudad`) + failure path (SOAP 500)
+**Type:** Test
+**Priority:** High
+**Phase:** 6
+**Status:** Pending
+**Complexity:** M
+**Branch (suggested):** `test/e2e-ciudad-golden-and-failure-path`
+**Dependencies:** TECH-150.
+**Decision reference:** [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
+
+**Objective:** New `src/test/java/.../e2e/` package, `*E2ETest` naming, run via the same
+`integration-tests` Failsafe profile. `@SpringBootTest(webEnvironment = RANDOM_PORT)`,
+real HTTP client, WireMock SOAP, Testcontainers PostgreSQL, reusing the mock-OIDC-issuer
+pattern for the authenticated internal endpoints. Deliberately narrow scope — see
+ADR-011's rationale for why this does not grow into a second copy of the per-handler
+ITs.
+
+**Scope:**
+- Golden path: `POST /api/internal/ingestion/run?method=promediosSipsaCiudad` → `202` →
+  poll `GET /api/internal/ingestion/runs/{id}` until `SUCCEEDED` (Awaitility, per the
+  async-assertion rules already documented in `testing-strategy.md`) → `GET
+  /api/sipsa/ciudad` returns the persisted rows → `GET /api/internal/audit/run/{id}`
+  shows the complete `REQUEST_RECEIVED → ... → INGESTION_SUCCEEDED → METRICS_UPDATED`
+  sequence.
+- Failure path: same trigger, WireMock returns a SOAP 500 → run ends `FAILED`, audit
+  trail intact (no missing/duplicated events), no exception leaks to the HTTP response
+  beyond the existing `202 Accepted` (the failure is async, by design).
+
+**Acceptance Criteria:**
+- [ ] Both cases pass against a full, real Spring context (no mocked application beans
+      beyond the WireMock SOAP endpoint and the mock OIDC issuer).
+- [ ] Test run time is bounded and documented (Testcontainers + WireMock startup cost).
+
+**Completed:** —
+
+---
+
+### TECH-161
+
+**Title:** CI: `integration-verify` job (`./mvnw verify -P integration-tests`)
+**Type:** Infrastructure (CI)
+**Priority:** Medium
+**Phase:** 6
+**Status:** Pending
+**Complexity:** S
+**Branch (suggested):** `ci/integration-verify-job`
+**Dependencies:** TECH-150.
+**Decision reference:** [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
+
+**Objective:** Add a second job to `.github/workflows/ci.yml`, running
+`./mvnw verify -P integration-tests`, in **parallel** with the existing `verify` job
+(not chained after it), reusing the same JDK 25/Maven-cache setup already proven for
+Testcontainers in that workflow (TECH-120).
+
+**Acceptance Criteria:**
+- [ ] New job runs on the same triggers as `verify`.
+- [ ] Confirmed to run in parallel, not sequentially after `verify` (matching the
+      rationale in ADR-011: a slow/flaky Testcontainers pull must never block the fast
+      unit-test signal).
+- [ ] Failure of `integration-verify` blocks merge exactly like `verify` does today (no
+      quieter failure mode introduced).
+
+**Completed:** —

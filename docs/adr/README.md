@@ -29,6 +29,7 @@ the decision taken, and its consequences.
 | [ADR-008](ADR-008-timezone-locale-and-date-semantics.md) | Timezone, Locale, and Date Semantics Strategy | Accepted (scoped — items 1,2,4,5,6 done; item 3 done at response-layer scope, TECH-104 migration deferred; item 7 deferred) | 2026-07-27 |
 | [ADR-009](ADR-009-database-migration-strategy.md) | Database Migration Strategy (Flyway) | **Accepted** | 2026-07-14 |
 | [ADR-010](ADR-010-aws-infrastructure-as-code.md) | AWS Infrastructure-as-Code Tooling and Initial Production Topology | **Accepted** | 2026-07-21 |
+| [ADR-011](ADR-011-integration-and-e2e-testing-strategy.md) | Integration and End-to-End Testing Strategy | **Accepted** | 2026-08-03 |
 
 ## How to create a new ADR
 
