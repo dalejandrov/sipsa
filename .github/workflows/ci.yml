@@ -70,3 +70,57 @@ jobs:
             target/failsafe-reports/
           if-no-files-found: ignore
           retention-days: 7
+
+  integration-verify:
+    name: Integration tests (WireMock + Testcontainers, TECH-150..155/ADR-011)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Deliberately its own job, not a step chained after `verify` above: a slow or
+    # flaky Testcontainers/WireMock startup here must never block the fast unit-test
+    # signal (ADR-011). Runs in parallel with `verify` — no `needs:` between them.
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 25 (Temurin) with Maven dependency cache
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build and run the integration-tests profile (*IT via Failsafe)
+        run: ./mvnw --batch-mode --no-transfer-progress clean verify -P integration-tests
+
+      # Every handler IT is @Testcontainers(disabledWithoutDocker = true), same
+      # self-skip risk FlywayMigrationsTest already guards against in the `verify`
+      # job above — a silent skip here would void the whole per-handler IT suite
+      # without failing the build.
+      - name: Assert all 5 per-handler integration tests ran (not skipped)
+        run: |
+          set -e
+          for handler in Ciudad Semana Mes Abas Parcial; do
+            report="target/failsafe-reports/TEST-com.dalejandrov.sipsa.application.ingestion.handler.${handler}IngestionHandlerIT.xml"
+            if [ ! -f "$report" ]; then
+              echo "::error::${handler}IngestionHandlerIT report not found — it did not run at all."
+              exit 1
+            fi
+            suite=$(head -2 "$report" | tail -1)
+            tests=$(printf '%s' "$suite" | sed -n 's/.*tests="\([0-9]*\)".*/\1/p')
+            skipped=$(printf '%s' "$suite" | sed -n 's/.*skipped="\([0-9]*\)".*/\1/p')
+            echo "${handler}IngestionHandlerIT: tests=${tests:-?} skipped=${skipped:-?}"
+            if [ "${tests:-0}" -eq 0 ] || [ "${skipped:-0}" -ne 0 ]; then
+              echo "::error::${handler}IngestionHandlerIT was skipped (tests=${tests:-0}, skipped=${skipped:-0}). Docker must be available to the runner for WireMock/Testcontainers."
+              exit 1
+            fi
+          done
+
+      - name: Upload test reports (on failure only)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-test-reports
+          path: target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7

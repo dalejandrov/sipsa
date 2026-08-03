@@ -444,13 +444,13 @@ by [TECH-150](../backlog/technical-backlog.md#tech-150).
 
 ## CI Considerations
 
-**Status (2026-08-03):** the `ci.yml` workflow currently has a single job (`verify`,
-running `./mvnw test`-equivalent plus the Testcontainers-backed tests that happen to run
-inline with it). The `integration-tests` Maven profile itself is **done**
-([TECH-150](../backlog/technical-backlog.md#tech-150)) and locally verified
-(`./mvnw verify -P integration-tests` runs and passes `*IT` classes via Failsafe); wiring
-it into `ci.yml` as its own parallel job is not — tracked as
-[TECH-161](../backlog/technical-backlog.md#tech-161).
+**Status (2026-08-03):** **done.** `ci.yml` now has two jobs: `verify` (unit tests,
+unchanged) and `integration-verify` ([TECH-161](../backlog/technical-backlog.md#tech-161),
+the `integration-tests` Maven profile from [TECH-150](../backlog/technical-backlog.md#tech-150)),
+with no `needs:` between them — they run in parallel, exactly per ADR-011's rationale.
+`integration-verify` also asserts, per handler, that its Failsafe report shows real
+executions (`tests > 0`, `skipped = 0`) rather than a silent Docker-unavailable skip,
+mirroring `verify`'s existing Flyway-gate assertion.
 
 - **Unit tests:** run on every commit (`./mvnw test`) — unchanged by this plan.
 - **Integration + E2E tests:** a new dedicated Maven profile (`./mvnw verify -P
