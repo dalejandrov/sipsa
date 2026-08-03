@@ -208,6 +208,23 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- TestRestTemplate moved out of spring-boot-test in Spring Boot 4, into this
+             dedicated module (TECH-160) - not pulled by spring-boot-starter-test.
+             spring-boot-restclient is also required explicitly: this module's own
+             TestRestTemplateTestAutoConfiguration needs RestTemplateBuilder from it
+             (NoClassDefFoundError without it - confirmed by running the E2E test
+             before adding this second dependency). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-resttestclient</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -335,6 +352,25 @@
     <!-- ===================== -->
     <build>
         <plugins>
+            <!-- TECH-160: Surefire's own default include pattern **/*Test.java is a
+                 superset that also matches "*E2ETest.java" (ADR-011's chosen naming for
+                 the E2E suite) - excluded explicitly so the default ./mvnw test run
+                 doesn't try to boot the E2E test's full Spring context (Testcontainers,
+                 WireMock, mock OIDC) outside the integration-tests profile. Confirmed by
+                 running the E2E test before adding this exclusion: Surefire picked it up
+                 and it counted toward the unit-test run. No other Surefire configuration
+                 is changed - argLine (JaCoCo's prepare-agent property) is still read via
+                 its own default, unaffected by adding this one exclude. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*E2ETest.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -451,6 +487,16 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-failsafe-plugin</artifactId>
                         <version>3.5.4</version>
+                        <!-- Failsafe's own defaults (**/*IT.java, **/IT*.java,
+                             **/*ITCase.java) don't match "*E2ETest" (TECH-160,
+                             ADR-011's chosen naming) - added explicitly rather than
+                             renaming the E2E suite to fit Failsafe's convention. -->
+                        <configuration>
+                            <includes>
+                                <include>**/*IT.java</include>
+                                <include>**/*E2ETest.java</include>
+                            </includes>
+                        </configuration>
                         <executions>
                             <execution>
                                 <goals>

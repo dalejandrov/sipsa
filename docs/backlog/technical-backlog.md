@@ -98,7 +98,7 @@ When a story is implemented:
 | TECH-157 | `SipsaReadServiceTest` + `PaginationConfigTest` | Medium | 3 | **Done** (2026-08-03, branch `test/unit-coverage-gaps-tech156-158`) |
 | TECH-158 | Unit coverage for `GenericIngestionJob`/`IngestionService` dispatch (currently covered only transitively) | Low | 3 | **Done** (2026-08-03, branch `test/unit-coverage-gaps-tech156-158`) |
 | TECH-159 | Introduce JaCoCo (report-only, no build-breaking `check` goal yet) | Medium | 3 | **Done** (2026-08-03, branch `test/introduce-jacoco-reporting`) |
-| TECH-160 | E2E suite: golden-path (`Ciudad`) + failure-path (SOAP 500) black-box test via `RANDOM_PORT` + WireMock + Testcontainers + mock OIDC | High | 6 | Pending — depends on TECH-150; [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
+| TECH-160 | E2E suite: golden-path (`Ciudad`) + failure-path (SOAP 500) black-box test via `RANDOM_PORT` + WireMock + Testcontainers + mock OIDC | High | 6 | **Done** (2026-08-03, branch `test/e2e-ciudad-golden-and-failure-path`) |
 | TECH-161 | CI: new `integration-verify` job (`./mvnw verify -P integration-tests`), parallel to `verify` | Medium | 6 | **Done** (2026-08-03, branch `ci/integration-verify-job`) |
 
 ---
@@ -5765,9 +5765,9 @@ report, not merged).
 **Type:** Test
 **Priority:** High
 **Phase:** 6
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** M
-**Branch (suggested):** `test/e2e-ciudad-golden-and-failure-path`
+**Branch:** `test/e2e-ciudad-golden-and-failure-path`
 **Dependencies:** TECH-150.
 **Decision reference:** [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
 
@@ -5778,23 +5778,71 @@ pattern for the authenticated internal endpoints. Deliberately narrow scope — 
 ADR-011's rationale for why this does not grow into a second copy of the per-handler
 ITs.
 
-**Scope:**
-- Golden path: `POST /api/internal/ingestion/run?method=promediosSipsaCiudad` → `202` →
-  poll `GET /api/internal/ingestion/runs/{id}` until `SUCCEEDED` (Awaitility, per the
-  async-assertion rules already documented in `testing-strategy.md`) → `GET
-  /api/sipsa/ciudad` returns the persisted rows → `GET /api/internal/audit/run/{id}`
-  shows the complete `REQUEST_RECEIVED → ... → INGESTION_SUCCEEDED → METRICS_UPDATED`
-  sequence.
-- Failure path: same trigger, WireMock returns a SOAP 500 → run ends `FAILED`, audit
-  trail intact (no missing/duplicated events), no exception leaks to the HTTP response
-  beyond the existing `202 Accepted` (the failure is async, by design).
+**Scope actually implemented, and how it differs from the original plan below (each
+difference verified against real behavior, not assumed):**
+- Golden path: `POST /api/internal/ingestion/run?method=promediosSipsaCiudad&force=true`
+  → `202` → poll **`GET /api/internal/audit/request/{requestId}`** (not `GET
+  /audit/run/{runId}` as originally planned — see below) until `METRICS_UPDATED`
+  appears → asserts the exact 6-event sequence → extracts `runId` from that same
+  response → `GET /api/internal/ingestion/runs/{runId}` confirms `status=SUCCEEDED` and
+  `recordsInserted=2` → `GET /api/sipsa/ciudad` (public, `permitAll`, no token needed)
+  returns the 2 persisted rows.
+- Failure path: same trigger, WireMock returns SOAP `500` → sequence ends
+  `INGESTION_FAILED`, `METRICS_UPDATED` still fires (the `finally` block in
+  `IngestionJob.execute` runs regardless of outcome — confirmed by reading the method,
+  not assumed) → run status `FAILED` → zero rows in `sipsa_ciudad`.
+- **`force=true` is used deliberately**, not planned originally: without it, the trigger
+  would go through the real wall-clock daily-window check (14:20 COT), making the test's
+  pass/fail depend on what time it happens to run — `WindowPolicy`'s own window logic is
+  already exhaustively covered by `WindowPolicyTest`; this suite exists to prove the
+  *wiring*, not re-prove the window.
+- **Polls `/audit/request/{requestId}`, not `/audit/run/{runId}`, and for a different
+  reason than "which endpoint is more convenient":** `REQUEST_RECEIVED`/`REQUEST_ACCEPTED`
+  are logged with `run_id = NULL` (they happen before any run row exists) - `GET
+  /audit/run/{runId}` structurally cannot return them (found by reading
+  `IngestionTriggerService`/`IngestionJob`, confirmed by running the test). Only
+  `/audit/request/{requestId}` returns the complete correlated sequence.
+- **Polls for `METRICS_UPDATED`, not `INGESTION_SUCCEEDED`/`INGESTION_FAILED`:** each
+  `IngestionAuditService.logEvent` call is itself `@Async` - by the time the terminal
+  outcome event is visible, the very next (and last) event may not have committed yet.
+  Same race `testing-strategy.md` already documents from a prior incident
+  (`ParcialConcurrentIngestionAppTest`, 2026-07-19); avoided the same way here.
+- **`@BeforeEach` deletes (not resets) the `ingestion_runs` row for this method**, in
+  FK-safe order (`ingestion_audit`/`ingestion_rejects` reference `run_id` with no
+  `ON DELETE CASCADE`) - found while implementing: `IngestionControlService.createRun`
+  *reuses and restarts* an existing row for the same `(method_name, window_key)` rather
+  than inserting a new one (its own documented "restart" behavior), which would have
+  made each test's audit history accumulate across runs of the class instead of starting
+  clean.
+- **Two real Spring Boot 4 module-split issues found and fixed** (neither is an app bug,
+  both are new test-only dependencies): `TestRestTemplate` moved packages, from
+  `org.springframework.boot.test.web.client` to `org.springframework.boot.resttestclient`
+  (new dependency, `spring-boot-resttestclient`); that module's own
+  `TestRestTemplateTestAutoConfiguration` additionally needs `RestTemplateBuilder` from
+  `spring-boot-restclient` (`NoClassDefFoundError` without it - confirmed by running the
+  test before adding the second dependency, not assumed upfront).
+- **Surefire's own default `**/*Test.java` include pattern also matches
+  `*E2ETest.java`** (it ends in "Test.java") - confirmed by running `./mvnw test` before
+  adding an explicit exclude and seeing the E2E test's full Spring context try to boot
+  in the plain unit run. Fixed with one `<excludes>` entry on `maven-surefire-plugin`;
+  no other Surefire behavior (including JaCoCo's `argLine` property pickup) is affected.
+- Failsafe's own default includes (`**/*IT.java`, `**/IT*.java`, `**/*ITCase.java`) don't
+  match `*E2ETest` either - added `**/*E2ETest.java` explicitly to
+  `maven-failsafe-plugin`'s `<includes>` rather than renaming the suite to fit
+  Failsafe's convention (ADR-011 already chose the `*E2ETest` name).
+- CI's `integration-verify` job (TECH-161) is updated in this same story to also assert
+  the E2E report ran and wasn't skipped, alongside the 5 handler ITs it already checked.
 
 **Acceptance Criteria:**
-- [ ] Both cases pass against a full, real Spring context (no mocked application beans
+- [x] Both cases pass against a full, real Spring context (no mocked application beans
       beyond the WireMock SOAP endpoint and the mock OIDC issuer).
-- [ ] Test run time is bounded and documented (Testcontainers + WireMock startup cost).
+- [x] Test run time is bounded and documented: ~8s total for both cases locally
+      (`target/failsafe-reports`), well inside Failsafe's shared 20-minute CI timeout
+      alongside the 5 handler ITs.
 
-**Completed:** —
+**Completed:** 2026-08-03, branch `test/e2e-ciudad-golden-and-failure-path`.
+`./mvnw clean verify -P integration-tests`: 506 unit tests green (0 regressions), all
+17 integration tests green (15 per-handler + 2 E2E).
 
 ---
 
