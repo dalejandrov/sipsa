@@ -81,9 +81,7 @@ When a story is implemented:
 | TECH-118 | Align `SipsaParcial` decimal precision (JPA 15,2 vs DDL 19,2) | Low | — | **Done** (2026-07-19, branch `fix/align-sipsa-parcial-decimal-precision` — annotation aligned to `19,2`, no migration) |
 | TECH-119 | Remove redundant `idx_sipsa_parcial_key_hash` index | Low | — | **Done** (2026-07-16, branch `fix/remove-redundant-parcial-key-hash-index`, migration V3) |
 | TECH-122 | Harden `SipsaParcial` natural-key constraints (NOT NULL / natural unique) | Low | — | Pending (contract phase; gated on TECH-012 external half) |
-| TECH-123 | Add `first_seen_at`/`last_seen_at` republication traceability | Low | — | Optional — not recommended now (write cost; see story) |
 | TECH-124 | Optimize `SipsaParcial` article-filter queries | Low | — | **Done** (2026-07-18, branch `perf/sipsa-parcial-article-filter-index`, migration V4 — covering index; count 18 ms → ~2 ms) |
-| TECH-125 | Define `SipsaParcial`/ingestion data retention policy | Low | — | Pending decision |
 | TECH-133 | Centralize and validate monthly ingestion window configuration | Low | — | **Done** (2026-07-17 — typed `monthlyWindowStart`, divergent `06:00` fallback removed, effective 14:00 unchanged) |
 | TECH-134 | Align remaining SIPSA decimal annotations with the DDL (`Ciudad`, `Semanal`) | Low | — | **Done** (2026-07-19, branch `fix/align-remaining-sipsa-decimal-precision` — all SIPSA price models now declare `19,2`, no migration) |
 | TECH-135 | Centralize ingestion rejection-threshold configuration (C-04) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-ingestion-rejection-thresholds` — thresholds bind once in `IngestionProperties`, effective 0.01/5000 unchanged) |
@@ -5146,22 +5144,6 @@ expand–migrate–contract with `NOT VALID` + `VALIDATE CONSTRAINT` where appli
 
 ---
 
-### TECH-123
-
-**Title:** Add `first_seen_at`/`last_seen_at` republication traceability to `SipsaParcial`
-**Type:** Observabilidad
-**Priority:** Low
-**Status:** Optional — **not recommended now.** Skip-first currently performs zero writes
-for re-published rows; maintaining `last_seen_at` would turn every full DANE republication
-into ~676K UPDATEs per daily run (the exact write amplification TECH-011 just removed).
-The republication signal already exists cheaply at run granularity: `ingestion_runs` +
-the `skipped` metric in logs. Activate only if per-row republication evidence becomes a
-real requirement; consider then whether it belongs in a side table instead.
-
-**Completed:** —
-
----
-
 ### TECH-124
 
 **Title:** Optimize `SipsaParcial` article-filter queries
@@ -5196,22 +5178,6 @@ Evidence, plans and re-evaluation thresholds:
 **Completed:** 2026-07-18. V4 tested from clean base (`FlywayMigrationsTest` V1→V4) and
 as an upgrade with data (`ParcialArticleQueryIndexMigrationTest`, 60K rows; live upgrade
 on the real 677K-row local base in 197 ms). No API contract change (TECH-113 untouched).
-
----
-
-### TECH-125
-
-**Title:** Define retention policy for `SipsaParcial` and ingestion metadata
-**Type:** Datos
-**Priority:** Low
-**Status:** Pending decision
-**Scope:** distinguish functional retention (`sipsa_parcial` — fully reconstructible from
-DANE, which republishes its complete history on every call), audit retention
-(`ingestion_audit`, `ingestion_rejects`), and operational retention (`ingestion_runs`,
-logs). No automatic deletion is implemented or proposed until the team defines
-requirements; growth is currently bounded by deduplication (~340 rows/day net).
-
-**Completed:** —
 
 ---
 
