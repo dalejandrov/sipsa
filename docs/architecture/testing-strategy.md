@@ -11,7 +11,7 @@
 |---|---|
 | Test files (Surefire, unit) | 69 (as of 2026-08-03; grown from the 10 recorded on 2026-07-13 — see the full list under `src/test/java/`) |
 | Test methods (Surefire, unit) | 500 `@Test` methods (`./mvnw clean test`: 506 executions per the XML reports — a few methods are parameterized into multiple cases; 0 failures, 0 skips) |
-| Business logic coverage | Every unit-test target listed as **Done** in "Unit Tests — Mandatory" below, plus the ADR-002 security chain, the ADR-009 Flyway migration gate, and package-boundary ArchUnit rules (TECH-093). No JaCoCo configured yet — line-coverage % still not measured (tracked as [TECH-159](../backlog/technical-backlog.md#tech-159)) |
+| Business logic coverage | Every unit-test target listed as **Done** in "Unit Tests — Mandatory" below, plus the ADR-002 security chain, the ADR-009 Flyway migration gate, and package-boundary ArchUnit rules (TECH-093). JaCoCo report-only, measured for the first time ([TECH-159](../backlog/technical-backlog.md#tech-159)) — see [Coverage Targets](#coverage-targets) for real numbers |
 | Database dependency for tests | H2 in-memory for context/unit tests; several tests (`FlywayMigrationsTest`, `SpecificationBuilderPostgresTest`, and others) provision real PostgreSQL 18 via Testcontainers (self-skip without Docker locally; CI fails if they skip — TECH-120) |
 | Integration-test scaffolding (Failsafe profile, WireMock support, fixture convention) | **Done** ([TECH-150](../backlog/technical-backlog.md#tech-150), 2026-08-03) |
 | Integration tests (handler-level, real SOAP transport + real DB) | **5 of 5 — complete.** `CiudadIngestionHandlerIT` ([TECH-151](../backlog/technical-backlog.md#tech-151)), `SemanaIngestionHandlerIT` ([TECH-152](../backlog/technical-backlog.md#tech-152)), `MesIngestionHandlerIT` ([TECH-153](../backlog/technical-backlog.md#tech-153)), `AbasIngestionHandlerIT` ([TECH-154](../backlog/technical-backlog.md#tech-154)), and `ParcialIngestionHandlerIT` ([TECH-155](../backlog/technical-backlog.md#tech-155), also exercises the real `ON CONFLICT (key_hash) DO NOTHING` path, TECH-117), all 2026-08-03 — golden path, idempotency, and SOAP-fault cases, through the real `SoapGatewayImpl`/`SoapStreamingClient` and a real Testcontainers PostgreSQL, 15 test cases total. `ParcialIngestionHandlerTest` is kept as-is (mocked-repo/no-real-transport path, a different and still-valid concern — see ADR-011) |
@@ -410,19 +410,28 @@ is actually adopted.
 
 ## Coverage Targets
 
-| Layer | Minimum coverage | Tool |
-|---|---|---|
-| Domain logic (`WindowPolicy`, `IngestionJob`) | 80% line coverage | JaCoCo |
-| Application services | 60% line coverage | JaCoCo |
-| Exception handler | 95% line coverage (all handlers tested) | JaCoCo |
-| Infrastructure (parsers, mappers) | 50% line coverage | JaCoCo |
-| Controllers | Tested via `@WebMvcTest` | — |
+| Layer | Minimum coverage | Tool | Measured (2026-08-03) — unit / integration |
+|---|---|---|---|
+| Domain logic (`WindowPolicy`, `IngestionJob`) | 80% line coverage | JaCoCo | `WindowPolicy` 100.0% (50/50), `IngestionJob` 96.7% (87/90) — **target met** |
+| Application services (`application.service` package) | 60% line coverage | JaCoCo | 58.7% (185/315) — **just below target** |
+| Exception handler (`GlobalExceptionHandler`) | 95% line coverage | JaCoCo | 100.0% (68/68) — **target met** |
+| Infrastructure (parsers: `infrastructure.soap.parser`) | 50% line coverage | JaCoCo | 33.7% unit-only (66/196) / **71.4%** including integration tests (140/196) — target met once ITs are counted |
+| Infrastructure (mappers: `infrastructure.soap.mapper`) | 50% line coverage | JaCoCo | 38.4% unit-only (43/112) / **91.1%** including integration tests (102/112) — target comfortably met once ITs are counted |
+| Controllers (`api.controller` package) | Tested via `@WebMvcTest` | — | 64.3% (90/140) |
+| *(memo)* `application.ingestion.handler` package | — | JaCoCo | 76.3% (212/278) including integration tests — the 5 per-handler ITs (TECH-151..155) driving it |
+| Whole project | — | JaCoCo | 54.8% unit-only (1523/2777 lines); the integration run alone additionally covers 38.3% (1063/2777) — no merge goal is configured (report-only, two separate reports), so this is not a combined "either" total |
 
-**Status (2026-08-03):** still not measured — no JaCoCo configuration exists in
-`pom.xml`. [TECH-159](../backlog/technical-backlog.md#tech-159) adds JaCoCo **report-only**
-first (no build-breaking `check` goal), so these targets can be validated against real
-numbers before anything is enforced. The `check` goal (build fails below threshold) is
-deliberately deferred until then.
+**Status (2026-08-03):** measured for the first time
+([TECH-159](../backlog/technical-backlog.md#tech-159) — JaCoCo, **report-only**, no
+build-breaking `check` goal). Two separate reports, matching the two Failsafe/Surefire
+runs: `target/site/jacoco/` (unit, from `./mvnw test`) and `target/site/jacoco-it/`
+(integration, from `./mvnw verify -P integration-tests`) — no `report-aggregate`/merge
+goal, deliberately, to keep the story simple. The parser/mapper numbers above are the
+clearest real evidence for *why* TECH-151..155 mattered: unit tests alone leave those
+packages under target, and the per-handler integration tests are what actually closes
+the gap. The `check` goal (build fails below threshold) remains deferred — application
+services sit just under 60% and would need a real look at what's actually uncovered
+before treating any number here as a hard gate.
 
 ---
 

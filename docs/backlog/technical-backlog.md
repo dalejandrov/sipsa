@@ -97,7 +97,7 @@ When a story is implemented:
 | TECH-156 | `SoapStreamingClientTest`: retry/backoff/GZIP decompression unit coverage | Medium | 3 | **Done** (2026-08-03, branch `test/unit-coverage-gaps-tech156-158`) |
 | TECH-157 | `SipsaReadServiceTest` + `PaginationConfigTest` | Medium | 3 | **Done** (2026-08-03, branch `test/unit-coverage-gaps-tech156-158`) |
 | TECH-158 | Unit coverage for `GenericIngestionJob`/`IngestionService` dispatch (currently covered only transitively) | Low | 3 | **Done** (2026-08-03, branch `test/unit-coverage-gaps-tech156-158`) |
-| TECH-159 | Introduce JaCoCo (report-only, no build-breaking `check` goal yet) | Medium | 3 | Pending — [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
+| TECH-159 | Introduce JaCoCo (report-only, no build-breaking `check` goal yet) | Medium | 3 | **Done** (2026-08-03, branch `test/introduce-jacoco-reporting`) |
 | TECH-160 | E2E suite: golden-path (`Ciudad`) + failure-path (SOAP 500) black-box test via `RANDOM_PORT` + WireMock + Testcontainers + mock OIDC | High | 6 | Pending — depends on TECH-150; [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md) |
 | TECH-161 | CI: new `integration-verify` job (`./mvnw verify -P integration-tests`), parallel to `verify` | Medium | 6 | **Done** (2026-08-03, branch `ci/integration-verify-job`) |
 
@@ -5708,9 +5708,9 @@ integration tests still green.
 **Type:** Infrastructure (test)
 **Priority:** Medium
 **Phase:** 6
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** S
-**Branch (suggested):** `test/introduce-jacoco-reporting`
+**Branch:** `test/introduce-jacoco-reporting`
 **Dependencies:** None.
 **Decision reference:** [ADR-011](../adr/ADR-011-integration-and-e2e-testing-strategy.md)
 
@@ -5722,11 +5722,38 @@ show whether they are realistic, consistent with this repo's stated preference
 (see GitHub issue #7's own guidance: "should not enforce unrealistic thresholds
 initially").
 
+**Version note (found while implementing):** the search that suggested "JaCoCo 0.8.16"
+as latest was wrong for what's actually published — Maven Central's real
+`maven-metadata.xml` for `org.jacoco:jacoco-maven-plugin` tops out at **0.8.15**;
+`0.8.16` doesn't resolve (`PluginResolutionException`). Used 0.8.15, confirmed working
+against Java 25 bytecode with zero errors (0.8.13 added Java 25 class-file support).
+
+**Implemented:** two `jacoco-maven-plugin` executions in the default build
+(`prepare-agent` + `report` bound to the `test` phase) and two more inside the
+`integration-tests` profile (`prepare-agent-integration` + `report-integration` bound to
+`verify`) — separate exec files and separate reports
+(`target/site/jacoco/`, `target/site/jacoco-it/`), no merge/aggregate goal, keeping the
+report-only story simple. `prepare-agent`'s default `argLine` property is picked up by
+Surefire/Failsafe automatically — this `pom.xml` has no explicit `<argLine>` in either
+plugin's own configuration to conflict with it.
+
+**Real numbers measured** (`./mvnw clean test` then `./mvnw verify -P integration-tests`,
+both against the state after TECH-151..158) — see `testing-strategy.md`'s Coverage
+Targets table for the full breakdown: `WindowPolicy` 100%, `IngestionJob` 96.7%,
+`GlobalExceptionHandler` 100% (all already above target); `application.service` 58.7%
+(just under the 60% target); the SOAP parser/mapper packages are the clearest evidence
+of *why* TECH-151..155 mattered — 33.7%/38.4% from unit tests alone, jumping to
+71.4%/91.1% once the per-handler integration tests are counted (in their own separate
+report, not merged).
+
 **Acceptance Criteria:**
-- [ ] `./mvnw clean verify` produces a JaCoCo report under `target/site/jacoco/`.
-- [ ] No build fails due to coverage.
-- [ ] `testing-strategy.md`'s Coverage Targets table is updated with the first real
+- [x] `./mvnw clean verify` produces a JaCoCo report under `target/site/jacoco/` (and,
+      under `-P integration-tests`, `target/site/jacoco-it/`).
+- [x] No build fails due to coverage.
+- [x] `testing-strategy.md`'s Coverage Targets table is updated with the first real
       measured numbers per layer, replacing the "not measured" note.
+
+**Completed:** 2026-08-03, branch `test/introduce-jacoco-reporting`.
 
 **Completed:** —
 
