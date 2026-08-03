@@ -39,6 +39,10 @@
 
         <!-- ArchUnit version (TECH-093) -->
         <archunit.version>1.4.2</archunit.version>
+
+        <!-- JaCoCo version (TECH-159) — 0.8.15 is the latest release on Maven Central
+             at the time of writing (0.8.13 added Java 25 class-file support). -->
+        <jacoco.version>0.8.15</jacoco.version>
     </properties>
 
     <!-- ======================================= -->
@@ -404,6 +408,32 @@
                 </executions>
             </plugin>
 
+            <!-- TECH-159: report-only, no build-breaking <check> goal - see ADR-011 and
+                 the story for why enforcement is deliberately deferred until real
+                 coverage numbers exist. prepare-agent sets the "argLine" property that
+                 Surefire's own argLine parameter reads by convention (no explicit
+                 surefire configuration exists in this pom to conflict with it). -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
         </plugins>
     </build>
 
@@ -426,6 +456,31 @@
                                 <goals>
                                     <goal>integration-test</goal>
                                     <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!-- TECH-159: same report-only intent as the unit-test executions
+                         above, for the *IT suite - separate exec file/report (no
+                         merge goal; keeping unit and integration coverage as two
+                         distinct reports is simpler and sufficient for report-only). -->
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <version>${jacoco.version}</version>
+                        <executions>
+                            <execution>
+                                <id>jacoco-prepare-agent-integration</id>
+                                <goals>
+                                    <goal>prepare-agent-integration</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <id>jacoco-report-integration</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>report-integration</goal>
                                 </goals>
                             </execution>
                         </executions>
