@@ -14,7 +14,7 @@
 | Business logic coverage | Every unit-test target listed as **Done** in "Unit Tests — Mandatory" below, plus the ADR-002 security chain, the ADR-009 Flyway migration gate, and package-boundary ArchUnit rules (TECH-093). No JaCoCo configured yet — line-coverage % still not measured (tracked as [TECH-159](../backlog/technical-backlog.md#tech-159)) |
 | Database dependency for tests | H2 in-memory for context/unit tests; several tests (`FlywayMigrationsTest`, `SpecificationBuilderPostgresTest`, and others) provision real PostgreSQL 18 via Testcontainers (self-skip without Docker locally; CI fails if they skip — TECH-120) |
 | Integration-test scaffolding (Failsafe profile, WireMock support, fixture convention) | **Done** ([TECH-150](../backlog/technical-backlog.md#tech-150), 2026-08-03) |
-| Integration tests (handler-level, real SOAP transport + real DB) | **4 of 5.** `CiudadIngestionHandlerIT` ([TECH-151](../backlog/technical-backlog.md#tech-151)), `SemanaIngestionHandlerIT` ([TECH-152](../backlog/technical-backlog.md#tech-152)), `MesIngestionHandlerIT` ([TECH-153](../backlog/technical-backlog.md#tech-153)), and `AbasIngestionHandlerIT` ([TECH-154](../backlog/technical-backlog.md#tech-154), same dual-upsert-path shape as TECH-152/153), all 2026-08-03 — golden path, idempotency, and SOAP-fault cases, through the real `SoapGatewayImpl`/`SoapStreamingClient` and a real Testcontainers PostgreSQL. Only `Parcial` remains, tracked as [TECH-155](../backlog/technical-backlog.md#tech-155); `ParcialIngestionHandlerTest` still only covers the mocked-repo/no-real-transport path (kept as-is, see ADR-011) |
+| Integration tests (handler-level, real SOAP transport + real DB) | **5 of 5 — complete.** `CiudadIngestionHandlerIT` ([TECH-151](../backlog/technical-backlog.md#tech-151)), `SemanaIngestionHandlerIT` ([TECH-152](../backlog/technical-backlog.md#tech-152)), `MesIngestionHandlerIT` ([TECH-153](../backlog/technical-backlog.md#tech-153)), `AbasIngestionHandlerIT` ([TECH-154](../backlog/technical-backlog.md#tech-154)), and `ParcialIngestionHandlerIT` ([TECH-155](../backlog/technical-backlog.md#tech-155), also exercises the real `ON CONFLICT (key_hash) DO NOTHING` path, TECH-117), all 2026-08-03 — golden path, idempotency, and SOAP-fault cases, through the real `SoapGatewayImpl`/`SoapStreamingClient` and a real Testcontainers PostgreSQL, 15 test cases total. `ParcialIngestionHandlerTest` is kept as-is (mocked-repo/no-real-transport path, a different and still-valid concern — see ADR-011) |
 | E2E tests | **None yet.** Previously "not planned"; reversed by ADR-011 (narrow scope). Tracked as [TECH-160](../backlog/technical-backlog.md#tech-160) |
 | Intentional skips | 0 |
 
@@ -332,10 +332,10 @@ reasoning.
 **Scope, one class per handler** (tracked as
 [TECH-151 through TECH-155](../backlog/technical-backlog.md#tech-151)):
 
-- `CiudadIngestionHandlerIT` (TECH-151), `SemanaIngestionHandlerIT` (TECH-152),
-  `MesIngestionHandlerIT` (TECH-153), and `AbasIngestionHandlerIT` (TECH-154) —
-  **done**, all 2026-08-03. `ParcialIngestionHandlerIT` — pending (TECH-155), same
-  pattern.
+- All 5 — `CiudadIngestionHandlerIT` (TECH-151), `SemanaIngestionHandlerIT` (TECH-152),
+  `MesIngestionHandlerIT` (TECH-153), `AbasIngestionHandlerIT` (TECH-154), and
+  `ParcialIngestionHandlerIT` (TECH-155) — **done**, all 2026-08-03. The per-handler IT
+  suite (TECH-151..155) is complete.
 - Each: runs the full handler flow with WireMock serving a real SOAP XML fixture,
   through the real `SoapGateway`/`SoapStreamingClient`, against a real PostgreSQL 18
   Testcontainer. Validates records are inserted, `IngestionContext` metrics match the

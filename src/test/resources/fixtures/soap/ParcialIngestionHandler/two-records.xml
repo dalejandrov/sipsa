@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TECH-155/ADR-011 example fixture: a realistically-shaped promediosSipsaParcial SOAP
+  1.2 response with 2 records - distinct business keys (muniId, fuenId, futiId,
+  idArtiSemana, enmaFecha), matching the field set and enmaFecha format (strict
+  ISO-8601 instant, "Z" offset - ParcialIngestionHandler.parseDate uses Instant.parse
+  with no lenient fallback) already established in ParcialIngestionHandlerTest (TECH-011).
+  See CiudadIngestionHandler's fixture for why only "return" and its children matter to
+  AbstractStaxParser.
+-->
+<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
+    <soap12:Body>
+        <promediosSipsaParcialResponse xmlns="http://servicios.sipsa.co.gov.dane/">
+            <promediosSipsaParcialResult>
+                <return>
+                    <muniId>05001</muniId>
+                    <muniNombre>MEDELLIN</muniNombre>
+                    <deptNombre>ANTIOQUIA</deptNombre>
+                    <fuenId>10</fuenId>
+                    <fuenNombre>CENTRAL MAYORISTA DE ANTIOQUIA</fuenNombre>
+                    <futiId>2</futiId>
+                    <artiNombre>AGUACATE HASS</artiNombre>
+                    <grupNombre>FRUTAS</grupNombre>
+                    <idArtiSemana>101</idArtiSemana>
+                    <enmaFecha>2026-08-01T05:00:00Z</enmaFecha>
+                    <promedioKg>3200.00</promedioKg>
+                    <maximoKg>3800.00</maximoKg>
+                    <minimoKg>2600.00</minimoKg>
+                </return>
+                <return>
+                    <muniId>05002</muniId>
+                    <muniNombre>ENVIGADO</muniNombre>
+                    <deptNombre>ANTIOQUIA</deptNombre>
+                    <fuenId>10</fuenId>
+                    <fuenNombre>CENTRAL MAYORISTA DE ANTIOQUIA</fuenNombre>
+                    <futiId>2</futiId>
+                    <artiNombre>LIMON TAHITI</artiNombre>
+                    <grupNombre>FRUTAS</grupNombre>
+                    <idArtiSemana>102</idArtiSemana>
+                    <enmaFecha>2026-08-01T05:00:00Z</enmaFecha>
+                    <promedioKg>1450.00</promedioKg>
+                    <maximoKg>1700.00</maximoKg>
+                    <minimoKg>1200.00</minimoKg>
+                </return>
+            </promediosSipsaParcialResult>
+        </promediosSipsaParcialResponse>
+    </soap12:Body>
+</soap12:Envelope>
