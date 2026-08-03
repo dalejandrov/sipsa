@@ -92,7 +92,7 @@ When a story is implemented:
 | TECH-151 | `CiudadIngestionHandlerIT` (WireMock + Testcontainers PG) | High | 6 | **Done** (2026-08-03, branch `test/ciudad-ingestion-handler-it`) |
 | TECH-152 | `SemanaIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | **Done** (2026-08-03, branch `test/semana-ingestion-handler-it`) |
 | TECH-153 | `MesIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | **Done** (2026-08-03, branch `test/mes-ingestion-handler-it`) |
-| TECH-154 | `AbasIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
+| TECH-154 | `AbasIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | **Done** (2026-08-03, branch `test/abas-ingestion-handler-it`) |
 | TECH-155 | `ParcialIngestionHandlerIT` (WireMock + Testcontainers PG); existing `ParcialIngestionHandlerTest` kept as-is | High | 6 | Pending — depends on TECH-150 |
 | TECH-156 | `SoapStreamingClientTest`: retry/backoff/GZIP decompression unit coverage | Medium | 3 | Pending — carried over from `testing-strategy.md` "Recommended" |
 | TECH-157 | `SipsaReadServiceTest` + `PaginationConfigTest` | Medium | 3 | Pending — carried over from `testing-strategy.md` "Recommended" |
@@ -5497,19 +5497,30 @@ new integration tests green.
 **Type:** Test
 **Priority:** Medium
 **Phase:** 6
-**Status:** Pending
-**Complexity:** S (pattern already established by TECH-151)
-**Branch (suggested):** `test/abas-ingestion-handler-it`
-**Dependencies:** TECH-150, pattern from TECH-151.
+**Status:** **Done**
+**Complexity:** S (pattern already established by TECH-152/153)
+**Branch:** `test/abas-ingestion-handler-it`
+**Dependencies:** TECH-150, pattern from TECH-151/152/153.
 
 **Objective:** Same shape as TECH-151, for `AbasIngestionHandler` /
 `promedioAbasSipsaMesMadr` (the day-10 monthly window), asserting rows land in
 `sipsa_abastecimientos_mensual`.
 
-**Acceptance Criteria:**
-- [ ] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure.
+**Same dual-path shape as TECH-152/153:** `ux_abas_tmp`/`ux_abas_fallback` unique
+constraints, `tmp_abas_mes_id` vs. `(arti_id, fuen_id, fecha_mes_ini)`. Fixture
+(`fixtures/soap/AbasIngestionHandler/four-records.xml`) has 2 records of each shape.
+One real detail worth noting: `AbasStaxParser` reads the same `<fechaMesIni>` XML tag
+`MesStaxParser` uses (`XmlFieldNames.FECHA_MES_INI`), just into a differently-named
+record field (`fechaMes`) - confirmed by reading `AbasStaxParser.HANDLERS` before writing
+the fixture, not assumed.
 
-**Completed:** —
+**Acceptance Criteria:**
+- [x] Golden-path, idempotency, and SOAP-fault cases, matching TECH-151's structure —
+      golden-path and idempotency additionally assert both upsert paths independently.
+
+**Completed:** 2026-08-03, branch `test/abas-ingestion-handler-it`.
+`./mvnw clean verify -P integration-tests`: 465 unit tests green (0 regressions), 3/3
+new integration tests green.
 
 ---
 
