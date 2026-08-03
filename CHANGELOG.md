@@ -387,16 +387,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the relocated classes, no `ClassNotFoundException`, no JAXB context errors,
   `/actuator/health` unaffected. No Flyway migration; V1–V4 unchanged.
 
-- **`spring.flyway.baseline-on-migrate` disabled** (TECH-116), closing the follow-up
-  ADR-009 rule 6 left open. Inventory across every environment this app has run in
-  (local docker-compose, CI Testcontainers; AWS RDS is not yet provisioned) confirms none
-  ever had a schema created outside Flyway — verified empirically against a fresh
-  PostgreSQL 18 container: `flyway_schema_history` shows exactly one row (`type=SQL`,
-  `V1`) and zero `BASELINE` rows. `baseline-version` removed (inert once
-  `baseline-on-migrate` is `false`). No behavior change for any environment that has
-  actually run this app; a future non-empty, no-history schema now fails startup instead
-  of being silently adopted as "already migrated."
-
 ### Testing
 
 - **TECH-093 — added ArchUnit rules to prevent regression on the three package boundaries
@@ -1430,3 +1420,93 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   evaluated and still deferred — no `Accept-Language`/`MessageSource` infrastructure
   exists anywhere in the codebase, no client requirement ever documented. ADR-008 moved
   from `Proposed` to `Accepted, scoped`.
+
+### Testing
+
+- **Resolved TECH-044 (integration-test tooling SPIKE) via ADR-011**: combined WireMock
+  (SOAP) + Testcontainers (PostgreSQL), one integration test per ingestion handler, plus
+  a narrow E2E suite — reversing this project's earlier "E2E not planned" call now that
+  the app is approaching production (TECH-132/143). Broke the follow-up into TECH-150
+  through TECH-161. **Real finding along the way:** WireMock had been declared in
+  `pom.xml` since the first commit but never actually worked (`FatalStartupException` —
+  no bundled HTTP server in WireMock 3.x's core artifact). Fixed with the missing
+  `wiremock-jetty12` extension, an exclusion for a legacy-Jetty-module conflict in the
+  core `wiremock` artifact, and a Jetty 12.0.30/12.1.10 version pin (Spring Boot's own
+  managed Jetty version disagreed with `wiremock-jetty12`'s). WireMock now genuinely
+  starts and serves on this classpath (TECH-150).
+
+- **Added the `integration-tests` Maven profile** (`maven-failsafe-plugin`, `*IT.java`/
+  `*E2ETest.java` naming, kept out of the default `./mvnw test` run — requires Docker,
+  same self-skip risk as `FlywayMigrationsTest`), a shared `SoapWireMockSupport` helper,
+  and the `fixtures/soap/<HandlerName>/` fixture convention (TECH-150).
+
+- **Added all 5 per-handler integration tests** (`CiudadIngestionHandlerIT`,
+  `SemanaIngestionHandlerIT`, `MesIngestionHandlerIT`, `AbasIngestionHandlerIT`,
+  `ParcialIngestionHandlerIT` — TECH-151..155): each runs the real Spring-managed handler
+  bean against a WireMock-served SOAP fixture and a real Testcontainers PostgreSQL 18
+  instance — golden path (exact field-value assertions), idempotency (second run inserts
+  zero), and a SOAP-fault case, none of which the existing mocked-repository unit tests
+  exercise. `Semana`/`Mes`/`Abas` additionally exercise their real dual upsert paths
+  (`upsertTmpBatch` vs. `upsertFallbackBatch`, TECH-060's `ON CONFLICT ... DO NOTHING`);
+  `Parcial` additionally exercises the real `key_hash` unique constraint (TECH-117). The
+  existing `ParcialIngestionHandlerTest` (TECH-011, mocked repository) is untouched —
+  both coexist, covering different concerns. 15 test cases total.
+
+- **Closed the remaining unit-test gaps from `testing-strategy.md`** (TECH-156, 157,
+  158): `SoapStreamingClientBehaviorTest` (4 cases — 4xx no-retry, 5xx retry with real
+  exponential-backoff *timing* asserted, 5xx-then-success recovery, GZIP
+  decompression); `SipsaReadServiceTest` (12 cases) + `PaginationConfigTest` (14 cases,
+  including a documented-not-fixed finding that `validatePageable`'s negative-page branch
+  is unreachable through any current caller); `IngestionServiceTest` (9 cases) +
+  `GenericIngestionJobTest` (2 cases) for the handler-registry/dispatch contract,
+  previously covered only transitively through other tests' incidental use of these
+  classes. 41 new tests, 0 regressions (465 → 506 unit tests).
+
+- **Added JaCoCo, report-only** (TECH-159): `target/site/jacoco/` (unit) and
+  `target/site/jacoco-it/` (integration), no merge goal, no build-breaking `check` goal.
+  Real numbers measured for the first time — see `testing-strategy.md`'s Coverage
+  Targets table. The clearest evidence for why TECH-151..155 mattered: the SOAP
+  parser/mapper packages jump from 33.7%/38.4% line coverage (unit tests alone) to
+  71.4%/91.1% once the per-handler integration tests are counted (in their own separate
+  report).
+
+- **Added the E2E suite** (TECH-160): `CiudadIngestionE2ETest`, golden path + failure
+  path, over real HTTP (`@SpringBootTest(webEnvironment = RANDOM_PORT)`). Drives
+  `POST /api/internal/ingestion/run` → `202` → polls
+  `GET /api/internal/audit/request/{requestId}` until `METRICS_UPDATED` → asserts the
+  exact 6-event audit sequence → `GET /api/internal/ingestion/runs/{runId}` confirms
+  status → `GET /api/sipsa/ciudad` confirms persisted rows (or their absence, failure
+  path). WireMock SOAP, Testcontainers PostgreSQL, and a locally-signed mock OIDC issuer
+  (same pattern as `CognitoJwtDecoderContractTest`) for the scoped bearer token
+  `/api/internal/**` requires. `force=true` on the trigger, deliberately, so the test
+  doesn't depend on the real wall-clock daily ingestion window. Two Spring Boot 4
+  module-split dependencies added for this (`TestRestTemplate` moved to
+  `spring-boot-resttestclient`, which itself needs `spring-boot-restclient` for
+  `RestTemplateBuilder`); one Surefire exclude added (its default `**/*Test.java`
+  pattern also matches `*E2ETest.java`).
+
+### Changed
+
+- **CI (`ci.yml`) gained a second job, `integration-verify`** (TECH-161), running
+  `./mvnw verify -P integration-tests`, in parallel with the existing `verify` job (no
+  `needs:` between them — a slow/flaky Testcontainers/WireMock startup must never block
+  the fast unit-test signal, ADR-011). Asserts every one of the 5 per-handler ITs plus
+  the E2E suite actually ran (not silently skipped for missing Docker), mirroring
+  `verify`'s existing Flyway-gate check. Verified on real GitHub Actions runs, not just
+  locally: both jobs green in parallel.
+
+- **`spring.flyway.baseline-on-migrate` disabled** (TECH-116), closing the follow-up
+  ADR-009 rule 6 left open. Inventory across every environment this app has run in
+  (local docker-compose, CI Testcontainers; AWS RDS is not yet provisioned) confirms none
+  ever had a schema created outside Flyway — verified empirically against a fresh
+  PostgreSQL 18 container: `flyway_schema_history` shows exactly one row (`type=SQL`,
+  `V1`) and zero `BASELINE` rows. `baseline-version` removed (inert once
+  `baseline-on-migrate` is `false`). No behavior change for any environment that has
+  actually run this app; a future non-empty, no-history schema now fails startup instead
+  of being silently adopted as "already migrated."
+
+### Removed
+
+- **TECH-123** (per-row republication traceability for `SipsaParcial`) and **TECH-125**
+  (data retention policy) closed and removed from the backlog — decided against, not
+  implementing either.
