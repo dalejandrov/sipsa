@@ -89,7 +89,7 @@ When a story is implemented:
 | TECH-135 | Centralize ingestion rejection-threshold configuration (C-04) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-ingestion-rejection-thresholds` — thresholds bind once in `IngestionProperties`, effective 0.01/5000 unchanged) |
 | TECH-136 | Centralize async executor configuration and pin the audit executor (C-05) | Low | — | **Done** (2026-07-19, branch `refactor/centralize-async-executor-config` — `AsyncExecutorProperties` + `@Async("ingestionTaskExecutor")` for audit; geometry 2/10/25/60s unchanged) |
 | TECH-150 | Integration-test scaffolding: Failsafe `integration-tests` profile, `*IT` convention, shared WireMock SOAP fixture support | High | 6 | **Done** (2026-08-03, branch `spike/tech-044-comprehensive-testing-strategy` — found and fixed a real WireMock/Jetty 12 dependency conflict along the way, see story) |
-| TECH-151 | `CiudadIngestionHandlerIT` (WireMock + Testcontainers PG) | High | 6 | Pending — depends on TECH-150 |
+| TECH-151 | `CiudadIngestionHandlerIT` (WireMock + Testcontainers PG) | High | 6 | **Done** (2026-08-03, branch `test/ciudad-ingestion-handler-it`) |
 | TECH-152 | `SemanaIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
 | TECH-153 | `MesIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
 | TECH-154 | `AbasIngestionHandlerIT` (WireMock + Testcontainers PG) | Medium | 6 | Pending — depends on TECH-150 |
@@ -5370,9 +5370,11 @@ green (2/2).
 **Type:** Test
 **Priority:** High
 **Phase:** 6
-**Status:** Pending
+**Status:** **Done**
 **Complexity:** M
-**Branch (suggested):** `test/ciudad-ingestion-handler-it`
+**Branch:** `test/ciudad-ingestion-handler-it` (branched from
+`spike/tech-044-comprehensive-testing-strategy`'s tip — TECH-150's scaffolding wasn't
+on `main` yet)
 **Dependencies:** TECH-150.
 
 **Objective:** First real per-handler integration test, establishing the pattern
@@ -5383,14 +5385,43 @@ PostgreSQL 18 Testcontainer — and asserts: the correct rows land in `sipsa_ciu
 second run against the same fixture produces `skipped > 0` (idempotency); `IngestionContext`
 metrics match the fixture's record count.
 
-**Acceptance Criteria:**
-- [ ] Golden-path case (valid fixture → rows inserted).
-- [ ] Idempotency case (same fixture run twice → second run skips).
-- [ ] SOAP-fault case (WireMock returns 500 → handler surfaces the failure the same way
-      unit tests already prove `IngestionJob` handles it — no behavior change, just
-      proof it holds through the real transport).
+**Design note found while implementing:** TECH-150's `SoapWireMockSupport` was
+originally a JUnit 5 `@RegisterExtension` (starts/stops a server per test method).
+That doesn't fit this test: `sipsa.soap.endpoint` must be known via
+`@DynamicPropertySource` *before* the Spring context is created, which is earlier than
+any `@RegisterExtension` callback runs. Refactored `SoapWireMockSupport` into a
+stateless static-helper class (`stubFixture(WireMockServer, ...)`,
+`stubHttpStatus(WireMockServer, ...)`, `endpointOf(WireMockServer)`); this test manages
+its own class-scoped `WireMockServer` (started in the `@DynamicPropertySource` method,
+stopped in `@AfterAll`, `resetAll()` per test in `@BeforeEach`). TECH-150's own
+`WireMockScaffoldingSmokeIT` (explicitly documented as throwaway) is **deleted** by this
+story, exactly as planned — its one purpose (prove WireMock+Failsafe wiring works at
+all) is now subsumed by this test, which proves the same thing plus the real Postgres
+path.
 
-**Completed:** —
+**Two more real findings, verified by running the test, not assumed:**
+- `SoapGatewayImpl.getCiudadData()` wraps any transport failure in
+  `SipsaIngestionException` (not the `SipsaExternalException` that
+  `SoapStreamingClient.stream()` itself throws) — confirmed by an initial failing
+  assertion. The SOAP-fault case asserts the real wrapped type
+  (`SipsaIngestionException` with `SipsaExternalException` as cause).
+- `ingestion_runs` has a real unique constraint on `(method_name, window_key)`
+  (`uq_ingestion_runs_window`); reusing a literal window key across test methods (they
+  share one Testcontainer/schema for the whole class) collided. Fixed by generating a
+  unique `window_key` per `createRun()` call (`System.nanoTime()`-suffixed), matching
+  the pattern `SpecificationBuilderPostgresTest` already uses for the same reason.
+
+**Acceptance Criteria:**
+- [x] Golden-path case (valid fixture → rows inserted) — asserts exact field values
+      (regId, ciudad, codProducto, precioPromedio), not just row count.
+- [x] Idempotency case (same fixture run twice → second run skips; `recordsInserted == 0`
+      on the second run, row count unchanged at 2).
+- [x] SOAP-fault case (WireMock returns 500 → handler surfaces the failure through the
+      real transport; no rows persisted).
+
+**Completed:** 2026-08-03, branch `test/ciudad-ingestion-handler-it`.
+`./mvnw clean verify -P integration-tests`: 465 unit tests green (0 regressions),
+3/3 new integration tests green (`target/failsafe-reports`).
 
 ---
 
