@@ -62,13 +62,17 @@
 | Repeatable migrations (`R__*.sql`) only for idempotent objects (views, functions) | Review |
 | **Once a migration has reached any shared/production environment, it — and every migration before it — can never be squashed or rewritten again**, even during pre-production churn | ADR-009 addendum; review discipline (no tooling gate) |
 
-## Baseline (existing databases)
+## Baseline (existing databases) — disabled (TECH-116, 2026-08-03)
 
-`baseline-on-migrate: true` + `baseline-version: 1` exist only to adopt Flyway on a
-database created before Flyway was introduced: Flyway records a baseline marker and
-skips `V1` (which mirrors that legacy schema). Empty databases run everything from `V1`.
-Once every environment has `flyway_schema_history`, flip `baseline-on-migrate` to
-`false` (tracked as a follow-up in ADR-009).
+`baseline-on-migrate` exists only to adopt Flyway on a database created before Flyway
+was introduced: it would record a baseline marker and skip `V1` (which would need to
+mirror that legacy schema). That scenario has never occurred here — every environment
+this app has run in (local docker-compose, CI Testcontainers, and the not-yet-provisioned
+AWS RDS) gets its schema exclusively via this app's own `flyway migrate`, never a
+manually-created schema. Verified empirically against a fresh PostgreSQL 18 container:
+`flyway_schema_history` shows exactly one row (`type=SQL`, the `V1` migration) and zero
+`BASELINE` rows. Now `false` in `application.yaml` — a future non-empty, no-history
+schema should fail startup loudly, not be silently adopted as "already migrated."
 
 ## Troubleshooting
 

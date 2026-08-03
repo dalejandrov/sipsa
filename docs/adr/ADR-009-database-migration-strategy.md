@@ -76,6 +76,14 @@ Two sources of truth for one schema guarantees drift and split history.
    skipped — correct because `V1` mirrors that legacy schema). On an empty schema no
    baseline is recorded and everything runs from `V1`. If all environments are confirmed
    to have Flyway history, this setting should be flipped to `false` in a follow-up.
+
+   **Resolution (2026-08-03, TECH-116):** confirmed — every environment this app has run
+   in (local docker-compose, CI Testcontainers, and the not-yet-provisioned AWS RDS) gets
+   its schema exclusively via this app's own `flyway migrate`, never a manually-created
+   schema followed by `flyway baseline`. Verified empirically against a fresh PostgreSQL
+   18 container: `flyway_schema_history` shows exactly one row (`type=SQL`, `V1`) and zero
+   `BASELINE` rows. `baseline-on-migrate` is now `false`; `baseline-version` was removed
+   (inert once baseline-on-migrate is disabled).
 7. **Every migration is CI-gated:** `FlywayMigrationsTest` must pass with the new
    migration applied on top of the existing chain against real PostgreSQL.
 8. **Destructive changes** (DROP/ALTER that loses data) require an explicit

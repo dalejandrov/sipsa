@@ -387,6 +387,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the relocated classes, no `ClassNotFoundException`, no JAXB context errors,
   `/actuator/health` unaffected. No Flyway migration; V1–V4 unchanged.
 
+- **`spring.flyway.baseline-on-migrate` disabled** (TECH-116), closing the follow-up
+  ADR-009 rule 6 left open. Inventory across every environment this app has run in
+  (local docker-compose, CI Testcontainers; AWS RDS is not yet provisioned) confirms none
+  ever had a schema created outside Flyway — verified empirically against a fresh
+  PostgreSQL 18 container: `flyway_schema_history` shows exactly one row (`type=SQL`,
+  `V1`) and zero `BASELINE` rows. `baseline-version` removed (inert once
+  `baseline-on-migrate` is `false`). No behavior change for any environment that has
+  actually run this app; a future non-empty, no-history schema now fails startup instead
+  of being silently adopted as "already migrated."
+
 ### Testing
 
 - **TECH-093 — added ArchUnit rules to prevent regression on the three package boundaries
