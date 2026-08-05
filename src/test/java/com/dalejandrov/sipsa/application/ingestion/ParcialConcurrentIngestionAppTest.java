@@ -31,22 +31,31 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.when;
 
 /**
- * Application-level concurrency gate for TECH-117: two REAL ingestion job executions
- * ({@code GenericIngestionJob}, the exact code path behind
+ * Application-level concurrency gate for TECH-117 / SIPSA-F4-01: two REAL ingestion job
+ * executions ({@code GenericIngestionJob}, the exact code path behind
  * {@code POST /api/internal/ingestion/run?method=promediosSipsaParcial&force=true})
- * processing the same publication at the same time, against real PostgreSQL.
+ * triggered for the same publication while the first is still active, against real
+ * PostgreSQL.
  * <p>
- * The SOAP source is a controlled fixture: both executions download the same six-record
- * dataset, and the mocked gateway holds both streams at a rendezvous latch so neither
- * job starts parsing/persisting before the other has its data — the persistence phases
- * genuinely overlap. With {@code force=true} both triggers share the same
- * {@code ingestion_runs} row (restart semantics of {@code createRun}), which is exactly
- * what two concurrent force-triggers produce in production.
+ * <b>Why this scenario changed (SIPSA-F4-01):</b> the original TECH-117 version of this
+ * test had both executions call {@code createRun(force=true)} while the first was still
+ * {@code STARTED} (mid-download), relying on the pre-F4-01 {@code createRun} to let a
+ * {@code force=true} caller blindly restart an <em>active</em> run - which is exactly the
+ * TOCTOU bug SIPSA-F4-01 closes. Under the fixed, atomically-conditioned restart, a
+ * STARTED/RUNNING row can never be restarted, even with {@code force=true}
+ * (see {@code IngestionControlService#createRun}), so the second trigger is now rejected
+ * at {@code createRun} - synchronously, before it ever reaches the SOAP gateway - instead
+ * of racing the first execution's persistence. That makes the outcome of this scenario
+ * fully deterministic (previously it was not: see the removed range assertion on
+ * {@code records_inserted}), so the assertions below are tightened to exact values rather
+ * than softened.
  * <p>
- * Expected (TECH-117): neither execution fails, the audit trail records two
- * {@code INGESTION_SUCCEEDED} events and zero {@code INGESTION_FAILED}, every key ends
- * up stored exactly once, and the run row closes SUCCEEDED with coherent metrics and no
- * unique-violation error message.
+ * Expected (SIPSA-F4-01): execution A runs to completion alone and succeeds; execution B,
+ * arriving while A's run is still active, is rejected as a controlled business conflict
+ * (audited as {@code INGESTION_SKIPPED_DUPLICATE}, never {@code INGESTION_FAILED}) and
+ * never touches the SOAP gateway, {@code sipsa_parcial}, or A's run row. Exactly one
+ * {@code ingestion_runs} row exists, closing SUCCEEDED with metrics equal to the fixture
+ * size (deterministic, since only A ever wrote).
  * <p>
  * <b>Audit synchronization:</b> {@code IngestionAuditService.logEvent} is
  * {@code @Async} + {@code REQUIRES_NEW} — audit rows commit on another thread AFTER the
@@ -91,66 +100,60 @@ class ParcialConcurrentIngestionAppTest {
     }
 
     @Test
-    @DisplayName("both executions succeed, collisions count as skipped, one copy per key")
-    void twoConcurrentJobsSamePublication() throws Exception {
+    @DisplayName("trigger B rejected while A is active; A alone succeeds deterministically")
+    void secondTriggerWhileFirstActive_isRejected_firstSucceedsAlone() throws Exception {
         String xml = fixture(RECORDS);
-        // Production shape of the race: trigger B arrives with force=true while run A is
-        // mid-download, restarts the shared run row, and both persistence phases overlap.
-        // (Two byte-identical simultaneous triggers are already serialized at run
-        // creation by uq_ingestion_runs_window — that guard is out of TECH-117's scope.)
+        // A is held mid-download by this latch/gate pair, entirely under test control -
+        // B never touches the gateway, so nothing B does can release or observe it.
         CountDownLatch firstDownloading = new CountDownLatch(1);
-        CountDownLatch secondDownloading = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
         when(soapGateway.getParcialData()).thenAnswer(inv -> {
-            if (firstDownloading.getCount() > 0) {
-                firstDownloading.countDown();
-                // Hold the first job until the second is also about to parse/persist.
-                assertThat(secondDownloading.await(20, TimeUnit.SECONDS)).isTrue();
-            } else {
-                secondDownloading.countDown();
-            }
+            firstDownloading.countDown();
+            assertThat(releaseFirst.await(20, TimeUnit.SECONDS)).isTrue();
             return new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8));
         });
 
-        ExecutorService executor = Executors.newFixedThreadPool(2);
+        ExecutorService executor = Executors.newFixedThreadPool(1);
         try {
             Future<?> first = executor.submit(() ->
-                    job.execute(IngestionRequest.manualForced("promediosSipsaParcial", "tech117-a")));
+                    job.execute(IngestionRequest.manualForced("promediosSipsaParcial", "f401-a")));
             assertThat(firstDownloading.await(20, TimeUnit.SECONDS))
-                    .as("first job reached its download").isTrue();
-            Future<?> second = executor.submit(() ->
-                    job.execute(IngestionRequest.manualForced("promediosSipsaParcial", "tech117-b")));
+                    .as("first job reached its download; run row is now STARTED/active").isTrue();
+
+            // B arrives while A's run is STARTED (active): createRun must reject it
+            // synchronously - SIPSA-F4-01 forbids restarting an active run even with
+            // force=true - so this call returns immediately without ever invoking
+            // soapGateway (the mock above is only ever satisfied by A).
+            job.execute(IngestionRequest.manualForced("promediosSipsaParcial", "f401-b"));
+
+            releaseFirst.countDown();
             first.get(60, TimeUnit.SECONDS);
-            second.get(60, TimeUnit.SECONDS);
         } finally {
             executor.shutdownNow();
         }
 
-        // Data integrity: one copy per key, no duplicates.
+        // Data integrity: only A ever wrote, one copy per key, no duplicates.
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sipsa_parcial", Long.class))
                 .isEqualTo((long) RECORDS);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM (SELECT key_hash FROM sipsa_parcial GROUP BY key_hash HAVING COUNT(*) > 1) dup",
                 Long.class)).isZero();
 
-        // Both executions must leave success evidence — one INGESTION_SUCCEEDED per
-        // execution (filtered by its own requestId, immune to unrelated events) and
-        // zero INGESTION_FAILED. The expectation stays EXACTLY two events: audit rows
-        // are append-only inserts (BIGSERIAL PK, no unique constraint), so the
-        // architecture guarantees one row per execution.
+        // A succeeded, B was skipped as a duplicate/conflict, neither ever failed.
         //
         // The wait is condition-based, not a fixed sleep: IngestionAuditService.logEvent
         // is @Async + REQUIRES_NEW, so the events commit on another thread AFTER the job
         // futures complete. Measured visibility lag is 1-2 ms locally; on constrained CI
-        // runners the window stretched enough for the previous immediate query to catch
-        // only one of the two events (CI failure of 2026-07-19). Bounded at 10 s.
+        // runners the window stretched enough for an immediate query to miss an event
+        // (CI failure of 2026-07-19). Bounded at 10 s.
         await().atMost(Duration.ofSeconds(10))
                 .pollInterval(Duration.ofMillis(50))
                 .untilAsserted(() -> {
-                    assertThat(succeededEventsFor("tech117-a"))
+                    assertThat(eventsFor("f401-a", "INGESTION_SUCCEEDED"))
                             .as("execution A audited as succeeded; audit state: " + auditDump())
                             .isEqualTo(1L);
-                    assertThat(succeededEventsFor("tech117-b"))
-                            .as("execution B audited as succeeded; audit state: " + auditDump())
+                    assertThat(eventsFor("f401-b", "INGESTION_SKIPPED_DUPLICATE"))
+                            .as("execution B audited as skipped duplicate/conflict; audit state: " + auditDump())
                             .isEqualTo(1L);
                     assertThat(jdbc.queryForObject(
                             "SELECT COUNT(*) FROM ingestion_audit WHERE event_type = 'INGESTION_FAILED'",
@@ -159,8 +162,9 @@ class ParcialConcurrentIngestionAppTest {
                             .isEqualTo(0L);
                 });
 
-        // Shared run row (force=true restart semantics): SUCCEEDED, coherent metrics,
-        // no unique-violation error recorded.
+        // Single run row, owned by A alone: SUCCEEDED, with metrics that are now fully
+        // deterministic (only one execution ever wrote), unlike the pre-F4-01 version of
+        // this test which had to tolerate a range because two executions could race.
         List<Map<String, Object>> runs = jdbc.queryForList("""
                 SELECT status, records_seen, records_inserted, records_updated, reject_count,
                        last_error_message, start_time, end_time
@@ -171,17 +175,17 @@ class ParcialConcurrentIngestionAppTest {
         assertThat(run.get("last_error_message")).as("no unique-violation stack recorded").isNull();
         assertThat(run.get("end_time")).isNotNull();
         assertThat(((Number) run.get("records_seen")).intValue()).isEqualTo(RECORDS);
+        assertThat(((Number) run.get("records_inserted")).intValue())
+                .as("deterministic: only A ever wrote, all keys are fresh inserts").isEqualTo(RECORDS);
+        assertThat(((Number) run.get("records_updated")).intValue()).isZero();
         assertThat(((Number) run.get("reject_count")).intValue()).isZero();
-        int inserted = ((Number) run.get("records_inserted")).intValue();
-        assertThat(inserted).as("whichever execution reported last: 0 <= inserted <= seen")
-                .isBetween(0, RECORDS);
     }
 
-    private Long succeededEventsFor(String requestId) {
+    private Long eventsFor(String requestId, String eventType) {
         return jdbc.queryForObject(
                 "SELECT COUNT(*) FROM ingestion_audit "
-                        + "WHERE event_type = 'INGESTION_SUCCEEDED' AND request_id = ?",
-                Long.class, requestId);
+                        + "WHERE event_type = ? AND request_id = ?",
+                Long.class, eventType, requestId);
     }
 
     /**

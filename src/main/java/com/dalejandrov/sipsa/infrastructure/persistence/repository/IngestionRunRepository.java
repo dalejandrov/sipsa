@@ -2,11 +2,15 @@ package com.dalejandrov.sipsa.infrastructure.persistence.repository;
 
 import com.dalejandrov.sipsa.domain.entity.IngestionRun;
 import com.dalejandrov.sipsa.domain.entity.IngestionRunStatus;
+import com.dalejandrov.sipsa.domain.entity.RequestSource;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.Optional;
 
 /**
@@ -90,4 +94,60 @@ public interface IngestionRunRepository extends JpaRepository<IngestionRun, Long
      * @return list of runs with matching statuses
      */
     java.util.List<IngestionRun> findByStatusIn(java.util.List<IngestionRunStatus> statuses);
+
+    /**
+     * Atomically restarts the run for a given method/window, resetting it to
+     * {@code STARTED}, but only if its current status is one of {@code allowedStatuses}.
+     * <p>
+     * This is a single conditional {@code UPDATE ... WHERE status IN (...)} statement: the
+     * database itself evaluates and enforces the "may this row be restarted" decision as
+     * part of the write, so two concurrent callers can never both restart the same row
+     * (SIPSA-F4-01). Under PostgreSQL's default READ COMMITTED isolation, a second
+     * transaction that reaches this statement while the first is still in flight blocks on
+     * the row lock and, once unblocked, re-evaluates the {@code WHERE} clause against the
+     * row's latest committed state - if the first transaction already moved the status out
+     * of {@code allowedStatuses} (e.g. FAILED -> STARTED), the second update matches zero
+     * rows instead of clobbering the first one. Callers MUST NOT gate this call behind a
+     * prior read of the run's status to decide whether to call it; the read may only be used
+     * afterward, to build a human-readable message when the affected-row count is zero.
+     * <p>
+     * Resets every field that {@code createRun}'s original (non-atomic) restart logic reset:
+     * status, startTime, endTime, all four metric counters, lastErrorMessage, httpStatus,
+     * soapFaultCode, requestId and requestSource.
+     *
+     * @param methodName the SOAP method name
+     * @param windowKey the time window key
+     * @param allowedStatuses the set of current statuses from which a restart is permitted
+     * @param startTime the new start time to record (STARTED)
+     * @param requestId correlation ID of the request performing the restart
+     * @param requestSource origin of the request performing the restart
+     * @return number of rows updated: 1 if the restart won, 0 if the row's status was not in
+     *         {@code allowedStatuses} (already restarted by a concurrent winner, active, or
+     *         otherwise not eligible)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE IngestionRun r
+               SET r.status = com.dalejandrov.sipsa.domain.entity.IngestionRunStatus.STARTED,
+                   r.startTime = :startTime,
+                   r.endTime = null,
+                   r.recordsSeen = 0,
+                   r.recordsInserted = 0,
+                   r.recordsUpdated = 0,
+                   r.rejectCount = 0,
+                   r.lastErrorMessage = null,
+                   r.httpStatus = null,
+                   r.soapFaultCode = null,
+                   r.requestId = :requestId,
+                   r.requestSource = :requestSource
+             WHERE r.methodName = :methodName
+               AND r.windowKey = :windowKey
+               AND r.status IN :allowedStatuses
+            """)
+    int restartIfStatusIn(@Param("methodName") String methodName,
+                           @Param("windowKey") String windowKey,
+                           @Param("allowedStatuses") Collection<IngestionRunStatus> allowedStatuses,
+                           @Param("startTime") Instant startTime,
+                           @Param("requestId") String requestId,
+                           @Param("requestSource") RequestSource requestSource);
 }

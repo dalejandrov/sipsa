@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Service for managing ingestion run lifecycle and state.
@@ -41,9 +42,14 @@ import java.util.Optional;
  * The service enforces business rules around run uniqueness and restart logic:
  * <ul>
  *   <li>One active run per method/window combination</li>
- *   <li>Successful runs cannot be restarted without {@code force=true}</li>
- *   <li>Failed runs can be restarted automatically</li>
+ *   <li>A STARTED or RUNNING run can never be restarted, even with {@code force=true}</li>
+ *   <li>Successful or canceled runs can only be restarted with {@code force=true}</li>
+ *   <li>Failed runs can be restarted with or without {@code force=true}</li>
  * </ul>
+ * These rules are enforced by a single atomic conditional {@code UPDATE} in the database
+ * (see {@link IngestionRunRepository#restartIfStatusIn}), not by a Java-side check followed
+ * by a save - see {@link #createRun(String, String, boolean, String, RequestSource)} for why
+ * that distinction matters under concurrency (SIPSA-F4-01).
  *
  * @see IngestionRun
  * @see IngestionReject
@@ -56,19 +62,43 @@ public class IngestionControlService {
     private final IngestionRunRepository runRepository;
     private final IngestionRejectRepository rejectRepository;
 
+    /** Statuses a restart may originate from when {@code force=false}: only FAILED. */
+    private static final Set<IngestionRunStatus> RESTARTABLE_WITHOUT_FORCE = Set.of(IngestionRunStatus.FAILED);
+
+    /**
+     * Statuses a restart may originate from when {@code force=true}.
+     * <p>
+     * STARTED and RUNNING are deliberately never included, at any force setting: an active
+     * run must never be restarted, since that would silently clobber its in-flight metrics
+     * and startTime (SIPSA-F4-01).
+     * <p>
+     * CANCELED is included here to preserve the prior (non-atomic) implementation's
+     * behavior: no product rule was ever documented for restarting a CANCELED run, and the
+     * old code treated it exactly like SUCCEEDED - rejected without force, allowed with
+     * force. That behavior is carried over unchanged rather than silently broadened or
+     * narrowed.
+     */
+    private static final Set<IngestionRunStatus> RESTARTABLE_WITH_FORCE =
+            Set.of(IngestionRunStatus.FAILED, IngestionRunStatus.SUCCEEDED, IngestionRunStatus.CANCELED);
+
     /**
      * Creates a new ingestion run or restarts an existing one.
      * <p>
      * This method implements the following logic:
      * <ul>
      *   <li>If no run exists for method/window: creates new run</li>
-     *   <li>If run succeeded and force=false: throws exception</li>
-     *   <li>If run exists (not failed) and force=false: throws exception</li>
-     *   <li>If force=true or previous failed: resets and restarts the run</li>
+     *   <li>If the existing run is STARTED or RUNNING: always rejected, even with force=true
+     *       - an active run's row, metrics and startTime are never touched</li>
+     *   <li>If the existing run is FAILED: restart allowed with or without force=true</li>
+     *   <li>If the existing run is SUCCEEDED or CANCELED: restart allowed only with
+     *       force=true</li>
      * </ul>
-     * <p>
-     * The run is created with STARTED status and all metrics initialized to zero.
-     * The requestId and requestSource are stored for correlation and auditing.
+     * The restart itself is a single atomic conditional {@code UPDATE} keyed on the row's
+     * current status (see {@link IngestionRunRepository#restartIfStatusIn}) - the decision
+     * is made and enforced by the database in one statement, so two concurrent restart
+     * attempts against the same row can never both succeed. The run is created (or reset)
+     * with STARTED status and all metrics initialized to zero. The requestId and
+     * requestSource are stored for correlation and auditing.
      *
      * @param methodName the ingestion method identifier
      * @param windowKey the time window key (e.g., "2026-01-02" for daily, "2026-01-M8" or "2026-01-M10" for monthly)
@@ -85,32 +115,29 @@ public class IngestionControlService {
 
         if (existingRun.isPresent()) {
             IngestionRun run = existingRun.get();
-            if (!force && run.getStatus() == IngestionRunStatus.SUCCEEDED) {
-                throw new SipsaBusinessException(
-                        "Run already succeeded for method: " + methodName + ", window: " + windowKey);
-            }
-            if (!force && run.getStatus() != IngestionRunStatus.FAILED) {
-                throw new SipsaBusinessException(
-                        "Run already exists (Status: " + run.getStatus() + "). Use force=true to restart.");
+            long runId = run.getRunId();
+
+            // The concurrency-safe decision happens exclusively inside this single
+            // conditional UPDATE (see IngestionRunRepository#restartIfStatusIn): the DB
+            // evaluates "is this row currently in an allowed status" and performs the reset
+            // atomically, so two concurrent restart attempts can never both win, and an
+            // active (STARTED/RUNNING) run can never be restarted regardless of force.
+            Set<IngestionRunStatus> allowedSourceStatuses = force ? RESTARTABLE_WITH_FORCE : RESTARTABLE_WITHOUT_FORCE;
+            int updatedRows = runRepository.restartIfStatusIn(
+                    methodName, windowKey, allowedSourceStatuses, Instant.now(), requestId, requestSource);
+
+            if (updatedRows == 0) {
+                // The row wasn't eligible for restart (or a concurrent caller already won
+                // it). This read is only used to produce a helpful message - it plays no
+                // part in the concurrency-safety decision above, which already happened.
+                IngestionRunStatus currentStatus = runRepository.findByMethodNameAndWindowKey(methodName, windowKey)
+                        .map(IngestionRun::getStatus)
+                        .orElse(run.getStatus());
+                throw restartConflict(currentStatus, force, methodName, windowKey);
             }
 
-            // Restart logic: Reset metrics and status
-            log.warn("Restarting existing run {}/{} (ID: {})", methodName, windowKey, run.getRunId());
-            run.setStatus(IngestionRunStatus.STARTED);
-            run.setStartTime(Instant.now());
-            run.setEndTime(null);
-            run.setRecordsSeen(0);
-            run.setRecordsInserted(0);
-            run.setRecordsUpdated(0);
-            run.setRejectCount(0);
-            run.setLastErrorMessage(null);
-            run.setHttpStatus(null);
-            run.setSoapFaultCode(null);
-            run.setRequestId(requestId);
-            run.setRequestSource(requestSource);
-
-            run = runRepository.save(run);
-            return run.getRunId();
+            log.warn("Restarted existing run {}/{} (ID: {})", methodName, windowKey, runId);
+            return runId;
         }
 
         try {
@@ -132,6 +159,37 @@ public class IngestionControlService {
         } catch (DataIntegrityViolationException e) {
             throw new SipsaBusinessException("Failed to create run due to concurrency/integrity violation", e);
         }
+    }
+
+    /**
+     * Builds the business exception for a restart that {@link IngestionRunRepository#restartIfStatusIn}
+     * rejected (zero rows affected).
+     * <p>
+     * {@code currentStatus} is read after the fact purely to phrase a helpful message; it
+     * has no bearing on concurrency safety, which was already fully decided by the atomic
+     * UPDATE's {@code WHERE} clause.
+     *
+     * @param currentStatus the run's status as observed after the rejected update
+     * @param force whether the caller requested force restart
+     * @param methodName the ingestion method identifier
+     * @param windowKey the time window key
+     * @return a {@link SipsaBusinessException} describing why the restart was refused
+     */
+    private static SipsaBusinessException restartConflict(IngestionRunStatus currentStatus, boolean force,
+                                                            String methodName, String windowKey) {
+        if (currentStatus == IngestionRunStatus.STARTED || currentStatus == IngestionRunStatus.RUNNING) {
+            return new SipsaBusinessException(
+                    "Run is active (status: " + currentStatus + ") for method: " + methodName
+                            + ", window: " + windowKey + ". Active runs cannot be restarted, even with force=true.");
+        }
+        if (currentStatus == IngestionRunStatus.SUCCEEDED && !force) {
+            return new SipsaBusinessException(
+                    "Run already succeeded for method: " + methodName + ", window: " + windowKey);
+        }
+        // Covers: CANCELED without force, and the case where a concurrent caller already
+        // won the restart between our read and our conditional UPDATE.
+        return new SipsaBusinessException(
+                "Run already exists (Status: " + currentStatus + "). Use force=true to restart.");
     }
 
     /**
