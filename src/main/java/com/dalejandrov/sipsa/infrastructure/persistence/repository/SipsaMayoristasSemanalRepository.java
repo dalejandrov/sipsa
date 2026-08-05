@@ -3,8 +3,6 @@ package com.dalejandrov.sipsa.infrastructure.persistence.repository;
 import com.dalejandrov.sipsa.domain.entity.SipsaMayoristasSemanal;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,7 +12,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * JPA Repository for managing {@link SipsaMayoristasSemanal} entities.
@@ -38,7 +35,7 @@ import java.util.Optional;
 @Repository
 public interface SipsaMayoristasSemanalRepository
         extends JpaRepository<SipsaMayoristasSemanal, Long>, JpaSpecificationExecutor<SipsaMayoristasSemanal>,
-        SipsaMayoristasSemanalBatchInsertRepository {
+        SipsaMayoristasSemanalBatchInsertRepository, SipsaMayoristasSemanalTmpBatchInsertRepository {
 
     /**
      * Record to track insert/skip metrics from upsert operations.
@@ -49,19 +46,25 @@ public interface SipsaMayoristasSemanalRepository
     record UpsertMetrics(int inserted, int skipped) {}
 
     /**
-     * Finds weekly data by temporary ID (when available from source system).
-     *
-     * @param tmpMayoSemId temporary weekly ID
-     * @return Optional containing the entity if found
-     */
-    @Query("SELECT s FROM SipsaMayoristasSemanal s WHERE s.tmpMayoSemId = :tmpMayoSemId")
-    Optional<SipsaMayoristasSemanal> findByTmpId(@Param("tmpMayoSemId") Long tmpMayoSemId);
-
-    /**
      * Batch upserts records that have temporary IDs.
      * <p>
      * Uses tmpMayoSemId for matching existing records (more accurate).
      * Strategy: If exists, SKIP (do not update). If not exists, INSERT.
+     * <p>
+     * Previously issued one {@code findByTmpId} SELECT per (deduplicated) item — N+1
+     * round trips per batch. Now: in-batch dedup by {@code tmpMayoSemId} stays in-memory
+     * (unchanged: last occurrence wins), then the deduplicated rows are sent in a single
+     * {@code INSERT … ON CONFLICT (tmp_mayo_sem_id) DO NOTHING} JDBC batch
+     * ({@link #insertIgnoringTmpConflicts}) — one round trip total, replacing both the
+     * per-row existence check and the separate {@code saveAll}/{@code flush}.
+     * <p>
+     * <b>Concurrency:</b> the previous per-row {@code findByTmpId}-then-{@code saveAll}
+     * sequence had the same TOCTOU gap {@code SipsaParcialRepository.batchUpsert} had
+     * before TECH-117 — a concurrent writer could insert the same tmpId between the check
+     * and the write, surfacing as a unique-violation exception that discarded the whole
+     * batch. The atomic {@code ON CONFLICT} clause removes that gap entirely: the losing
+     * side's conflicting rows resolve to "not inserted" (counted as {@code skipped}) with
+     * no exception and no effect on its non-conflicting rows.
      *
      * @param items list of entities with tmpMayoSemId values
      * @return metrics with counts of inserted and skipped records
@@ -72,38 +75,28 @@ public interface SipsaMayoristasSemanalRepository
             return new UpsertMetrics(0, 0);
         }
 
-        Instant now = Instant.now();
-        List<SipsaMayoristasSemanal> toInsert = new ArrayList<>();
-        int skipped = 0;
-
-        /* Track processed tmpIds within this batch to avoid duplicates */
-        java.util.Set<Long> processedTmpIds = new java.util.HashSet<>();
-
+        /* Deduplicate within batch by tmpMayoSemId - keep latest value (unchanged semantics). */
+        Map<Long, SipsaMayoristasSemanal> uniqueItems = new LinkedHashMap<>();
         for (SipsaMayoristasSemanal item : items) {
             if (item.getTmpMayoSemId() != null) {
-                /* Skip if already processed in this batch */
-                if (processedTmpIds.contains(item.getTmpMayoSemId())) {
-                    skipped++;
-                    continue;
-                }
-
-                Optional<SipsaMayoristasSemanal> existing = findByTmpId(item.getTmpMayoSemId());
-                if (existing.isPresent()) {
-                    /* Record exists - SKIP it (do not update) */
-                    skipped++;
-                } else {
-                    /* Record does not exist - INSERT it */
-                    item.setFechaSincronizacion(now);
-                    toInsert.add(item);
-                }
-                processedTmpIds.add(item.getTmpMayoSemId());
+                uniqueItems.put(item.getTmpMayoSemId(), item);
             }
         }
 
-        int inserted = toInsert.size();
-        if (!toInsert.isEmpty()) {
-            saveAll(toInsert);
-            flush();
+        Instant now = Instant.now();
+        List<SipsaMayoristasSemanal> candidates = new ArrayList<>(uniqueItems.values());
+        for (SipsaMayoristasSemanal candidate : candidates) {
+            candidate.setFechaSincronizacion(now);
+        }
+
+        int inserted = 0;
+        int skipped = 0;
+        for (int outcome : insertIgnoringTmpConflicts(candidates)) {
+            if (outcome > 0) {
+                inserted++;
+            } else {
+                skipped++;
+            }
         }
         return new UpsertMetrics(inserted, skipped);
     }

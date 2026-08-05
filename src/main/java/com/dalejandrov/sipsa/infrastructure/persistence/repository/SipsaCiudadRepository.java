@@ -3,47 +3,38 @@ package com.dalejandrov.sipsa.infrastructure.persistence.repository;
 import com.dalejandrov.sipsa.domain.entity.SipsaCiudad;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * JPA Repository for managing {@link SipsaCiudad} entities.
  * <p>
  * Provides data access methods for city-level pricing data, including:
  * <ul>
- *   <li>JPA-based upsert queries following Spring Data best practices</li>
+ *   <li>An atomic {@code INSERT ... ON CONFLICT DO NOTHING} upsert</li>
  *   <li>JPA Specification support for dynamic filtering</li>
- *   <li>Optimized batch operations using saveAll()</li>
  *   <li>Standard CRUD operations</li>
  * </ul>
  * <p>
  * <b>Upsert Strategy:</b><br>
- * Uses JPA's merge operation through findBy + save pattern, leveraging
- * the unique constraint (reg_id, cod_producto, fecha_captura) for duplicate detection.
- * This approach is database-agnostic and follows Spring Data JPA best practices.
- * <p>
- * <b>Performance:</b><br>
- * Batch operations use Spring Data's saveAll() which is optimized for bulk inserts.
- * Records are processed in batches to balance memory usage and database round trips.
- * <p>
- * <b>Advantages over Native SQL:</b>
- * <ul>
- *   <li>Database-agnostic (works with PostgreSQL, MySQL, H2, etc.)</li>
- *   <li>JPA entity lifecycle management (audit fields, cascading, etc.)</li>
- *   <li>Better integration with Spring Data features</li>
- *   <li>Easier to test with in-memory databases</li>
- *   <li>Type-safe queries with compile-time checking</li>
- * </ul>
+ * The business key is {@code (regId, codProducto)}, backed by the {@code ux_ciudad}
+ * unique constraint. A record whose key already exists is skipped — never updated —
+ * matching the skip-first semantics of the other data types (see
+ * {@link #batchUpsert(List)}, same technique as {@code SipsaParcialRepository.batchUpsert}
+ * TECH-117).
  *
  * @see SipsaCiudad
  * @see com.dalejandrov.sipsa.application.ingestion.handler.CiudadIngestionHandler
  */
 @Repository
-public interface SipsaCiudadRepository extends JpaRepository<SipsaCiudad, Long>, JpaSpecificationExecutor<SipsaCiudad> {
+public interface SipsaCiudadRepository extends JpaRepository<SipsaCiudad, Long>,
+        JpaSpecificationExecutor<SipsaCiudad>, SipsaCiudadBatchInsertRepository {
 
     /**
      * Record to track insert/skip metrics from upsert operations.
@@ -54,50 +45,29 @@ public interface SipsaCiudadRepository extends JpaRepository<SipsaCiudad, Long>,
     record UpsertMetrics(int inserted, int skipped) {}
 
     /**
-     * Finds all records matching the given list of business keys.
-     * <p>
-     * This method enables bulk existence checking for city pricing data.
-     * Uses the natural key (regId, codProducto) which corresponds to the
-     * unique constraint ux_ciudad.
-     *
-     * @param keys list of composite keys (regId, codProducto)
-     * @return list of existing records
-     */
-    @Query("SELECT c FROM SipsaCiudad c WHERE " +
-           "CONCAT(c.regId, '|', c.codProducto) IN :keys")
-    List<SipsaCiudad> findByBusinessKeys(@Param("keys") List<String> keys);
-
-    /**
-     * Batch upserts a list of city pricing records using JPA best practices.
-     * <p>
-     * This method implements upsert logic (insert or update) by:
+     * Batch upsert with skip-first deduplication (same technique as
+     * {@code SipsaParcialRepository.batchUpsert}, TECH-117).
      * <ol>
-     *   <li>Detecting and skipping duplicate business keys within the same batch</li>
-     *   <li>Bulk querying existing records in database (single query for all keys)</li>
-     *   <li>If exists: merge data into existing entity and save</li>
-     *   <li>If not exists: set timestamps and save as new</li>
+     *   <li>Intra-batch dedupe by {@code (regId, codProducto)} ({@code LinkedHashMap},
+     *       last occurrence wins — duplicates are silently uncounted, matching the prior
+     *       implementation).</li>
+     *   <li>Inserts the deduplicated candidates atomically via
+     *       {@code INSERT … ON CONFLICT (reg_id, cod_producto) DO NOTHING} in a single
+     *       JDBC batch ({@link SipsaCiudadBatchInsertRepository}) — no bulk existence
+     *       lookup needed, the database itself resolves "already exists" at insert time.</li>
      * </ol>
-     * <p>
-     * <b>Performance Optimization:</b><br>
-     * Instead of querying the database for each record individually (N queries),
-     * this method fetches all existing records in a single bulk query, reducing
-     * database round trips from O(N) to O(1).
-     * <p>
-     * <b>Duplicate Prevention:</b><br>
-     * Uses a LinkedHashMap to track processed business keys (regId|codProducto)
-     * within the current batch. This prevents:
-     * <ul>
-     *   <li>Multiple database lookups for the same business key in one batch</li>
-     *   <li>Duplicate key constraint violations when same key appears multiple times</li>
-     *   <li>Unnecessary updates of the same record within one batch</li>
-     * </ul>
-     * <p>
-     * <b>Business Key:</b><br>
-     * The business key is (regId, codProducto) matching the unique constraint ux_ciudad.
-     * When duplicate keys are found, the LAST occurrence in the batch is kept (most recent data).
+     * <b>Concurrency:</b> the previous bulk-lookup-then-{@code saveAll} sequence had the
+     * same TOCTOU gap {@code SipsaParcialRepository.batchUpsert} had before TECH-117 — a
+     * concurrent writer could insert the same key between the lookup and the write,
+     * surfacing as a unique-violation exception that discarded the whole batch. The atomic
+     * {@code ON CONFLICT} clause removes that gap entirely: the losing side's conflicting
+     * rows resolve to "not inserted" (counted as {@code skipped}) with no exception and no
+     * effect on its non-conflicting rows.
      *
      * @param items list of city pricing entities to upsert
-     * @return metrics with counts of inserted and skipped records
+     * @return metrics with counts of inserted and skipped records; for every batch
+     *         {@code inserted + skipped} equals the number of *unique* keys in the batch,
+     *         not {@code items.size()}
      */
     @Transactional
     default UpsertMetrics batchUpsert(List<SipsaCiudad> items) {
@@ -105,55 +75,27 @@ public interface SipsaCiudadRepository extends JpaRepository<SipsaCiudad, Long>,
             return new UpsertMetrics(0, 0);
         }
 
-        java.time.Instant now = java.time.Instant.now();
-        int skipped = 0;
-
-        /*
-         * Track processed business keys within this batch to avoid duplicates.
-         * Using LinkedHashMap to keep insertion order, then override with latest value.
-         */
-        java.util.Map<String, SipsaCiudad> uniqueItems = new java.util.LinkedHashMap<>();
-
+        /* Intra-batch dedupe: same business key twice in one batch -> last wins. */
+        Map<String, SipsaCiudad> uniqueItems = new LinkedHashMap<>();
         for (SipsaCiudad item : items) {
             String businessKey = item.getRegId() + "|" + item.getCodProducto();
-            /* Put will replace if key exists, keeping the latest value */
             uniqueItems.put(businessKey, item);
         }
 
-        /* Bulk query to find all existing records */
-        java.util.List<String> keys = new java.util.ArrayList<>(uniqueItems.keySet());
-        java.util.List<SipsaCiudad> existingRecords = findByBusinessKeys(keys);
-
-        /* Create a map of existing records for fast lookup */
-        java.util.Map<String, SipsaCiudad> existingMap = new java.util.HashMap<>();
-        for (SipsaCiudad existing : existingRecords) {
-            String key = existing.getRegId() + "|" + existing.getCodProducto();
-            existingMap.put(key, existing);
+        Instant now = Instant.now();
+        List<SipsaCiudad> candidates = new ArrayList<>(uniqueItems.values());
+        for (SipsaCiudad candidate : candidates) {
+            candidate.setFechaSincronizacion(now);
         }
 
-        java.util.List<SipsaCiudad> toInsert = new java.util.ArrayList<>();
-
-        for (java.util.Map.Entry<String, SipsaCiudad> entry : uniqueItems.entrySet()) {
-            String businessKey = entry.getKey();
-            SipsaCiudad item = entry.getValue();
-
-            SipsaCiudad existing = existingMap.get(businessKey);
-
-            if (existing != null) {
-                /* Record exists - SKIP it (do not update) */
-                skipped++;
+        int inserted = 0;
+        int skipped = 0;
+        for (int outcome : insertIgnoringConflicts(candidates)) {
+            if (outcome > 0) {
+                inserted++;
             } else {
-                /* Record does not exist - INSERT it */
-                item.setFechaSincronizacion(now);
-                toInsert.add(item);
+                skipped++;
             }
-        }
-
-        /* Batch save using Spring Data's optimized saveAll */
-        int inserted = toInsert.size();
-        if (!toInsert.isEmpty()) {
-            saveAll(toInsert);
-            flush();
         }
         return new UpsertMetrics(inserted, skipped);
     }
