@@ -72,7 +72,7 @@ jobs:
           retention-days: 7
 
   integration-verify:
-    name: Integration tests (WireMock + Testcontainers, TECH-150..155/ADR-011)
+    name: Integration tests (WireMock + Testcontainers)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
