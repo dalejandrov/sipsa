@@ -257,4 +257,28 @@ public record AuditEventRequest(
             "Ingestion run was canceled by operator"
         );
     }
+
+    /**
+     * Creates audit event for a status transition that lost a race to a concurrent terminal
+     * transition (SIPSA-F4-21) - e.g. the job tried to mark {@code SUCCEEDED}/{@code FAILED}
+     * but the run had already been canceled by another caller.
+     *
+     * @param requestId the request ID
+     * @param runId the ingestion run ID
+     * @param requestSource the source of the request
+     * @param attemptedTransition the status this caller tried and failed to transition to
+     * @param reason short explanation of why the transition was ignored
+     * @return new AuditEventRequest instance
+     */
+    public static AuditEventRequest ingestionLateTransitionIgnored(String requestId, long runId,
+                                                                RequestSource requestSource,
+                                                                String attemptedTransition, String reason) {
+        return new AuditEventRequest(
+            requestId,
+            runId,
+            requestSource,
+            AuditEventType.INGESTION_LATE_TRANSITION_IGNORED,
+            "Attempted: " + attemptedTransition + " - " + reason
+        );
+    }
 }

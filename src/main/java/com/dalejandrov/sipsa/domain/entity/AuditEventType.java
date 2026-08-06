@@ -58,6 +58,15 @@ public enum AuditEventType {
     /** Ingestion was manually canceled by operator */
     INGESTION_CANCELED("Ingestion canceled by operator"),
 
+    /**
+     * A status transition (RUNNING, SUCCEEDED or FAILED) was ignored because the run had
+     * already reached a terminal state through another concurrent writer - most commonly a
+     * concurrent {@code cancelRun} (SIPSA-F4-21). Distinct from {@link #INGESTION_CANCELED},
+     * which marks the winning cancellation itself; this event marks the losing side of the
+     * race.
+     */
+    INGESTION_LATE_TRANSITION_IGNORED("Status transition ignored - run already reached a terminal state"),
+
     /** Ingestion skipped because execution is outside allowed time window */
     INGESTION_SKIPPED_WINDOW("Ingestion skipped - outside window"),
 

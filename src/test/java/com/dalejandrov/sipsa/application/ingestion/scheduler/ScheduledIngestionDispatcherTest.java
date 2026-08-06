@@ -214,6 +214,9 @@ class ScheduledIngestionDispatcherTest {
                 r != null && !r.methodName().equals("promediosSipsaCiudad"))))
                 .thenReturn(1L);
         when(controlService.isRunCanceled(1L)).thenReturn(false);
+        // SIPSA-F4-21: updateStatus now returns whether the conditional transition won -
+        // Parcial/Semana's RUNNING transition must win for the job to reach isRunCanceled.
+        when(controlService.updateStatus(eq(1L), any())).thenReturn(true);
 
         assertThatCode(realDispatcher::dispatchDailyWindow).doesNotThrowAnyException();
 

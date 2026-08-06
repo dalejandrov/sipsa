@@ -62,6 +62,26 @@ public class IngestionControlService {
     private final IngestionRunRepository runRepository;
     private final IngestionRejectRepository rejectRepository;
 
+    /**
+     * Fixed predecessor for each {@code updateStatus} target (SIPSA-F4-21).
+     * <p>
+     * {@code CANCELED} is deliberately absent as a key: it is reachable exclusively through
+     * {@link #cancelRun(long)}'s own atomic {@code STARTED/RUNNING -> CANCELED} update, never
+     * through this generic transition. {@code STARTED} is absent too: it is only ever set by
+     * {@link #createRun}. Calling {@link #updateStatus} with a {@code to} not in this map is a
+     * programming error, not a runtime race, and fails fast via {@link IllegalArgumentException}.
+     */
+    private static final java.util.Map<IngestionRunStatus, IngestionRunStatus> REQUIRED_PREDECESSOR =
+            java.util.Map.of(
+                    IngestionRunStatus.RUNNING, IngestionRunStatus.STARTED,
+                    IngestionRunStatus.SUCCEEDED, IngestionRunStatus.RUNNING,
+                    IngestionRunStatus.FAILED, IngestionRunStatus.RUNNING
+            );
+
+    /** Statuses whose arrival records {@code endTime} - the run has stopped changing. */
+    private static final Set<IngestionRunStatus> TERMINAL_STATUSES =
+            Set.of(IngestionRunStatus.SUCCEEDED, IngestionRunStatus.FAILED, IngestionRunStatus.CANCELED);
+
     /** Statuses a restart may originate from when {@code force=false}: only FAILED. */
     private static final Set<IngestionRunStatus> RESTARTABLE_WITHOUT_FORCE = Set.of(IngestionRunStatus.FAILED);
 
@@ -210,30 +230,63 @@ public class IngestionControlService {
     }
 
     /**
-     * Updates the status of an ingestion run.
+     * Atomically transitions an ingestion run to {@code to}, conditioned on the run's current
+     * status still being the fixed predecessor {@link #REQUIRED_PREDECESSOR} defines for it
+     * (SIPSA-F4-21: {@code STARTED->RUNNING}, {@code RUNNING->SUCCEEDED},
+     * {@code RUNNING->FAILED}).
      * <p>
-     * Valid statuses include: STARTED, RUNNING, SUCCEEDED, FAILED, CANCELED.
-     * The status change is persisted in a separate transaction.
+     * Implemented as a single conditional {@code UPDATE ... WHERE status = :expectedFrom} (see
+     * {@link IngestionRunRepository#transitionStatusIfCurrentIs}), the same pattern
+     * {@link #createRun} already uses for restarts (SIPSA-F4-01): the database decides and
+     * enforces "is this row still in the expected predecessor state" as part of the write, so
+     * this call can never silently overwrite a terminal state a concurrent
+     * {@link #cancelRun(long)} already committed.
+     * <p>
+     * Returns a boolean rather than throwing when the row is no longer in the expected
+     * predecessor state, because whether that should be a hard conflict or a silently-ignored
+     * late transition is caller-specific (Etapa 5): {@link com.dalejandrov.sipsa.application.ingestion.core.IngestionJob}
+     * treats {@code false} as "this run was concurrently canceled" and skips ahead without
+     * throwing, since throwing here would incorrectly route a canceled run through the
+     * failure-handling path.
      *
      * @param runId the run identifier
-     * @param status the new status value
+     * @param to the target status; must be a key of {@link #REQUIRED_PREDECESSOR}
+     * @return {@code true} if the transition was applied, {@code false} if the run's status was
+     *         no longer the required predecessor (most commonly: already {@code CANCELED})
+     * @throws IllegalArgumentException if {@code to} has no defined predecessor (i.e. is
+     *         {@code STARTED} or {@code CANCELED} - both are set exclusively by
+     *         {@link #createRun} and {@link #cancelRun(long)} respectively, never by this method)
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void updateStatus(long runId, IngestionRunStatus status) {
-        runRepository.findById(runId).ifPresent(run -> {
-            run.setStatus(status);
-            if (status == IngestionRunStatus.SUCCEEDED || status == IngestionRunStatus.FAILED) {
-                run.setEndTime(Instant.now());
-            }
-            runRepository.save(run);
-        });
+    public boolean updateStatus(long runId, IngestionRunStatus to) {
+        IngestionRunStatus expectedFrom = REQUIRED_PREDECESSOR.get(to);
+        if (expectedFrom == null) {
+            throw new IllegalArgumentException(
+                    "updateStatus does not support transitioning to " + to
+                            + "; STARTED is only set by createRun(), CANCELED only by cancelRun().");
+        }
+        Instant endTime = TERMINAL_STATUSES.contains(to) ? Instant.now() : null;
+        int updatedRows = runRepository.transitionStatusIfCurrentIs(runId, expectedFrom, to, endTime);
+        return updatedRows > 0;
     }
 
     /**
-     * Updates the metrics of an ingestion run.
+     * Updates only the four metric counters of an ingestion run (SIPSA-F4-21).
      * <p>
-     * Metrics include counts of records seen, inserted, updated, and rejected.
-     * This information is used for monitoring and alerting purposes.
+     * Implemented as a column-scoped {@code UPDATE} (see
+     * {@link IngestionRunRepository#updateMetricsColumns}) that never touches {@code status},
+     * {@code endTime}, error fields or request metadata - unlike the prior
+     * {@code findById -> mutate -> save}, which re-persisted the entity's in-memory
+     * {@code status} as read at the start of this call, silently reverting a concurrent
+     * transition (e.g. a {@link #cancelRun(long)}) that committed in between.
+     * <p>
+     * Applied unconditionally, regardless of the run's current status: in the only real caller
+     * ({@code IngestionJob.execute()}'s {@code finally} block), this is the run's own final
+     * tally, reported exactly once after that same execution already learned its own outcome
+     * (including cancellation) - not a second, independent writer that could still be racing
+     * the lifecycle state. Gating it on status would not close any additional race (this
+     * statement structurally cannot touch the state machine either way) and would instead drop
+     * the legitimate final metrics of every canceled run.
      *
      * @param runId the run identifier
      * @param seen the number of records seen
@@ -243,20 +296,21 @@ public class IngestionControlService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void updateMetrics(long runId, int seen, int inserted, int updated, int rejected) {
-        runRepository.findById(runId).ifPresent(run -> {
-            run.setRecordsSeen(seen);
-            run.setRecordsInserted(inserted);
-            run.setRecordsUpdated(updated);
-            run.setRejectCount(rejected);
-            runRepository.save(run);
-        });
+        runRepository.updateMetricsColumns(runId, seen, inserted, updated, rejected);
     }
 
     /**
-     * Logs an error that occurred during ingestion run.
+     * Updates only the three error-report columns of an ingestion run (SIPSA-F4-21).
      * <p>
-     * The error information is saved to the database and can be used for troubleshooting
-     * and alerting. It includes a message, HTTP status code, and SOAP fault code (if any).
+     * Implemented as a column-scoped {@code UPDATE} (see
+     * {@link IngestionRunRepository#updateErrorColumns}), for the same reason as
+     * {@link #updateMetrics}: it never touches {@code status}, so it cannot cause a lost update
+     * of the lifecycle state regardless of when it runs, and is therefore applied
+     * unconditionally. A late error - e.g. an exception surfacing in {@code runIngestion} after
+     * the run was already concurrently canceled - is still recorded: it is diagnostically
+     * useful (it explains why the job errored even though the operator had already canceled
+     * it) and never changes the run's status. This method never transitions status itself; the
+     * FAILED transition remains a separate, explicit {@link #updateStatus} call by the caller.
      *
      * @param runId the run identifier
      * @param message the error message
@@ -265,12 +319,7 @@ public class IngestionControlService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logError(long runId, String message, Integer httpStatus, String faultCode) {
-        runRepository.findById(runId).ifPresent(run -> {
-            run.setLastErrorMessage(message);
-            run.setHttpStatus(httpStatus);
-            run.setSoapFaultCode(faultCode);
-            runRepository.save(run);
-        });
+        runRepository.updateErrorColumns(runId, message, httpStatus, faultCode);
     }
 
     /**
@@ -366,24 +415,43 @@ public class IngestionControlService {
     /**
      * Cancels an active ingestion run.
      * <p>
-     * Only runs with status STARTED or RUNNING can be canceled.
-     * Updates the run status to CANCELED and logs the cancellation.
+     * Only runs with status STARTED or RUNNING can be canceled. The cancellation itself is a
+     * single atomic conditional {@code UPDATE} (see {@link IngestionRunRepository#cancelIfActive},
+     * SIPSA-F4-21) - the database evaluates and enforces "is this row still cancelable" as part
+     * of the write, mirroring {@link #createRun}'s restart pattern (SIPSA-F4-01). This closes
+     * the TOCTOU window the prior {@code findById -> check -> save} sequence had: a
+     * finalization ({@link #updateStatus} to {@code SUCCEEDED}/{@code FAILED}) committing
+     * between the read and the write could previously be silently clobbered back to
+     * {@code CANCELED}, or vice versa. Under this method, whichever side loses the row lock
+     * always affects zero rows instead of overwriting the winner.
+     * <p>
+     * When the atomic update affects zero rows, the run is re-read once purely to build an
+     * accurate exception message - that read plays no part in the concurrency-safety decision,
+     * which already happened. Behavior on that path is unchanged from before this fix: a
+     * missing run is a 404-mapped {@link SipsaNotFoundException}; an existing but inactive run
+     * - including one that is already {@code CANCELED} - is a 422-mapped
+     * {@link SipsaBusinessException}. Double-cancellation is therefore not idempotent, exactly
+     * as it was not before: the second caller (whether racing a concurrent cancel or canceling
+     * an already-canceled run in a later call) gets a controlled conflict, never a silent no-op.
      *
      * @param runId the run identifier
      * @throws SipsaNotFoundException if run not found
-     * @throws SipsaBusinessException if run exists but is not active
+     * @throws SipsaBusinessException if run exists but is not active (including already CANCELED)
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void cancelRun(long runId) {
+        int updatedRows = runRepository.cancelIfActive(runId, Instant.now());
+        if (updatedRows > 0) {
+            return;
+        }
+
+        // The row wasn't cancelable (or a concurrent caller already won). This read is only
+        // used to produce a helpful message - it plays no part in the concurrency-safety
+        // decision above, which already happened.
         IngestionRun run = runRepository.findById(runId).orElse(null);
         if (run == null) {
             throw new SipsaNotFoundException("Run not found: " + runId);
         }
-        if (run.getStatus() != IngestionRunStatus.STARTED && run.getStatus() != IngestionRunStatus.RUNNING) {
-            throw new SipsaBusinessException("Run is not active (status: " + run.getStatus() + ")");
-        }
-        run.setStatus(IngestionRunStatus.CANCELED);
-        run.setEndTime(Instant.now());
-        runRepository.save(run);
+        throw new SipsaBusinessException("Run is not active (status: " + run.getStatus() + ")");
     }
 }

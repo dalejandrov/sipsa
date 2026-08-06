@@ -68,6 +68,9 @@ class IngestionJobMetricsTest {
         when(controlService.isRunComplete(methodName, windowKey)).thenReturn(false);
         when(controlService.createRun(any())).thenReturn(runId);
         when(controlService.isRunCanceled(runId)).thenReturn(false);
+        // SIPSA-F4-21: updateStatus now returns whether the conditional transition won: a
+        // caller that doesn't opt into raced-cancellation coverage always expects it to win.
+        when(controlService.updateStatus(anyLong(), any())).thenReturn(true);
         when(metrics.startRun()).thenReturn(Timer.start());
     }
 

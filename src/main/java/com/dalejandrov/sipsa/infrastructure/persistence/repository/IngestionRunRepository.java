@@ -150,4 +150,131 @@ public interface IngestionRunRepository extends JpaRepository<IngestionRun, Long
                            @Param("startTime") Instant startTime,
                            @Param("requestId") String requestId,
                            @Param("requestSource") RequestSource requestSource);
+
+    /**
+     * Atomically transitions a run's status from {@code expectedFrom} to {@code to}, but only
+     * if the row's current status is still {@code expectedFrom} at the moment of the write.
+     * <p>
+     * Same shape as {@link #restartIfStatusIn}, specialized to a single expected predecessor
+     * (SIPSA-F4-21): the caller in {@link com.dalejandrov.sipsa.application.service.IngestionControlService}
+     * derives {@code expectedFrom} from the lifecycle's fixed predecessor map, so two racing
+     * writers (e.g. the job thread finalizing a run while an operator concurrently cancels it
+     * via {@link #cancelIfActive}) can never both succeed - the loser's {@code WHERE} clause
+     * simply matches zero rows instead of overwriting the winner's terminal state.
+     *
+     * @param runId the run identifier
+     * @param expectedFrom the only status this call is allowed to transition away from
+     * @param to the target status
+     * @param endTime the end time to record, or {@code null} when {@code to} is not terminal
+     * @return 1 if the transition won, 0 if the row's status was no longer {@code expectedFrom}
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE IngestionRun r
+               SET r.status = :to,
+                   r.endTime = :endTime
+             WHERE r.runId = :runId
+               AND r.status = :expectedFrom
+            """)
+    int transitionStatusIfCurrentIs(@Param("runId") long runId,
+                                     @Param("expectedFrom") IngestionRunStatus expectedFrom,
+                                     @Param("to") IngestionRunStatus to,
+                                     @Param("endTime") Instant endTime);
+
+    /**
+     * Atomically cancels a run: sets it to {@code CANCELED} only if it is currently
+     * {@code STARTED} or {@code RUNNING} (SIPSA-F4-21).
+     * <p>
+     * Replaces the former {@code findById -> check -> save} sequence in
+     * {@link com.dalejandrov.sipsa.application.service.IngestionControlService#cancelRun},
+     * which had a TOCTOU window between the read and the write: a finalization
+     * ({@code SUCCEEDED}/{@code FAILED}, see {@link #transitionStatusIfCurrentIs}) racing the
+     * same row could commit in that window and be silently clobbered back to
+     * {@code CANCELED}. The {@code WHERE} clause here makes the "is this row still
+     * cancelable" decision and the write a single atomic statement, so the loser (whichever
+     * side loses the row lock) always sees zero affected rows instead of stomping the winner.
+     *
+     * @param runId the run identifier
+     * @param endTime the end time to record for the cancellation
+     * @return 1 if the cancellation won, 0 if the row was no longer STARTED/RUNNING (already
+     *         terminal, or a concurrent finalization/cancellation already won)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE IngestionRun r
+               SET r.status = com.dalejandrov.sipsa.domain.entity.IngestionRunStatus.CANCELED,
+                   r.endTime = :endTime
+             WHERE r.runId = :runId
+               AND r.status IN (com.dalejandrov.sipsa.domain.entity.IngestionRunStatus.STARTED,
+                                 com.dalejandrov.sipsa.domain.entity.IngestionRunStatus.RUNNING)
+            """)
+    int cancelIfActive(@Param("runId") long runId, @Param("endTime") Instant endTime);
+
+    /**
+     * Partially updates only the four metric counters of a run, leaving status, timestamps,
+     * error fields and request metadata untouched (SIPSA-F4-21).
+     * <p>
+     * Replaces the former {@code findById -> mutate 4 fields on a fully-loaded entity -> save}
+     * in {@link com.dalejandrov.sipsa.application.service.IngestionControlService#updateMetrics},
+     * which re-persisted every column of the entity as loaded at read time - if a concurrent
+     * transition (e.g. {@link #cancelIfActive}) committed between this method's read and its
+     * save, the stale in-memory {@code status}/{@code endTime} it still held would silently
+     * overwrite the concurrent transition. Column-scoped by construction, this statement
+     * cannot touch {@code status} even in principle, so it needs no status precondition: it is
+     * always safe to apply, regardless of which lifecycle state the row is currently in.
+     *
+     * @param runId the run identifier
+     * @param seen records seen
+     * @param inserted records inserted
+     * @param updated records updated
+     * @param rejected records rejected
+     * @return 1 if the run exists, 0 otherwise (silent no-op, same as the prior
+     *         {@code findById(...).ifPresent(...)} behavior)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE IngestionRun r
+               SET r.recordsSeen = :seen,
+                   r.recordsInserted = :inserted,
+                   r.recordsUpdated = :updated,
+                   r.rejectCount = :rejected
+             WHERE r.runId = :runId
+            """)
+    int updateMetricsColumns(@Param("runId") long runId,
+                              @Param("seen") int seen,
+                              @Param("inserted") int inserted,
+                              @Param("updated") int updated,
+                              @Param("rejected") int rejected);
+
+    /**
+     * Partially updates only the three error-report columns of a run, leaving status,
+     * timestamps, metrics and request metadata untouched (SIPSA-F4-21).
+     * <p>
+     * Same column-scoping rationale as {@link #updateMetricsColumns}: replaces a
+     * {@code findById -> mutate -> save} in
+     * {@link com.dalejandrov.sipsa.application.service.IngestionControlService#logError} that
+     * could otherwise resurrect a stale status/endTime read before a concurrent transition.
+     * Diagnostic error information is recorded unconditionally (even for a run that is already
+     * {@code CANCELED} or a terminal state reached by another writer) because it never affects
+     * the lifecycle state machine and losing it would hide the real cause of a late failure.
+     *
+     * @param runId the run identifier
+     * @param message the error message
+     * @param httpStatus the HTTP status code (nullable)
+     * @param faultCode the SOAP fault code (nullable)
+     * @return 1 if the run exists, 0 otherwise (silent no-op, same as the prior
+     *         {@code findById(...).ifPresent(...)} behavior)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE IngestionRun r
+               SET r.lastErrorMessage = :message,
+                   r.httpStatus = :httpStatus,
+                   r.soapFaultCode = :faultCode
+             WHERE r.runId = :runId
+            """)
+    int updateErrorColumns(@Param("runId") long runId,
+                            @Param("message") String message,
+                            @Param("httpStatus") Integer httpStatus,
+                            @Param("faultCode") String faultCode);
 }

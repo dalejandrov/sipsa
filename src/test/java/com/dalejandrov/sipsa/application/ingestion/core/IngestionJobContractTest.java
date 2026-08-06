@@ -88,6 +88,9 @@ class IngestionJobContractTest {
         when(controlService.isRunComplete(methodName, windowKey)).thenReturn(false);
         when(controlService.createRun(any())).thenReturn(runId);
         when(controlService.isRunCanceled(runId)).thenReturn(false);
+        // SIPSA-F4-21: updateStatus now returns whether the conditional transition won: a
+        // caller that doesn't opt into raced-cancellation coverage always expects it to win.
+        when(controlService.updateStatus(anyLong(), any())).thenReturn(true);
         when(metrics.startRun()).thenReturn(Timer.start());
     }
 
@@ -129,6 +132,7 @@ class IngestionJobContractTest {
         when(controlService.isRunComplete("promediosSipsaCiudad", "2026-07-20")).thenReturn(true);
         when(controlService.createRun(any())).thenReturn(50L);
         when(controlService.isRunCanceled(50L)).thenReturn(false);
+        when(controlService.updateStatus(anyLong(), any())).thenReturn(true);
         when(metrics.startRun()).thenReturn(Timer.start());
 
         job(null, 3).execute(IngestionRequest.manualForced("promediosSipsaCiudad", "req-dup-2"));
@@ -334,5 +338,67 @@ class IngestionJobContractTest {
         verify(auditService, atLeastOnce()).logEvent(audit.capture());
         assertThat(audit.getAllValues().stream().map(AuditEventRequest::eventType))
                 .contains(AuditEventType.INGESTION_CANCELED);
+    }
+
+    // -----------------------------------------------------------------------
+    // SIPSA-F4-21: late/lost transitions - updateStatus returns false because a
+    // concurrent cancelRun already won the row.
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("RUNNING transition lost to a concurrent cancel: runIngestion never runs, late-transition audit emitted")
+    void runningTransitionLost_runIngestionNeverInvoked_lateTransitionAudited() {
+        mockHappyPathUpToRunCreation("promediosSipsaCiudad", "2026-07-20", 110L, false);
+        when(controlService.updateStatus(110L, IngestionRunStatus.RUNNING)).thenReturn(false);
+        java.util.concurrent.atomic.AtomicBoolean ranIngestion = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        job(null, 1, List.of(), () -> ranIngestion.set(true))
+                .execute(IngestionRequest.manual("promediosSipsaCiudad", "req-late-running"));
+
+        assertThat(ranIngestion).as("runIngestion must not execute once the run already left STARTED").isFalse();
+        verify(controlService, never()).updateStatus(110L, IngestionRunStatus.SUCCEEDED);
+        verify(controlService, never()).updateStatus(110L, IngestionRunStatus.FAILED);
+        ArgumentCaptor<AuditEventRequest> audit = ArgumentCaptor.forClass(AuditEventRequest.class);
+        verify(auditService, atLeastOnce()).logEvent(audit.capture());
+        assertThat(audit.getAllValues().stream().map(AuditEventRequest::eventType))
+                .contains(AuditEventType.INGESTION_LATE_TRANSITION_IGNORED)
+                .doesNotContain(AuditEventType.INGESTION_RUNNING, AuditEventType.INGESTION_SUCCEEDED);
+    }
+
+    @Test
+    @DisplayName("SUCCEEDED transition lost to a concurrent cancel: no INGESTION_SUCCEEDED audit, late-transition audit emitted instead")
+    void succeededTransitionLost_lateTransitionAuditedInsteadOfSucceeded() {
+        mockHappyPathUpToRunCreation("promediosSipsaCiudad", "2026-07-20", 111L, false);
+        when(controlService.updateStatus(111L, IngestionRunStatus.SUCCEEDED)).thenReturn(false);
+
+        job(null, 1).execute(IngestionRequest.manual("promediosSipsaCiudad", "req-late-succeeded"));
+
+        verify(controlService).updateStatus(111L, IngestionRunStatus.SUCCEEDED);
+        ArgumentCaptor<AuditEventRequest> audit = ArgumentCaptor.forClass(AuditEventRequest.class);
+        verify(auditService, atLeastOnce()).logEvent(audit.capture());
+        List<AuditEventType> types = audit.getAllValues().stream().map(AuditEventRequest::eventType).toList();
+        assertThat(types).contains(AuditEventType.INGESTION_LATE_TRANSITION_IGNORED)
+                .doesNotContain(AuditEventType.INGESTION_SUCCEEDED);
+        // Metrics are still persisted for the run's own final tally, even though the
+        // SUCCEEDED transition itself was ignored (SIPSA-F4-21 design decision).
+        verify(controlService, times(1)).updateMetrics(111L, 1, 0, 0, 0);
+    }
+
+    @Test
+    @DisplayName("FAILED transition lost to a concurrent cancel: error still logged, no INGESTION_FAILED audit, late-transition audit emitted instead")
+    void failedTransitionLost_errorStillLogged_lateTransitionAuditedInsteadOfFailed() {
+        mockHappyPathUpToRunCreation("promediosSipsaCiudad", "2026-07-20", 112L, false);
+        when(controlService.updateStatus(112L, IngestionRunStatus.FAILED)).thenReturn(false);
+
+        job(new SipsaIngestionException("boom after cancel"), 1)
+                .execute(IngestionRequest.manual("promediosSipsaCiudad", "req-late-failed"));
+
+        verify(controlService).logError(112L, "boom after cancel", null, null);
+        verify(controlService).updateStatus(112L, IngestionRunStatus.FAILED);
+        ArgumentCaptor<AuditEventRequest> audit = ArgumentCaptor.forClass(AuditEventRequest.class);
+        verify(auditService, atLeastOnce()).logEvent(audit.capture());
+        List<AuditEventType> types = audit.getAllValues().stream().map(AuditEventRequest::eventType).toList();
+        assertThat(types).contains(AuditEventType.INGESTION_LATE_TRANSITION_IGNORED)
+                .doesNotContain(AuditEventType.INGESTION_FAILED);
     }
 }

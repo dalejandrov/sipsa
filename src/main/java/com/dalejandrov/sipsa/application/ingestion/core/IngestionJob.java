@@ -147,7 +147,18 @@ public abstract class IngestionJob {
             org.slf4j.MDC.put("requestId", request.requestId());
             org.slf4j.MDC.put("requestSource", request.requestSource().name());
 
-            controlService.updateStatus(runId, IngestionRunStatus.RUNNING);
+            boolean startedRunning = controlService.updateStatus(runId, IngestionRunStatus.RUNNING);
+            if (!startedRunning) {
+                // Lost the race to a concurrent cancelRun before this job could even leave
+                // STARTED (SIPSA-F4-21) - nothing was ingested, so there is nothing to run.
+                log.warn("Ingestion Job never reached RUNNING: {} (ID: {}) - run left STARTED " +
+                        "concurrently (most likely canceled)", request.methodName(), runId);
+                auditService.logEvent(AuditEventRequest.ingestionLateTransitionIgnored(
+                        request.requestId(), runId, request.requestSource(),
+                        "RUNNING", "run was no longer STARTED (likely canceled before it could start)"));
+                outcome = IngestionMetrics.OUTCOME_CANCELED;
+                return;
+            }
             auditService.logEvent(AuditEventRequest.ingestionRunning(request, runId));
             log.info("Started Ingestion Job: {} (ID: {})", request.methodName(), runId);
 
@@ -163,10 +174,23 @@ public abstract class IngestionJob {
 
             validateThresholds(context);
 
-            controlService.updateStatus(runId, IngestionRunStatus.SUCCEEDED);
-            auditService.logEvent(AuditEventRequest.ingestionSucceeded(context));
-            log.info("Ingestion Job SUCCEEDED: {} (ID: {}). Stats: {}", request.methodName(), runId, context.toLogSummary());
-            outcome = IngestionMetrics.OUTCOME_SUCCESS;
+            // Defense in depth against the residual TOCTOU window between the isRunCanceled
+            // check above and this write: updateStatus's own WHERE clause re-verifies RUNNING
+            // atomically, so a cancelRun landing in that narrow window still cannot be
+            // overwritten (SIPSA-F4-21).
+            boolean succeeded = controlService.updateStatus(runId, IngestionRunStatus.SUCCEEDED);
+            if (succeeded) {
+                auditService.logEvent(AuditEventRequest.ingestionSucceeded(context));
+                log.info("Ingestion Job SUCCEEDED: {} (ID: {}). Stats: {}", request.methodName(), runId, context.toLogSummary());
+                outcome = IngestionMetrics.OUTCOME_SUCCESS;
+            } else {
+                log.warn("Ingestion Job finished processing but could not transition to SUCCEEDED: " +
+                        "{} (ID: {}) - run was concurrently canceled", request.methodName(), runId);
+                auditService.logEvent(AuditEventRequest.ingestionLateTransitionIgnored(
+                        request.requestId(), runId, request.requestSource(),
+                        "SUCCEEDED", "run was concurrently canceled"));
+                outcome = IngestionMetrics.OUTCOME_CANCELED;
+            }
 
         } catch (Exception e) {
             log.error("Ingestion Job FAILED: {} (ID: {})", request.methodName(), runId, e);
@@ -179,9 +203,20 @@ public abstract class IngestionJob {
                 soapFaultCode = externalEx.getSoapFaultCode();
             }
 
+            // Recorded unconditionally - diagnostically useful even if the FAILED transition
+            // below turns out to be late, since it explains why the job errored at all.
             controlService.logError(runId, e.getMessage(), httpStatus, soapFaultCode);
-            controlService.updateStatus(runId, IngestionRunStatus.FAILED);
-            auditService.logEvent(AuditEventRequest.ingestionFailed(request.requestId(), runId, request.requestSource(), e.getMessage()));
+            boolean failed = controlService.updateStatus(runId, IngestionRunStatus.FAILED);
+            if (failed) {
+                auditService.logEvent(AuditEventRequest.ingestionFailed(request.requestId(), runId, request.requestSource(), e.getMessage()));
+            } else {
+                log.warn("Ingestion Job errored but could not transition to FAILED: {} (ID: {}) " +
+                        "- run was concurrently canceled", request.methodName(), runId);
+                auditService.logEvent(AuditEventRequest.ingestionLateTransitionIgnored(
+                        request.requestId(), runId, request.requestSource(),
+                        "FAILED", "run was concurrently canceled"));
+                outcome = IngestionMetrics.OUTCOME_CANCELED;
+            }
 
         } finally {
             controlService.updateMetrics(runId, context.getRecordsSeen(), context.getRecordsInserted(),
