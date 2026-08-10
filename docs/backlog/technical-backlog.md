@@ -98,6 +98,9 @@ When a story is implemented:
 | TECH-159 | Introduce JaCoCo (report-only, no build-breaking `check` goal yet) | Medium | 3 | **Done** (2026-08-03, branch `test/introduce-jacoco-reporting`) |
 | TECH-160 | E2E suite: golden-path (`Ciudad`) + failure-path (SOAP 500) black-box test via `RANDOM_PORT` + WireMock + Testcontainers + mock OIDC | High | 6 | **Done** (2026-08-03, branch `test/e2e-ciudad-golden-and-failure-path`) |
 | TECH-161 | CI: new `integration-verify` job (`./mvnw verify -P integration-tests`), parallel to `verify` | Medium | 6 | **Done** (2026-08-03, branch `ci/integration-verify-job`) |
+| TECH-162 | Make ingestion run restart atomic | High | — | **Done** (2026-08-05, commit `e6c28cc`, `SIPSA-F4-01`) |
+| TECH-163 | Make remaining SIPSA batch upserts conflict-safe (`Ciudad`, `MayoristasSemanal` tmp, `MayoristasMensual`, `AbastecimientosMensual`) | Medium | — | **Done** (2026-08-05, commit `77a9361`) |
+| TECH-164 | Make `IngestionRun` lifecycle transitions atomic and state-aware | High | — | **Done** (2026-08-05, commit `4a3f868`, `SIPSA-F4-21`) |
 
 ---
 
@@ -5823,3 +5826,149 @@ files from a real `./mvnw verify -P integration-tests` run, confirming
       semantics, no `continue-on-error`).
 
 **Completed:** 2026-08-03, branch `ci/integration-verify-job`.
+
+---
+
+### TECH-162
+
+**Title:** Make ingestion run restart atomic
+**Type:** Correctiva
+**Priority:** High
+**Phase:** —
+**Status:** **Done**
+**Complexity:** M
+**Branch:** committed directly to `main` (no feature branch)
+**Dependencies:** None. Same conditional-`UPDATE` pattern later reused by TECH-164.
+
+**Origin:** `IngestionControlService.createRun`'s restart path was
+`findByMethodNameAndWindowKey → check status in Java → save`: two concurrent restart
+requests for the same `methodName`/`windowKey` could both read the same
+restart-eligible status and both proceed to `save`, one silently clobbering the
+other's freshly-reset run (metrics, `startTime`, `requestId` all reset a second time,
+in-flight progress lost with no error).
+
+**Implemented as** a single conditional `UPDATE ... WHERE status IN
+(:allowedSourceStatuses)` (`IngestionRunRepository#restartIfStatusIn`) keyed on
+`force`'s allowed source-status set (`RESTARTABLE_WITHOUT_FORCE` = `{FAILED}`,
+`RESTARTABLE_WITH_FORCE` = `{FAILED, SUCCEEDED, CANCELED}` — `STARTED`/`RUNNING` never
+restartable, at any `force`). The database decides and enforces eligibility as part of
+the write; the loser's `WHERE` clause matches zero rows instead of overwriting the
+winner. On zero rows affected, the run is re-read once purely to build the exception
+message — that read plays no part in the concurrency-safety decision, which already
+happened. The zero-existing-run branch (a fresh `save` on a brand-new entity) is
+unaffected.
+
+**Acceptance Criteria:**
+- [x] Two concurrent restart attempts against the same eligible row → exactly one
+      wins, the other gets a controlled conflict, never a silent double-reset.
+- [x] An active (`STARTED`/`RUNNING`) run is never restarted, at any `force` value —
+      unchanged from before.
+- [x] Concurrency tests (Testcontainers, real PostgreSQL 18, `CyclicBarrier`-driven
+      overlapping transactions): new
+      `IngestionControlServiceAtomicRestartConcurrentTest`;
+      `ParcialConcurrentIngestionAppTest` updated for the new call shape.
+
+**Completed:** 2026-08-05, commit `e6c28cc` ("fix(ingestion): make run restart
+atomic"), directly on `main`. Referred to as `SIPSA-F4-01` in code Javadoc. No REST
+contract change, no migration.
+
+---
+
+### TECH-163
+
+**Title:** Make remaining SIPSA batch upserts conflict-safe
+**Type:** Correctiva
+**Priority:** Medium
+**Phase:** —
+**Status:** **Done**
+**Complexity:** M
+**Branch:** committed directly to `main` (no feature branch)
+**Dependencies:** Same defect class as [TECH-117](#tech-117) (`SipsaParcial`, already
+fixed); TECH-060's existing `SipsaMayoristasSemanal` non-tmp `ON CONFLICT` path used as
+the template.
+
+**Origin:** `SipsaCiudad`, `SipsaMayoristasSemanal` (tmp-id path), `SipsaMayoristasMensual`
+and `SipsaAbastecimientosMensual` still went through a `select-then-insert` (existence
+check followed by a plain `INSERT`) — the same race TECH-117 already closed for
+`SipsaParcial`: two concurrent ingestion runs writing the same natural key could both
+pass the existence check, then collide at flush time with no atomic resolution.
+
+**Implemented as** atomic `INSERT ... ON CONFLICT DO NOTHING` batches for all four, via
+new `*BatchInsertRepository`/`*BatchInsertRepositoryImpl` fragment pairs (mirroring
+TECH-060's and TECH-117's existing pattern); the now-obsolete existence queries were
+removed from the four `*Repository` classes.
+
+**Acceptance Criteria:**
+- [x] All batch-insert repositories under `infrastructure/persistence/repository` use
+      `ON CONFLICT` — verified across every `Sipsa*` repository file.
+- [x] No repository or handler still calls an `existsBy...` check ahead of an insert
+      for these entities.
+- [x] Concurrency tests added for all four routes: `SipsaCiudadBatchUpsertTest`,
+      `SipsaMayoristasMensualUpsertTest`, `SipsaMayoristasSemanalTmpUpsertTest`,
+      `SipsaAbastecimientosMensualUpsertTest`.
+
+**Completed:** 2026-08-05, commit `77a9361` ("fix(persistence): make ingestion upserts
+conflict-safe"), directly on `main`. No REST contract change, no migration.
+
+---
+
+### TECH-164
+
+**Title:** Make `IngestionRun` lifecycle transitions atomic and state-aware
+**Type:** Correctiva
+**Priority:** High
+**Phase:** —
+**Status:** **Done**
+**Complexity:** L
+**Branch:** committed directly to `main` (no feature branch)
+**Dependencies:** [TECH-162](#tech-162) (same conditional-`UPDATE` pattern, reused
+here).
+
+**Origin:** `IngestionControlService.updateStatus`, `updateMetrics`, `logError` and
+`cancelRun` were all `findById → mutate → save` — a full-entity save that re-persisted
+whatever in-memory `status`/`endTime` happened to be at read time. Two of them racing
+the same row — most realistically, the ingestion job thread finalizing a run
+(`SUCCEEDED`/`FAILED`) while an operator concurrently calls `cancelRun` via the ops
+API — could silently overwrite each other's terminal state: no error, no log, no
+signal, just a lost update.
+
+**Implemented as:**
+- `updateStatus(runId, to)` → single conditional `UPDATE ... WHERE status =
+  :expectedFrom`, keyed on a fixed predecessor map (`STARTED→RUNNING`,
+  `RUNNING→SUCCEEDED`, `RUNNING→FAILED`); returns `boolean` instead of throwing when it
+  loses the race (`to` values with no defined predecessor, i.e. `STARTED`/`CANCELED`,
+  throw `IllegalArgumentException` — a programming error, not a runtime race).
+- `cancelRun(runId)` → `UPDATE ... WHERE status IN (STARTED, RUNNING)`, same shape as
+  TECH-162's restart.
+- `updateMetrics`/`logError` → column-scoped `UPDATE`s that never touch `status`, so
+  they're safe to apply unconditionally regardless of which lifecycle state the row is
+  in.
+- `IngestionJob` adapted to `updateStatus`'s boolean return: a lost race short-circuits
+  (`runIngestion` is never invoked on a lost `RUNNING` transition; the outcome is
+  recorded as `OUTCOME_CANCELED` on a lost `SUCCEEDED`/`FAILED` transition) and emits a
+  new `INGESTION_LATE_TRANSITION_IGNORED` audit event — distinct from
+  `INGESTION_CANCELED`, which marks the winning side of the race.
+
+**Acceptance Criteria:**
+- [x] `cancelRun` racing `updateStatus(SUCCEEDED)` / `updateStatus(FAILED)`: exactly
+      one terminal transition wins, never overwritten.
+- [x] Double concurrent `cancelRun`: exactly one succeeds, the other gets a controlled
+      422 conflict; final status `CANCELED`.
+- [x] A run already in a terminal state cannot be moved by a late `updateStatus` call;
+      status and `endTime` unchanged.
+- [x] `updateMetrics` concurrent with `cancelRun`: status is never restored by the
+      metrics write, and the metrics themselves are preserved.
+- [x] `logError` concurrent with `updateStatus(FAILED)`: both writes preserved, no
+      field lost.
+- [x] Normal single-threaded `STARTED → RUNNING → FAILED` and `cancelRun(STARTED)`
+      paths regression-tested, unchanged.
+- [x] No assert weakened, no coverage removed, no REST contract change, no migration.
+
+**Completed:** 2026-08-05, commit `4a3f868` ("fix(ingestion): close lost-update window
+in run lifecycle"), directly on `main`. Referred to as `SIPSA-F4-21` in code Javadoc.
+New `IngestionControlServiceLifecycleConcurrentTest` (7 cases, Testcontainers
+PostgreSQL, `CyclicBarrier`-driven overlapping transactions) and
+`IngestionControlServiceUpdateStatusTest` (predecessor-derivation/`endTime` unit
+coverage); `IngestionControlServiceCancelRunTest`, `IngestionJobContractTest`,
+`IngestionJobMetricsTest`, `ScheduledIngestionDispatcherTest` updated for the new call
+shapes. 584 tests, 0 failures, 0 errors, 0 skips (pre-commit verification).

@@ -1510,3 +1510,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **TECH-123** (per-row republication traceability for `SipsaParcial`) and **TECH-125**
   (data retention policy) closed and removed from the backlog — decided against, not
   implementing either.
+
+### Fixed
+
+- **Ingestion run restart made atomic** (TECH-162, commit `e6c28cc`).
+  `IngestionControlService.createRun`'s restart path used to be
+  `findByMethodNameAndWindowKey → check status in Java → save`: two concurrent restart
+  requests for the same method/window could both read the same restart-eligible status
+  and both proceed to `save`, one silently clobbering the other's freshly-reset run
+  (metrics, `startTime`, `requestId` all reset a second time, in-flight progress lost
+  with no error). Replaced with a single conditional `UPDATE ... WHERE status IN
+  (:allowedSourceStatuses)` (`IngestionRunRepository#restartIfStatusIn`) — the database
+  now decides and enforces "is this row still restart-eligible" as part of the write;
+  the loser's `WHERE` clause simply matches zero rows instead of overwriting the
+  winner. New `IngestionControlServiceAtomicRestartConcurrentTest` drives two real
+  overlapping transactions against Testcontainers PostgreSQL via a `CyclicBarrier`;
+  `ParcialConcurrentIngestionAppTest` updated for the new call shape. No REST contract
+  change, no migration.
+
+- **Remaining `SipsaCiudad`/`SipsaMayoristasSemanal` (tmp-id path)/
+  `SipsaMayoristasMensual`/`SipsaAbastecimientosMensual` upserts made conflict-safe**
+  (TECH-163, commit `77a9361`). These four entities still went through a
+  `select-then-insert` (existence check followed by a plain `INSERT`) — the same class
+  of race TECH-117 already closed for `SipsaParcial`: two concurrent ingestion runs
+  writing the same natural key could both pass the existence check and then collide at
+  flush time with no atomic resolution. Replaced with atomic `INSERT ... ON CONFLICT DO
+  NOTHING` batches (new `*BatchInsertRepository`/`*BatchInsertRepositoryImpl` pairs,
+  mirroring the existing `SipsaMayoristasSemanal` non-tmp path from TECH-060), and
+  removed the now-obsolete existence queries from the four `*Repository` classes. New
+  concurrent coverage: `SipsaCiudadBatchUpsertTest`, `SipsaMayoristasMensualUpsertTest`,
+  `SipsaMayoristasSemanalTmpUpsertTest`, `SipsaAbastecimientosMensualUpsertTest`. No
+  REST contract change, no migration.
+
+- **`IngestionRun` lifecycle transitions made atomic and state-aware, closing the last
+  lost-update window in the run lifecycle** (TECH-164, commit `4a3f868`).
+  `updateStatus`, `updateMetrics`, `logError` and `cancelRun` were all
+  `findById → mutate → save`: a full-entity save that re-persisted whatever in-memory
+  `status`/`endTime` happened to be at read time. Two of them racing the same row —
+  most realistically, the ingestion job thread finalizing a run (`SUCCEEDED`/`FAILED`)
+  while an operator concurrently calls `cancelRun` via the ops API — could silently
+  overwrite each other's terminal state, with no error, no log, no signal.
+  `updateStatus` is now a single conditional `UPDATE ... WHERE status = :expectedFrom`
+  keyed on a fixed predecessor map (`STARTED→RUNNING`, `RUNNING→SUCCEEDED`,
+  `RUNNING→FAILED`) and returns `false` instead of throwing when it loses the race;
+  `cancelRun` is now `UPDATE ... WHERE status IN (STARTED, RUNNING)`;
+  `updateMetrics`/`logError` became column-scoped `UPDATE`s that never touch `status`
+  at all, so they're safe to apply unconditionally. `IngestionJob` adapts to
+  `updateStatus`'s boolean return: a lost race short-circuits (`runIngestion` is never
+  invoked, or the outcome is recorded as canceled) and emits a new
+  `INGESTION_LATE_TRANSITION_IGNORED` audit event, distinct from `INGESTION_CANCELED`
+  (which marks the winning side). New `IngestionControlServiceLifecycleConcurrentTest`
+  (7 cases, real Testcontainers PostgreSQL, `CyclicBarrier`-driven overlapping
+  transactions) and `IngestionControlServiceUpdateStatusTest`
+  (predecessor-derivation/`endTime` unit coverage); `IngestionControlServiceCancelRunTest`,
+  `IngestionJobContractTest`, `IngestionJobMetricsTest` and
+  `ScheduledIngestionDispatcherTest` updated for the new call shapes. No REST contract
+  change, no migration.
